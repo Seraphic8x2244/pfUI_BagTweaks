@@ -1,15 +1,27 @@
 -- pfUI_BagTweaks
--- 0.1.0-dev
+-- 0.1.1-dev
 --
--- First proof-of-concept:
+-- Development build:
 --   * keeps pfUI's real bag slot buttons and normal item behaviour
---   * adds visual group headers to the backpack
+--   * renders custom groups above the General group
 --   * places Hearthstone (item 6948) in a separate test group
---   * leaves every other item and every empty slot in General
+--   * adds Bag Tweaks settings under pfUI > Third Party
 --
 -- No item movement, sorting, classification UI, or automation is performed.
 
 if not pfUI then return end
+
+pfUI.bagtweaks = pfUI.bagtweaks or {}
+
+if pfUI.UpdateConfig then
+  pfUI:UpdateConfig("bagtweaks", nil, "show_search", "1")
+else
+  pfUI_config = pfUI_config or {}
+  pfUI_config.bagtweaks = pfUI_config.bagtweaks or {}
+  if pfUI_config.bagtweaks.show_search == nil then
+    pfUI_config.bagtweaks.show_search = "1"
+  end
+end
 
 pfUI:RegisterModule("bagtweaks", "vanilla", function()
   if not pfUI.bag or not pfUI.bag.CreateBags then return end
@@ -142,10 +154,27 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
     return y + HEADER_HEIGHT + border
   end
 
+  local function ApplyHeaderOptions()
+    local frame = pfUI.bag.right
+    if not frame then return end
+
+    if frame.search then
+      if C.bagtweaks and C.bagtweaks.show_search == "0" then
+        frame.search:Hide()
+      else
+        frame.search:Show()
+      end
+    end
+  end
+
+  pfUI.bagtweaks.ApplyHeaderOptions = ApplyHeaderOptions
+
   local function RelayoutBackpack()
     local frame = pfUI.bag.right
     if not frame or not frame.button_size or not frame.close then return end
     if not pfUI.BACKPACK or not pfUI.bags then return end
+
+    ApplyHeaderOptions()
 
     local _, border = GetBorderSize("bags")
     border = border or 1
@@ -160,12 +189,13 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
     local general, test = CollectBackpackSlots()
     local y = border * 2 + topSpace
 
-    y = LayoutHeader(1, "General", frame, border, y)
-    y = LayoutGroup(frame, general, rowlength, buttonSize, border, y)
+    -- Custom groups always render above General.
+    y = LayoutHeader(1, "Test Group", frame, border, y)
+    y = LayoutGroup(frame, test, rowlength, buttonSize, border, y)
 
     y = y + border
-    y = LayoutHeader(2, "Test Group", frame, border, y)
-    y = LayoutGroup(frame, test, rowlength, buttonSize, border, y)
+    y = LayoutHeader(2, "General", frame, border, y)
+    y = LayoutGroup(frame, general, rowlength, buttonSize, border, y)
 
     frame:SetHeight(y + bottomSpace + border)
   end
@@ -191,8 +221,25 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
   pfUI.bag.bagtweaks_hooked = true
 
   -- pfUI has already built its modules by the time a dependent addon loads.
-  -- Re-run the backpack layout once so the proof-of-concept appears immediately.
+  -- Re-run the backpack layout once so the development build appears immediately.
   if pfUI.bag.right then
     RelayoutBackpack()
   end
 end)
+
+-- All user-facing options live in pfUI's Third Party section.
+if pfUI.gui and pfUI.gui.CreateGUIEntry and pfUI.gui.CreateConfig then
+  local thirdParty = "Thirdparty"
+  if pfUI.env and pfUI.env.T and pfUI.env.T["Thirdparty"] then
+    thirdParty = pfUI.env.T["Thirdparty"]
+  end
+
+  pfUI.gui.CreateGUIEntry(thirdParty, "Bag Tweaks", function()
+    pfUI.gui.CreateConfig(nil, "pfUI_BagTweaks", nil, nil, "header")
+    pfUI.gui.CreateConfig(function()
+      if pfUI.bagtweaks and pfUI.bagtweaks.ApplyHeaderOptions then
+        pfUI.bagtweaks.ApplyHeaderOptions()
+      end
+    end, "Show Search Bar", pfUI_config.bagtweaks, "show_search", "checkbox")
+  end)
+end
