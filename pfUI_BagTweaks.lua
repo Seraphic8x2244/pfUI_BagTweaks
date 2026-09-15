@@ -1,6 +1,6 @@
--- pfUI_BagTweaks 0.1.4-dev
--- Named visual groups and per-group visual sorting for pfUI bags.
--- Grouping/sorting never moves the underlying inventory slots.
+-- pfUI_BagTweaks 0.1.5-dev
+-- User-defined visual groups, per-group sorting, and optional Quest automation.
+-- Grouping and sorting never move the underlying inventory slots.
 
 if not pfUI then return end
 
@@ -23,6 +23,10 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
   local SORT_WIDTH = 54
   local CONTROL_WIDTH = 14
   local ORDER_WIDTH = 14
+  local QUEST_WIDTH = 16
+  local QUEST_CLASS_ID = 12
+  local GENERAL_OVERRIDE = 0
+
   local SORT_MODES = { "bag", "name", "value", "slot" }
   local SORT_LABEL = { bag="Bag", name="Name", value="Value", slot="Slot" }
   local SLOT_ORDER = {
@@ -50,6 +54,7 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
   db.nextGroupID = tonumber(db.nextGroupID) or 1
   db.generalSort = db.generalSort or "bag"
   if db.generalReverse == nil then db.generalReverse = false end
+  db.questGroupID = tonumber(db.questGroupID)
 
   for i = 1, table.getn(db.groups) do
     local g = db.groups[i]
@@ -80,9 +85,15 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
     return FindGroup(id) ~= nil
   end
 
-  local function CleanAssignments()
+  local function CleanState()
+    if db.questGroupID and not GroupExists(db.questGroupID) then
+      db.questGroupID = nil
+    end
+
     for itemID, groupID in pairs(db.assignments) do
-      if not GroupExists(groupID) then db.assignments[itemID] = nil end
+      if groupID ~= GENERAL_OVERRIDE and not GroupExists(groupID) then
+        db.assignments[itemID] = GENERAL_OVERRIDE
+      end
     end
   end
 
@@ -95,15 +106,53 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
     Relayout()
   end
 
+  local function ToggleQuestGroup(id)
+    if not id or not GroupExists(id) then return end
+    if db.questGroupID == id then db.questGroupID = nil
+    else db.questGroupID = id end
+    Relayout()
+  end
+
   local function ItemID(bag, slot)
     if C_Container and type(C_Container.GetContainerItemID) == "function" then
       local id = C_Container.GetContainerItemID(bag, slot)
       if id then return tonumber(id) end
     end
+
     local link = GetContainerItemLink(bag, slot)
     if not link then return nil end
     local _, _, id = string.find(link, "item:(%d+)")
     return tonumber(id)
+  end
+
+  local function ItemInfoCompat(id, link)
+    local name, equipLoc, itemType, classID
+
+    if C_Item and type(C_Item.GetItemInfo) == "function" then
+      local n, _, _, _, _, t, _, _, e, _, _, c = C_Item.GetItemInfo(id)
+      name, itemType, equipLoc, classID = n, t, e, tonumber(c)
+    end
+
+    if not name or not itemType or not equipLoc then
+      local n, _, _, _, _, t, _, _, e = GetItemInfo(link or id)
+      name = name or n
+      itemType = itemType or t
+      equipLoc = equipLoc or e
+    end
+
+    return name, itemType, equipLoc, classID
+  end
+
+  local function IsQuestItem(id, link)
+    if not id then return false end
+
+    local _, itemType, _, classID = ItemInfoCompat(id, link)
+    if classID ~= nil then return classID == QUEST_CLASS_ID end
+
+    if ITEM_CLASS_QUESTITEM and itemType == ITEM_CLASS_QUESTITEM then return true end
+    if ITEM_CLASS_QUEST and itemType == ITEM_CLASS_QUEST then return true end
+
+    return itemType == "Quest"
   end
 
   local function VendorValue(id, link)
@@ -111,10 +160,12 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
       local _, _, _, _, _, _, _, _, _, _, value = C_Item.GetItemInfo(id)
       if value ~= nil then return tonumber(value) end
     end
+
     if type(GetSellValue) == "function" then
       local ok, value = pcall(GetSellValue, link or id)
       if ok and value ~= nil then return tonumber(value) end
     end
+
     if type(GetItemSellPrice) == "function" then
       local ok, value = pcall(GetItemSellPrice, id)
       if ok and value ~= nil then return tonumber(value) end
@@ -123,14 +174,16 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
 
   local function Meta(entry)
     if entry.meta then return entry.meta end
+
     local m = { name="", rank=999, value=nil }
     if entry.itemID then
       local link = GetContainerItemLink(entry.bag, entry.slot)
-      local name, _, _, _, _, _, _, _, equipLoc = GetItemInfo(link or entry.itemID)
+      local name, _, equipLoc = ItemInfoCompat(entry.itemID, link)
       m.name = string.lower(name or "")
       m.rank = SLOT_ORDER[equipLoc or ""] or 999
       m.value = VendorValue(entry.itemID, link)
     end
+
     entry.meta = m
     return m
   end
@@ -335,9 +388,12 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
       f.ok:SetScript("OnClick", function()
         local _, index = FindGroup(f.groupID)
         if index then table.remove(db.groups, index) end
+        if db.questGroupID == f.groupID then db.questGroupID = nil end
+
         for itemID, id in pairs(db.assignments) do
-          if id == f.groupID then db.assignments[itemID] = nil end
+          if id == f.groupID then db.assignments[itemID] = GENERAL_OVERRIDE end
         end
+
         f:Hide()
         Relayout()
       end)
@@ -364,7 +420,7 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
       return false
     end
 
-    if groupID == nil then db.assignments[tostring(selectedItemID)] = nil
+    if groupID == nil then db.assignments[tostring(selectedItemID)] = GENERAL_OVERRIDE
     else db.assignments[tostring(selectedItemID)] = groupID end
 
     if type(ClearCursor) == "function" then ClearCursor() end
@@ -437,7 +493,7 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
       if h.groupID then
         Tooltip(h.text:GetText(), "Drop/click an item into this group; right-click to rename")
       else
-        Tooltip("General", "Drop/click an item here to remove its group")
+        Tooltip("General", "Drop/click an item here to keep it in General")
       end
     end)
     h:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -468,7 +524,13 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
       end)
       h.up:SetScript("OnReceiveDrag", function() AssignSelected(h.groupID) end)
 
-      h.text:SetPoint("RIGHT", h.up, "LEFT", -2, 0)
+      h.quest = MakeTextButton(h, QUEST_WIDTH, "RIGHT", h.up, "LEFT", -1, "Q", "Automatic Quest Items", function()
+        if AssignSelected(h.groupID) then return end
+        if h.groupID then ToggleQuestGroup(h.groupID) end
+      end)
+      h.quest:SetScript("OnReceiveDrag", function() AssignSelected(h.groupID) end)
+
+      h.text:SetPoint("RIGHT", h.quest, "LEFT", -2, 0)
     end
 
     headers[key] = h
@@ -482,6 +544,15 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
 
     local mode, reverse = GetSort(groupID)
     h.sort:SetText((SORT_LABEL[mode] or "Bag") .. (reverse and " v" or " ^"))
+
+    if h.quest then
+      if db.questGroupID == groupID then
+        h.quest:SetTextColor(.2, 1, .2, 1)
+      else
+        h.quest:SetTextColor(.7, .7, .7, 1)
+      end
+    end
+
     h:Show()
     return h
   end
@@ -502,7 +573,7 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
     s:SetScript("OnEnter", function()
       if selectedItemID and CursorStillHasItem() then
         if s.groupID then Tooltip("Add to Group", "Release/click to classify the selected item here")
-        else Tooltip("Move to General", "Release/click to remove the selected item's group") end
+        else Tooltip("Move to General", "Release/click to keep the selected item in General") end
       end
     end)
     s:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -522,12 +593,21 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
       for slot = 1, count do
         local data = pfUI.bags[bag] and pfUI.bags[bag].slots[slot]
         local frame = data and data.frame
+
         if frame then
           local id = ItemID(bag, slot)
           local entry = { bag=bag, slot=slot, frame=frame, itemID=id }
-          local groupID = id and db.assignments[tostring(id)]
+          local manual = id and db.assignments[tostring(id)]
+          local groupID = nil
 
-          if groupID and grouped[groupID] then table.insert(grouped[groupID], entry)
+          if manual ~= nil then
+            if manual ~= GENERAL_OVERRIDE and grouped[manual] then groupID = manual end
+          elseif id and db.questGroupID and grouped[db.questGroupID] then
+            local link = GetContainerItemLink(bag, slot)
+            if IsQuestItem(id, link) then groupID = db.questGroupID end
+          end
+
+          if groupID then table.insert(grouped[groupID], entry)
           else table.insert(general, entry) end
         end
       end
@@ -646,7 +726,7 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
 
     ApplyHeaderOptions()
     HookItemSelection()
-    CleanAssignments()
+    CleanState()
     StabilizeBottomAnchor(frame)
 
     local _, border = GetBorderSize("bags")
@@ -713,7 +793,7 @@ pfUI:RegisterModule("bagtweaks", "vanilla", function()
   end
 
   pfUI.bag.bagtweaks_hooked = true
-  CleanAssignments()
+  CleanState()
   if pfUI.bag.right then Relayout() end
 end)
 
