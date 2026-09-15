@@ -1,13 +1,6 @@
--- pfUI_BagTweaks
--- 0.1.1-dev
---
--- Development build:
---   * keeps pfUI's real bag slot buttons and normal item behaviour
---   * renders custom groups above the General group
---   * places Hearthstone (item 6948) in a separate test group
---   * adds Bag Tweaks settings under pfUI > Third Party
---
--- No item movement, sorting, classification UI, or automation is performed.
+-- pfUI_BagTweaks 0.1.2-dev
+-- Named visual groups and per-group visual sorting for pfUI bags.
+-- Grouping/sorting never moves the underlying inventory slots.
 
 if not pfUI then return end
 
@@ -24,222 +17,459 @@ else
 end
 
 pfUI:RegisterModule("bagtweaks", "vanilla", function()
-  if not pfUI.bag or not pfUI.bag.CreateBags then return end
-  if pfUI.bag.bagtweaks_hooked then return end
+  if not pfUI.bag or not pfUI.bag.CreateBags or pfUI.bag.bagtweaks_hooked then return end
 
-  local TEST_ITEM_ID = 6948
-  local HEADER_HEIGHT = 12
+  local HEADER_HEIGHT = 14
+  local SORT_WIDTH = 54
+  local CONTROL_WIDTH = 14
+  local SORT_MODES = { "bag", "name", "value", "slot" }
+  local SORT_LABEL = { bag="Bag", name="Name", value="Value", slot="Slot" }
+  local SLOT_ORDER = {
+    INVTYPE_HEAD=1, INVTYPE_NECK=2, INVTYPE_SHOULDER=3, INVTYPE_BODY=4,
+    INVTYPE_CHEST=5, INVTYPE_ROBE=5, INVTYPE_CLOAK=6, INVTYPE_WRIST=7,
+    INVTYPE_HAND=8, INVTYPE_WAIST=9, INVTYPE_LEGS=10, INVTYPE_FEET=11,
+    INVTYPE_FINGER=12, INVTYPE_TRINKET=13, INVTYPE_WEAPONMAINHAND=14,
+    INVTYPE_2HWEAPON=15, INVTYPE_WEAPON=16, INVTYPE_SHIELD=17,
+    INVTYPE_HOLDABLE=18, INVTYPE_WEAPONOFFHAND=19, INVTYPE_RANGED=20,
+    INVTYPE_RANGEDRIGHT=20, INVTYPE_THROWN=20, INVTYPE_RELIC=20,
+    INVTYPE_TABARD=21, INVTYPE_BAG=22, INVTYPE_QUIVER=22, INVTYPE_AMMO=23,
+  }
 
-  local originalCreateBags = pfUI.bag.CreateBags
-  local originalUpdateBag = pfUI.bag.UpdateBag
+  local oldCreateBags = pfUI.bag.CreateBags
+  local oldUpdateBag = pfUI.bag.UpdateBag
+  local headers, dragItemID = {}, nil
+  local nameDialog, deleteDialog
+  local Relayout
 
-  local headers = {}
+  pfUIBagTweaksDB = pfUIBagTweaksDB or {}
+  local db = pfUIBagTweaksDB
+  db.groups = db.groups or {}
+  db.assignments = db.assignments or {}
+  db.nextGroupID = tonumber(db.nextGroupID) or 1
+  db.generalSort = db.generalSort or "bag"
+  if db.generalReverse == nil then db.generalReverse = false end
 
-  local function GetContainerItemIDCompat(bag, slot)
+  for i = 1, table.getn(db.groups) do
+    local g = db.groups[i]
+    if not g.id then
+      g.id = db.nextGroupID
+      db.nextGroupID = db.nextGroupID + 1
+    elseif g.id >= db.nextGroupID then
+      db.nextGroupID = g.id + 1
+    end
+    g.name = g.name or ("Group " .. tostring(g.id))
+    g.sort = g.sort or "bag"
+    if g.reverse == nil then g.reverse = false end
+  end
+
+  local function Trim(s)
+    s = tostring(s or "")
+    s = string.gsub(s, "^%s+", "")
+    return string.gsub(s, "%s+$", "")
+  end
+
+  local function FindGroup(id)
+    for i = 1, table.getn(db.groups) do
+      if db.groups[i].id == id then return db.groups[i], i end
+    end
+  end
+
+  local function GroupExists(id)
+    return FindGroup(id) ~= nil
+  end
+
+  local function CleanAssignments()
+    for itemID, groupID in pairs(db.assignments) do
+      if not GroupExists(groupID) then db.assignments[itemID] = nil end
+    end
+  end
+
+  local function ItemID(bag, slot)
+    if C_Container and type(C_Container.GetContainerItemID) == "function" then
+      local id = C_Container.GetContainerItemID(bag, slot)
+      if id then return tonumber(id) end
+    end
     local link = GetContainerItemLink(bag, slot)
     if not link then return nil end
-
-    local _, _, itemID = string.find(link, "item:(%d+)")
-    return tonumber(itemID)
+    local _, _, id = string.find(link, "item:(%d+)")
+    return tonumber(id)
   end
 
-  local function EnsureHeader(index, text)
-    local parent = pfUI.bag.right
-    if not parent then return nil end
+  local function VendorValue(id, link)
+    if C_Item and type(C_Item.GetItemInfo) == "function" then
+      local _, _, _, _, _, _, _, _, _, _, value = C_Item.GetItemInfo(id)
+      if value ~= nil then return tonumber(value) end
+    end
+    if type(GetSellValue) == "function" then
+      local ok, value = pcall(GetSellValue, link or id)
+      if ok and value ~= nil then return tonumber(value) end
+    end
+    if type(GetItemSellPrice) == "function" then
+      local ok, value = pcall(GetItemSellPrice, id)
+      if ok and value ~= nil then return tonumber(value) end
+    end
+  end
 
-    if not headers[index] then
-      local header = CreateFrame("Frame", nil, parent)
-      header:SetHeight(HEADER_HEIGHT)
+  local function Meta(entry)
+    if entry.meta then return entry.meta end
+    local m = { name="", rank=999, value=nil }
+    if entry.itemID then
+      local link = GetContainerItemLink(entry.bag, entry.slot)
+      local name, _, _, _, _, _, _, _, equipLoc = GetItemInfo(link or entry.itemID)
+      m.name = string.lower(name or "")
+      m.rank = SLOT_ORDER[equipLoc or ""] or 999
+      m.value = VendorValue(entry.itemID, link)
+    end
+    entry.meta = m
+    return m
+  end
 
-      header.text = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-      header.text:SetFont(pfUI.font_default, C.global.font_size, "OUTLINE")
-      header.text:SetJustifyH("LEFT")
-      header.text:SetTextColor(1, 1, 1, 1)
-      header.text:SetPoint("LEFT", header, "LEFT", 2, 0)
+  local function PhysicalLess(a, b)
+    if a.bag ~= b.bag then return a.bag < b.bag end
+    return a.slot < b.slot
+  end
 
-      header.line = header:CreateTexture(nil, "ARTWORK")
-      header.line:SetTexture(1, 1, 1, 1)
-      header.line:SetVertexColor(.25, .25, .25, 1)
-      header.line:SetHeight(1)
-      header.line:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
-      header.line:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
-
-      headers[index] = header
+  local function EntryLess(a, b, mode, reverse)
+    if mode == "bag" then return reverse and PhysicalLess(b, a) or PhysicalLess(a, b) end
+    if a.itemID and not b.itemID then return true end
+    if not a.itemID and b.itemID then return false end
+    if not a.itemID and not b.itemID then
+      return reverse and PhysicalLess(b, a) or PhysicalLess(a, b)
     end
 
-    headers[index].text:SetText(text)
-    headers[index]:Show()
-    return headers[index]
+    local am, bm = Meta(a), Meta(b)
+    local av, bv
+    if mode == "name" then
+      av, bv = am.name, bm.name
+    elseif mode == "value" then
+      if am.value == nil and bm.value ~= nil then return false end
+      if am.value ~= nil and bm.value == nil then return true end
+      av, bv = am.value or 0, bm.value or 0
+    elseif mode == "slot" then
+      av, bv = am.rank, bm.rank
+    else
+      av, bv = 0, 0
+    end
+
+    if av ~= bv then return reverse and av > bv or av < bv end
+    if am.name ~= bm.name then return reverse and am.name > bm.name or am.name < bm.name end
+    return PhysicalLess(a, b)
   end
 
-  local function CollectBackpackSlots()
-    local general = {}
-    local test = {}
+  local function SortEntries(entries, mode, reverse)
+    if table.getn(entries) < 2 then return end
+    table.sort(entries, function(a, b) return EntryLess(a, b, mode or "bag", reverse) end)
+  end
 
+  local function GetSort(id)
+    if id == nil then return db.generalSort or "bag", db.generalReverse end
+    local g = FindGroup(id)
+    return g and (g.sort or "bag") or "bag", g and g.reverse or false
+  end
+
+  local function NextSort(mode)
+    for i = 1, table.getn(SORT_MODES) do
+      if SORT_MODES[i] == mode then return SORT_MODES[i == table.getn(SORT_MODES) and 1 or i + 1] end
+    end
+    return "bag"
+  end
+
+  local function ChangeSort(id, reverseOnly)
+    if id == nil then
+      if reverseOnly then db.generalReverse = not db.generalReverse
+      else db.generalSort = NextSort(db.generalSort) end
+    else
+      local g = FindGroup(id)
+      if not g then return end
+      if reverseOnly then g.reverse = not g.reverse else g.sort = NextSort(g.sort) end
+    end
+    Relayout()
+  end
+
+  local function Backdrop(frame)
+    frame:SetBackdrop({
+      bgFile="Interface\\Tooltips\\UI-Tooltip-Background",
+      edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",
+      tile=true, tileSize=16, edgeSize=16,
+      insets={left=4,right=4,top=4,bottom=4},
+    })
+    frame:SetBackdropColor(0, 0, 0, .95)
+  end
+
+  local function ShowNameDialog(groupID)
+    if not nameDialog then
+      local f = CreateFrame("Frame", "pfBagTweaksGroupEditor", UIParent)
+      f:SetWidth(250); f:SetHeight(86); f:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
+      f:SetFrameStrata("DIALOG"); f:EnableMouse(1); Backdrop(f)
+      f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+      f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -10)
+      f.edit = CreateFrame("EditBox", "pfBagTweaksGroupNameEdit", f, "InputBoxTemplate")
+      f.edit:SetWidth(226); f.edit:SetHeight(20); f.edit:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -30)
+      f.edit:SetAutoFocus(false)
+      f.ok = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+      f.ok:SetWidth(70); f.ok:SetHeight(20); f.ok:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -4, 8); f.ok:SetText("OK")
+      f.cancel = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+      f.cancel:SetWidth(70); f.cancel:SetHeight(20); f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOM", 4, 8); f.cancel:SetText("Cancel")
+      local function Accept()
+        local name = Trim(f.edit:GetText())
+        if name == "" then return end
+        if f.groupID then
+          local g = FindGroup(f.groupID)
+          if g then g.name = name end
+        else
+          table.insert(db.groups, { id=db.nextGroupID, name=name, sort="bag", reverse=false })
+          db.nextGroupID = db.nextGroupID + 1
+        end
+        f:Hide(); Relayout()
+      end
+      f.ok:SetScript("OnClick", Accept)
+      f.cancel:SetScript("OnClick", function() f:Hide() end)
+      f.edit:SetScript("OnEnterPressed", Accept)
+      f.edit:SetScript("OnEscapePressed", function() f:Hide() end)
+      f:Hide(); nameDialog = f
+    end
+
+    nameDialog.groupID = groupID
+    if groupID then
+      local g = FindGroup(groupID)
+      if not g then return end
+      nameDialog.title:SetText("Rename Group"); nameDialog.edit:SetText(g.name)
+    else
+      nameDialog.title:SetText("New Group"); nameDialog.edit:SetText("")
+    end
+    nameDialog:Show(); nameDialog.edit:SetFocus(); nameDialog.edit:HighlightText()
+  end
+
+  local function ShowDeleteDialog(groupID)
+    local g = FindGroup(groupID)
+    if not g then return end
+    if not deleteDialog then
+      local f = CreateFrame("Frame", "pfBagTweaksDeleteConfirm", UIParent)
+      f:SetWidth(270); f:SetHeight(86); f:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
+      f:SetFrameStrata("DIALOG"); f:EnableMouse(1); Backdrop(f)
+      f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+      f.text:SetPoint("TOP", f, "TOP", 0, -16); f.text:SetWidth(246); f.text:SetJustifyH("CENTER")
+      f.ok = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+      f.ok:SetWidth(80); f.ok:SetHeight(20); f.ok:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -4, 8); f.ok:SetText("Delete")
+      f.cancel = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+      f.cancel:SetWidth(80); f.cancel:SetHeight(20); f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOM", 4, 8); f.cancel:SetText("Cancel")
+      f.ok:SetScript("OnClick", function()
+        local _, index = FindGroup(f.groupID)
+        if index then table.remove(db.groups, index) end
+        for itemID, id in pairs(db.assignments) do
+          if id == f.groupID then db.assignments[itemID] = nil end
+        end
+        f:Hide(); Relayout()
+      end)
+      f.cancel:SetScript("OnClick", function() f:Hide() end)
+      f:Hide(); deleteDialog = f
+    end
+    deleteDialog.groupID = groupID
+    deleteDialog.text:SetText('Delete "' .. tostring(g.name) .. '"? Items return to General.')
+    deleteDialog:Show()
+  end
+
+  local function AssignDrop(groupID)
+    if not dragItemID then return end
+    if type(CursorHasItem) == "function" and not CursorHasItem() then dragItemID = nil; return end
+    db.assignments[tostring(dragItemID)] = groupID
+    if groupID == nil then db.assignments[tostring(dragItemID)] = nil end
+    if type(ClearCursor) == "function" then ClearCursor() end
+    dragItemID = nil
+    Relayout()
+  end
+
+  local function Tooltip(text, line)
+    GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+    GameTooltip:SetText(text)
+    if line then GameTooltip:AddLine(line, 1, 1, 1) end
+    GameTooltip:Show()
+  end
+
+  local function NewHeader(key)
+    local h = CreateFrame("Frame", nil, pfUI.bag.right)
+    h:SetHeight(HEADER_HEIGHT); h:EnableMouse(1)
+    h.text = h:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    h.text:SetFont(pfUI.font_default, C.global.font_size, "OUTLINE")
+    h.text:SetPoint("LEFT", h, "LEFT", 2, 0); h.text:SetJustifyH("LEFT")
+    h.line = h:CreateTexture(nil, "ARTWORK")
+    h.line:SetTexture(1,1,1,1); h.line:SetVertexColor(.25,.25,.25,1); h.line:SetHeight(1)
+    h.line:SetPoint("BOTTOMLEFT", h); h.line:SetPoint("BOTTOMRIGHT", h)
+
+    h.sort = CreateFrame("Button", nil, h)
+    h.sort:SetWidth(SORT_WIDTH); h.sort:SetHeight(HEADER_HEIGHT); h.sort:SetPoint("RIGHT", h, "RIGHT", -1, 0)
+    h.sort:SetFont(pfUI.font_default, C.global.font_size, "OUTLINE"); h.sort:SetTextColor(.75,.75,.75,1)
+    h.sort:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    h.sort:SetScript("OnClick", function() ChangeSort(h.groupID, arg1 == "RightButton") end)
+    h.sort:SetScript("OnEnter", function() Tooltip("Visual Sort", "Left-click: type   Right-click: reverse") end)
+    h.sort:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    h.sort:SetScript("OnReceiveDrag", function() AssignDrop(h.groupID) end)
+
+    h:SetScript("OnReceiveDrag", function() AssignDrop(h.groupID) end)
+    h:SetScript("OnMouseUp", function() if h.groupID and arg1 == "RightButton" then ShowNameDialog(h.groupID) end end)
+    h:SetScript("OnEnter", function()
+      if h.groupID then Tooltip(h.text:GetText(), "Drop item here; right-click to rename")
+      else Tooltip("General", "Drop item here to remove its group") end
+    end)
+    h:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    local control = CreateFrame("Button", nil, h)
+    control:SetWidth(CONTROL_WIDTH); control:SetHeight(HEADER_HEIGHT); control:SetPoint("RIGHT", h.sort, "LEFT", -2, 0)
+    control:SetFont(pfUI.font_default, C.global.font_size + (key == "general" and 2 or 0), "OUTLINE")
+    control:SetTextColor(.7,.7,.7,1)
+    if key == "general" then
+      control:SetText("+")
+      control:SetScript("OnClick", function() ShowNameDialog(nil) end)
+      control:SetScript("OnEnter", function() Tooltip("Add Group") end)
+      control:SetScript("OnReceiveDrag", function() AssignDrop(nil) end)
+    else
+      control:SetText("x")
+      control:SetScript("OnClick", function() if h.groupID then ShowDeleteDialog(h.groupID) end end)
+      control:SetScript("OnEnter", function() Tooltip("Delete Group") end)
+      control:SetScript("OnReceiveDrag", function() AssignDrop(h.groupID) end)
+    end
+    control:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    h.control = control
+    h.text:SetPoint("RIGHT", control, "LEFT", -2, 0)
+    headers[key] = h
+    return h
+  end
+
+  local function Header(key, name, groupID)
+    local h = headers[key] or NewHeader(key)
+    h.groupID = groupID; h.text:SetText(name)
+    local mode, reverse = GetSort(groupID)
+    h.sort:SetText((SORT_LABEL[mode] or "Bag") .. (reverse and " v" or " ^"))
+    h:Show()
+    return h
+  end
+
+  local function Collect()
+    local general, grouped = {}, {}
+    for i = 1, table.getn(db.groups) do grouped[db.groups[i].id] = {} end
     for i = 1, table.getn(pfUI.BACKPACK) do
       local bag = pfUI.BACKPACK[i]
-      local bagsize = GetContainerNumSlots(bag)
-
-      if bag == -2 and pfUI.bag.showKeyring == true then
-        bagsize = GetKeyRingSize()
-      end
-
-      for slot = 1, bagsize do
-        local slotData = pfUI.bags[bag] and pfUI.bags[bag].slots[slot]
-        local button = slotData and slotData.frame
-
-        if button then
-          local entry = {
-            bag = bag,
-            slot = slot,
-            frame = button,
-          }
-
-          if GetContainerItemIDCompat(bag, slot) == TEST_ITEM_ID then
-            table.insert(test, entry)
-          else
-            table.insert(general, entry)
-          end
+      local count = GetContainerNumSlots(bag)
+      if bag == -2 and pfUI.bag.showKeyring == true then count = GetKeyRingSize() end
+      for slot = 1, count do
+        local data = pfUI.bags[bag] and pfUI.bags[bag].slots[slot]
+        local frame = data and data.frame
+        if frame then
+          local id = ItemID(bag, slot)
+          local e = { bag=bag, slot=slot, frame=frame, itemID=id }
+          local groupID = id and db.assignments[tostring(id)]
+          if groupID and grouped[groupID] then table.insert(grouped[groupID], e)
+          else table.insert(general, e) end
         end
       end
     end
-
-    return general, test
+    return general, grouped
   end
 
-  local function LayoutGroup(parent, group, rowlength, buttonSize, border, y)
-    local spacing = border * 3
-    local row = 0
-    local column = 0
-
-    for i = 1, table.getn(group) do
-      local button = group[i].frame
-      button:ClearAllPoints()
-      button:SetPoint(
-        "TOPLEFT",
-        parent,
-        "TOPLEFT",
-        border + column * (buttonSize + spacing),
-        -y - row * (buttonSize + spacing)
-      )
-      button:SetWidth(buttonSize)
-      button:SetHeight(buttonSize)
-
-      column = column + 1
-      if column >= rowlength then
-        column = 0
-        row = row + 1
+  local function HookDrags()
+    for i = 1, table.getn(pfUI.BACKPACK) do
+      local bag = pfUI.BACKPACK[i]
+      local count = GetContainerNumSlots(bag)
+      if bag == -2 and pfUI.bag.showKeyring == true then count = GetKeyRingSize() end
+      for slot = 1, count do
+        local data = pfUI.bags[bag] and pfUI.bags[bag].slots[slot]
+        local frame = data and data.frame
+        if frame and not frame.bagtweaks_drag_hooked then
+          local old = frame:GetScript("OnDragStart")
+          local b, s = bag, slot
+          frame:SetScript("OnDragStart", function()
+            dragItemID = ItemID(b, s)
+            if old then old() else PickupContainerItem(b, s) end
+          end)
+          frame.bagtweaks_drag_hooked = true
+        end
       end
     end
-
-    if table.getn(group) == 0 then
-      return y
-    end
-
-    if column > 0 then
-      row = row + 1
-    end
-
-    return y + row * (buttonSize + spacing)
   end
 
-  local function LayoutHeader(index, text, parent, border, y)
-    local header = EnsureHeader(index, text)
-    if not header then return y end
+  local function LayoutItems(parent, list, columns, size, border, y)
+    local spacing, row, col = border * 3, 0, 0
+    for i = 1, table.getn(list) do
+      local f = list[i].frame
+      f:ClearAllPoints()
+      f:SetPoint("TOPLEFT", parent, "TOPLEFT", border + col*(size+spacing), -y - row*(size+spacing))
+      f:SetWidth(size); f:SetHeight(size)
+      col = col + 1
+      if col >= columns then col = 0; row = row + 1 end
+    end
+    if table.getn(list) == 0 then return y end
+    if col > 0 then row = row + 1 end
+    return y + row*(size+spacing)
+  end
 
-    header:ClearAllPoints()
-    header:SetPoint("TOPLEFT", parent, "TOPLEFT", border, -y)
-    header:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -border, -y)
-
+  local function LayoutHeader(key, name, id, frame, border, y, active)
+    local h = Header(key, name, id)
+    active[key] = true
+    h:ClearAllPoints(); h:SetPoint("TOPLEFT", frame, "TOPLEFT", border, -y); h:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -border, -y)
     return y + HEADER_HEIGHT + border
   end
 
   local function ApplyHeaderOptions()
     local frame = pfUI.bag.right
-    if not frame then return end
-
-    if frame.search then
-      if C.bagtweaks and C.bagtweaks.show_search == "0" then
-        frame.search:Hide()
-      else
-        frame.search:Show()
-      end
+    if frame and frame.search then
+      if C.bagtweaks and C.bagtweaks.show_search == "0" then frame.search:Hide() else frame.search:Show() end
     end
   end
-
   pfUI.bagtweaks.ApplyHeaderOptions = ApplyHeaderOptions
 
-  local function RelayoutBackpack()
+  Relayout = function()
     local frame = pfUI.bag.right
-    if not frame or not frame.button_size or not frame.close then return end
-    if not pfUI.BACKPACK or not pfUI.bags then return end
+    if not frame or not frame.button_size or not frame.close or not pfUI.BACKPACK or not pfUI.bags then return end
+    ApplyHeaderOptions(); HookDrags(); CleanAssignments()
+    local _, border = GetBorderSize("bags"); border = border or 1
+    local columns = tonumber(C.appearance.bags.bagrowlength) or 10
+    local size = frame.button_size
+    local top = frame.close:GetHeight() + border*2
+    local bottom = pfUI.panel and pfUI.panel.right:IsShown() and pfUI.panel.right:GetHeight()+border or 16+border
+    local general, grouped = Collect()
+    local active, y = {}, border*2 + top
 
-    ApplyHeaderOptions()
+    for i = 1, table.getn(db.groups) do
+      local g = db.groups[i]
+      local list = grouped[g.id] or {}
+      SortEntries(list, g.sort, g.reverse)
+      y = LayoutHeader(g.id, g.name, g.id, frame, border, y, active)
+      y = LayoutItems(frame, list, columns, size, border, y) + border
+    end
 
-    local _, border = GetBorderSize("bags")
-    border = border or 1
-
-    local rowlength = tonumber(C.appearance.bags.bagrowlength) or 10
-    local buttonSize = frame.button_size
-    local topSpace = frame.close:GetHeight() + border * 2
-    local bottomSpace = pfUI.panel and pfUI.panel.right:IsShown()
-      and pfUI.panel.right:GetHeight() + border
-      or 16 + border
-
-    local general, test = CollectBackpackSlots()
-    local y = border * 2 + topSpace
-
-    -- Custom groups always render above General.
-    y = LayoutHeader(1, "Test Group", frame, border, y)
-    y = LayoutGroup(frame, test, rowlength, buttonSize, border, y)
-
-    y = y + border
-    y = LayoutHeader(2, "General", frame, border, y)
-    y = LayoutGroup(frame, general, rowlength, buttonSize, border, y)
-
-    frame:SetHeight(y + bottomSpace + border)
+    SortEntries(general, db.generalSort, db.generalReverse)
+    y = LayoutHeader("general", "General", nil, frame, border, y, active)
+    y = LayoutItems(frame, general, columns, size, border, y)
+    for key, h in pairs(headers) do if not active[key] then h:Hide() end end
+    frame:SetHeight(y + bottom + border)
   end
+
+  pfUI.bagtweaks.Relayout = Relayout
+  pfUI.bagtweaks.ShowGroupEditor = ShowNameDialog
 
   pfUI.bag.CreateBags = function(self, object)
-    originalCreateBags(self, object)
-
-    if object ~= "bank" then
-      RelayoutBackpack()
-    end
+    oldCreateBags(self, object)
+    if object ~= "bank" then Relayout() end
   end
-
-  if originalUpdateBag then
+  if oldUpdateBag then
     pfUI.bag.UpdateBag = function(self, bag)
-      originalUpdateBag(self, bag)
-
-      if bag == -2 or (bag >= 0 and bag <= 4) then
-        RelayoutBackpack()
-      end
+      oldUpdateBag(self, bag)
+      if bag == -2 or (bag >= 0 and bag <= 4) then Relayout() end
     end
   end
 
   pfUI.bag.bagtweaks_hooked = true
-
-  -- pfUI has already built its modules by the time a dependent addon loads.
-  -- Re-run the backpack layout once so the development build appears immediately.
-  if pfUI.bag.right then
-    RelayoutBackpack()
-  end
+  CleanAssignments()
+  if pfUI.bag.right then Relayout() end
 end)
 
--- All user-facing options live in pfUI's Third Party section.
 if pfUI.gui and pfUI.gui.CreateGUIEntry and pfUI.gui.CreateConfig then
   local thirdParty = "Thirdparty"
-  if pfUI.env and pfUI.env.T and pfUI.env.T["Thirdparty"] then
-    thirdParty = pfUI.env.T["Thirdparty"]
-  end
-
+  if pfUI.env and pfUI.env.T and pfUI.env.T["Thirdparty"] then thirdParty = pfUI.env.T["Thirdparty"] end
   pfUI.gui.CreateGUIEntry(thirdParty, "Bag Tweaks", function()
     pfUI.gui.CreateConfig(nil, "pfUI_BagTweaks", nil, nil, "header")
     pfUI.gui.CreateConfig(function()
-      if pfUI.bagtweaks and pfUI.bagtweaks.ApplyHeaderOptions then
-        pfUI.bagtweaks.ApplyHeaderOptions()
-      end
+      if pfUI.bagtweaks and pfUI.bagtweaks.ApplyHeaderOptions then pfUI.bagtweaks.ApplyHeaderOptions() end
     end, "Show Search Bar", pfUI_config.bagtweaks, "show_search", "checkbox")
   end)
 end
