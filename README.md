@@ -2,7 +2,9 @@
 
 A lightweight pfUI plugin for Vanilla WoW 1.12.1, designed to work with both Shagu pfUI and brues-code pfUI.
 
-## Features
+Currently in development.
+
+## Expected Features
 
 - Control over the bag search bar and header buttons.
 - User-created visual item groups inside the normal pfUI bag window.
