@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.7-dev
+-- pfUI_BagTweaks 0.1.8-dev
 -- User-defined visual groups, per-group sorting, optional Quest automation,
 -- and per-group account/character scope.
 -- Grouping and sorting never move the underlying inventory slots.
@@ -79,9 +79,10 @@ local function Initialize()
     local nameDialog, deleteDialog
     local Relayout
 
-    -- SavedVariables are restored before this addon's ADDON_LOADED handler runs.
-    pfUIBagTweaksDB = pfUIBagTweaksDB or {}
-    local db = pfUIBagTweaksDB
+    -- pfUI runs modules in pfUI.env via setfenv(). Use the real global table
+    -- for SavedVariables so WoW serializes the same database we mutate here.
+    G.pfUIBagTweaksDB = G.pfUIBagTweaksDB or {}
+    local db = G.pfUIBagTweaksDB
     db.groups = db.groups or {}
     db.nextGroupID = tonumber(db.nextGroupID) or 1
     db.generalSort = db.generalSort or "bag"
