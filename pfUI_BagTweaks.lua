@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.9-dev
+-- pfUI_BagTweaks 0.1.10-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, may optionally collect Quest items,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -965,7 +965,6 @@ local function Initialize()
         h = CreateFrame("Button", nil, pfUI.bag.right)
         h:SetHeight(HEADER_HEIGHT)
         h:EnableMouse(1)
-        h:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         h:RegisterForDrag("LeftButton")
 
         h.text = h:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -989,7 +988,10 @@ local function Initialize()
           EndGroupDrag()
         end)
 
-        h:SetScript("OnClick", function()
+        -- Use OnMouseUp instead of Button OnClick/RegisterForClicks. This is
+        -- reliable on 1.12 and gives us left/right clicks without modern API assumptions.
+        h:SetScript("OnMouseUp", function()
+          if arg1 ~= "LeftButton" and arg1 ~= "RightButton" then return end
           if AssignSelected(h.groupID) then return end
           if GetTime and lastDragStop > 0 and (GetTime() - lastDragStop) < .15 then return end
           ShowGroupMenu(h, h.groupID)
@@ -1204,6 +1206,13 @@ local function Initialize()
       local wantedHeight = HEADER_HEIGHT + border + rows * pitch + border
       local s = Section(key, groupID)
       local h = Header(key, name, groupID)
+      local baseLevel = pfUI.bag.right:GetFrameLevel() or 0
+
+      -- Explicit hit-test layering:
+      --   section background (drop target) < item buttons < header.
+      -- Without this, the mouse-enabled section can swallow header clicks.
+      s:SetFrameLevel(baseLevel + 1)
+      h:SetFrameLevel(baseLevel + 4)
 
       h:ClearAllPoints()
       h:SetPoint("TOPLEFT", s, "TOPLEFT", border, 0)
@@ -1213,6 +1222,7 @@ local function Initialize()
 
       for i = 1, table.getn(list) do
         local f = list[i].frame
+        f:SetFrameLevel(baseLevel + 3)
         f:ClearAllPoints()
         f:SetPoint(
           "TOPLEFT",
