@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.10-dev
+-- pfUI_BagTweaks 0.1.11-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, may optionally collect Quest items,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -34,6 +34,7 @@ local function Initialize()
     local MENU_WIDTH = 170
     local MENU_ROW_HEIGHT = 18
     local ROW_GAP = 3
+    local INSERT_LINE_HEIGHT = 3
 
     local SORT_MODES = { "bag", "name", "value", "slot" }
     local SORT_LABEL = {
@@ -43,7 +44,6 @@ local function Initialize()
       slot = "Character Slot",
     }
 
-    -- Character-sheet order. This intentionally has nothing to do with bag-slot order.
     local SLOT_ORDER = {
       INVTYPE_HEAD=1,
       INVTYPE_NECK=2,
@@ -82,16 +82,18 @@ local function Initialize()
     local sections = {}
     local rowFrames = {}
     local selectedItemID = nil
+    local itemHighlightSection = nil
     local nameDialog, deleteDialog, menu, sortMenu
+    local dragPreview, dragInsertLine, dragWatcher
     local Relayout
 
     local draggingGroupID = nil
-    local dragHoverGroupID = nil
-    local dragHoverFrame = nil
+    local dragTargetID = nil
+    local dragTargetSection = nil
+    local dragIntent = nil
+    local dragSide = nil
     local lastDragStop = 0
 
-    -- pfUI executes registered modules through setfenv(pfUI.env). SavedVariables
-    -- therefore MUST be accessed through _G or WoW will not serialize them.
     G.pfUIBagTweaksDB = G.pfUIBagTweaksDB or {}
     local db = G.pfUIBagTweaksDB
     db.groups = db.groups or {}
@@ -172,7 +174,6 @@ local function Initialize()
       db.rows = clean
     end
 
-    -- Migrate old group records and old single quest setting.
     for i = 1, table.getn(db.groups) do
       local g = db.groups[i]
 
@@ -206,9 +207,7 @@ local function Initialize()
 
         for c = 1, table.getn(source) do
           local g = FindGroup(source[c])
-          if g and IsGroupActive(g) then
-            table.insert(row, g.id)
-          end
+          if g and IsGroupActive(g) then table.insert(row, g.id) end
         end
 
         if table.getn(row) > 0 then table.insert(result, row) end
@@ -422,35 +421,30 @@ local function Initialize()
       return meta.itemType == "Quest"
     end
 
-    local function PhysicalLess(a, b)
-      if a.bag ~= b.bag then return a.bag < b.bag end
-      return a.slot < b.slot
-    end
-
-    local function OrderedPhysicalLess(a, b, reverse)
-      if reverse then return PhysicalLess(b, a) end
-      return PhysicalLess(a, b)
-    end
-
     local function EntryLess(a, b, mode, reverse)
-      if mode == "bag" then return OrderedPhysicalLess(a, b, reverse) end
-
-      if a.itemID and not b.itemID then return true end
-      if not a.itemID and b.itemID then return false end
-      if not a.itemID and not b.itemID then return OrderedPhysicalLess(a, b, reverse) end
-
       local av, bv
 
-      if mode == "name" then
-        av, bv = a.meta.name, b.meta.name
-      elseif mode == "value" then
-        if a.meta.value == nil and b.meta.value ~= nil then return false end
-        if a.meta.value ~= nil and b.meta.value == nil then return true end
-        av, bv = a.meta.value or 0, b.meta.value or 0
-      elseif mode == "slot" then
-        av, bv = a.meta.rank, b.meta.rank
+      if mode == "bag" then
+        av, bv = a.ordinal, b.ordinal
       else
-        av, bv = 0, 0
+        if a.itemID and not b.itemID then return true end
+        if not a.itemID and b.itemID then return false end
+        if not a.itemID and not b.itemID then
+          if reverse then return a.ordinal > b.ordinal end
+          return a.ordinal < b.ordinal
+        end
+
+        if mode == "name" then
+          av, bv = a.meta.name, b.meta.name
+        elseif mode == "value" then
+          if a.meta.value == nil and b.meta.value ~= nil then return false end
+          if a.meta.value ~= nil and b.meta.value == nil then return true end
+          av, bv = a.meta.value or 0, b.meta.value or 0
+        elseif mode == "slot" then
+          av, bv = a.meta.rank, b.meta.rank
+        else
+          av, bv = a.ordinal, b.ordinal
+        end
       end
 
       if av ~= bv then
@@ -458,18 +452,18 @@ local function Initialize()
         return av < bv
       end
 
-      if a.meta.name ~= b.meta.name then
+      if mode ~= "name" and a.meta.name ~= b.meta.name then
         if reverse then return a.meta.name > b.meta.name end
         return a.meta.name < b.meta.name
       end
 
-      return OrderedPhysicalLess(a, b, reverse)
+      return a.ordinal < b.ordinal
     end
 
     local function SortEntries(entries, mode, reverse)
       if table.getn(entries) < 2 then return end
       table.sort(entries, function(a, b)
-        return EntryLess(a, b, mode or "bag", reverse)
+        return EntryLess(a, b, mode or "bag", reverse and true or false)
       end)
     end
 
@@ -483,6 +477,69 @@ local function Initialize()
         insets={left=4,right=4,top=4,bottom=4},
       })
       frame:SetBackdropColor(0, 0, 0, .95)
+    end
+
+    local function Tooltip(title, line)
+      GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+      GameTooltip:SetText(title)
+      if line then GameTooltip:AddLine(line, 1, 1, 1) end
+      GameTooltip:Show()
+    end
+
+    local function HideMenus()
+      if menu then menu:Hide() end
+      if sortMenu then sortMenu:Hide() end
+    end
+
+    local function HideItemHighlight()
+      if itemHighlightSection and itemHighlightSection.itemHighlight then
+        itemHighlightSection.itemHighlight:Hide()
+      end
+      itemHighlightSection = nil
+    end
+
+    local function ShowItemHighlight(section)
+      if not section or draggingGroupID then return end
+      if not selectedItemID then return end
+      if type(CursorHasItem) == "function" and not CursorHasItem() then return end
+
+      if itemHighlightSection ~= section then
+        HideItemHighlight()
+        itemHighlightSection = section
+      end
+      if section.itemHighlight then section.itemHighlight:Show() end
+    end
+
+    local function HideDragVisuals()
+      if dragPreview then dragPreview:Hide() end
+      if dragInsertLine then dragInsertLine:Hide() end
+    end
+
+    local function EnsureDragVisuals()
+      local baseLevel = pfUI.bag.right:GetFrameLevel() or 0
+
+      if not dragPreview then
+        dragPreview = CreateFrame("Frame", nil, pfUI.bag.right)
+        dragPreview:EnableMouse(false)
+        dragPreview.texture = dragPreview:CreateTexture(nil, "BACKGROUND")
+        dragPreview.texture:SetAllPoints(dragPreview)
+        dragPreview.texture:SetTexture(1, 1, 1, 1)
+        dragPreview.texture:SetVertexColor(.15, 1, .15, .20)
+        dragPreview:Hide()
+      end
+      dragPreview:SetFrameLevel(baseLevel + 2)
+
+      if not dragInsertLine then
+        dragInsertLine = CreateFrame("Frame", nil, pfUI.bag.right)
+        dragInsertLine:EnableMouse(false)
+        dragInsertLine.texture = dragInsertLine:CreateTexture(nil, "ARTWORK")
+        dragInsertLine.texture:SetAllPoints(dragInsertLine)
+        dragInsertLine.texture:SetTexture(1, 1, 1, 1)
+        dragInsertLine.texture:SetVertexColor(.15, 1, .15, .95)
+        dragInsertLine:SetHeight(INSERT_LINE_HEIGHT)
+        dragInsertLine:Hide()
+      end
+      dragInsertLine:SetFrameLevel(baseLevel + 6)
     end
 
     local function ShowNameDialog(groupID)
@@ -649,6 +706,7 @@ local function Initialize()
 
       if not CursorStillHasItem() then
         selectedItemID = nil
+        HideItemHighlight()
         return false
       end
 
@@ -677,20 +735,9 @@ local function Initialize()
 
       if type(ClearCursor) == "function" then ClearCursor() end
       selectedItemID = nil
+      HideItemHighlight()
       Relayout()
       return true
-    end
-
-    local function Tooltip(title, line)
-      GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
-      GameTooltip:SetText(title)
-      if line then GameTooltip:AddLine(line, 1, 1, 1) end
-      GameTooltip:Show()
-    end
-
-    local function HideMenus()
-      if menu then menu:Hide() end
-      if sortMenu then sortMenu:Hide() end
     end
 
     local function MenuButton(parent, index)
@@ -734,10 +781,11 @@ local function Initialize()
       local current, reverse = GetSort(groupID)
 
       for i = 1, table.getn(SORT_MODES) do
-        local mode = SORT_MODES[i]
         local b = MenuButton(sortMenu, i)
-        b:SetText((current == mode and "[x] " or "[ ] ") .. SORT_LABEL[mode])
+        b.sortMode = SORT_MODES[i]
+        b:SetText((current == b.sortMode and "[x] " or "[ ] ") .. SORT_LABEL[b.sortMode])
         b:SetScript("OnClick", function()
+          local mode = this.sortMode
           SetSort(sortMenu.groupID, mode)
           HideMenus()
         end)
@@ -745,6 +793,7 @@ local function Initialize()
       end
 
       local reverseButton = MenuButton(sortMenu, 5)
+      reverseButton.sortMode = nil
       reverseButton:SetText((reverse and "[x] " or "[ ] ") .. "Reverse")
       reverseButton:SetScript("OnClick", function()
         ToggleReverse(sortMenu.groupID)
@@ -865,12 +914,145 @@ local function Initialize()
 
       if not left or not right or not top or not bottom then return nil, nil end
       if right == left or top == bottom then return nil, nil end
+      if x < left or x > right or y < bottom or y > top then return nil, nil end
 
       return (x - left) / (right - left), (y - bottom) / (top - bottom)
     end
 
-    local function PlaceDraggedGroup(sourceID, targetID, targetFrame)
-      if not sourceID then return end
+    local function SectionKeyForGroupID(id)
+      if id == nil or id == "general" then return "general" end
+      return id
+    end
+
+    local function FindDragTargetUnderCursor()
+      for _, s in pairs(sections) do
+        if s:IsShown() then
+          local rx, ry = CursorPositionFor(s)
+          if rx and ry then
+            local id = s.groupID or "general"
+            if id ~= draggingGroupID then return id, s, rx, ry end
+          end
+        end
+      end
+      return nil, nil, nil, nil
+    end
+
+    local function RowForSection(section)
+      if not section then return nil end
+      return section.bagtweaks_rowFrame or section
+    end
+
+    local function ShowInsertLine(section, before)
+      EnsureDragVisuals()
+      dragPreview:Hide()
+
+      local row = RowForSection(section)
+      if not row then
+        dragInsertLine:Hide()
+        return
+      end
+
+      dragInsertLine:ClearAllPoints()
+      if before then
+        dragInsertLine:SetPoint("BOTTOMLEFT", row, "TOPLEFT", 0, 0)
+        dragInsertLine:SetPoint("BOTTOMRIGHT", row, "TOPRIGHT", 0, 0)
+      else
+        dragInsertLine:SetPoint("TOPLEFT", row, "BOTTOMLEFT", 0, 0)
+        dragInsertLine:SetPoint("TOPRIGHT", row, "BOTTOMRIGHT", 0, 0)
+      end
+      dragInsertLine:Show()
+    end
+
+    local function ShowPairPreview(section, side)
+      EnsureDragVisuals()
+      dragInsertLine:Hide()
+
+      local row = RowForSection(section)
+      if not row then
+        dragPreview:Hide()
+        return
+      end
+
+      dragPreview:ClearAllPoints()
+      if side == "left" then
+        dragPreview:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+        dragPreview:SetPoint("BOTTOMRIGHT", row, "BOTTOM", -1, 0)
+      else
+        dragPreview:SetPoint("TOPLEFT", row, "TOP", 1, 0)
+        dragPreview:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+      end
+      dragPreview:Show()
+    end
+
+    local function DetermineDragIntent(targetID, section, rx, ry)
+      if not targetID or not section then return nil, nil end
+      if targetID == "general" then return "before", nil end
+
+      local targetRow = FindRowIndex(targetID)
+      if not targetRow then return nil, nil end
+
+      local sourceRow = FindRowIndex(draggingGroupID)
+      local sameRow = sourceRow and sourceRow == targetRow
+      local row = db.rows[targetRow]
+      local rowCount = table.getn(row)
+
+      if rowCount == 1 then
+        if ry > .75 then return "before", nil end
+        if ry < .25 then return "after", nil end
+        if rx < .5 then return "pair", "left" end
+        return "pair", "right"
+      end
+
+      if sameRow then
+        if ry > .75 then return "before", nil end
+        if ry < .25 then return "after", nil end
+        if rx < .5 then return "pair", "left" end
+        return "pair", "right"
+      end
+
+      if ry >= .5 then return "before", nil end
+      return "after", nil
+    end
+
+    local function UpdateDragVisual()
+      if not draggingGroupID then
+        dragTargetID = nil
+        dragTargetSection = nil
+        dragIntent = nil
+        dragSide = nil
+        HideDragVisuals()
+        return
+      end
+
+      local targetID, section, rx, ry = FindDragTargetUnderCursor()
+      if not targetID then
+        dragTargetID = nil
+        dragTargetSection = nil
+        dragIntent = nil
+        dragSide = nil
+        HideDragVisuals()
+        return
+      end
+
+      local intent, side = DetermineDragIntent(targetID, section, rx, ry)
+      dragTargetID = targetID
+      dragTargetSection = section
+      dragIntent = intent
+      dragSide = side
+
+      if intent == "pair" then
+        ShowPairPreview(section, side)
+      elseif intent == "before" then
+        ShowInsertLine(section, true)
+      elseif intent == "after" then
+        ShowInsertLine(section, false)
+      else
+        HideDragVisuals()
+      end
+    end
+
+    local function PlaceDraggedGroup(sourceID, targetID, intent, side)
+      if not sourceID or not targetID or not intent then return end
 
       if targetID == "general" then
         RemoveGroupFromRows(sourceID)
@@ -880,19 +1062,25 @@ local function Initialize()
         return
       end
 
-      if not targetID or sourceID == targetID or not GroupExists(targetID) then return end
+      if sourceID == targetID or not GroupExists(targetID) then return end
 
-      local targetRowBefore = FindRowIndex(targetID)
       local sourceRowBefore = FindRowIndex(sourceID)
-      local sameRow = targetRowBefore and sourceRowBefore and targetRowBefore == sourceRowBefore
+      local targetRowBefore = FindRowIndex(targetID)
+      if not targetRowBefore then return end
 
-      local rx, ry = CursorPositionFor(targetFrame)
-      local intent = "pair"
-
-      if ry then
-        if ry > .72 then intent = "before"
-        elseif ry < .28 then intent = "after"
-        else intent = "pair" end
+      if intent == "pair" and sourceRowBefore and sourceRowBefore == targetRowBefore then
+        local row = db.rows[targetRowBefore]
+        if table.getn(row) == 2 then
+          local otherID = row[1] == sourceID and row[2] or row[1]
+          if side == "left" then
+            row[1], row[2] = sourceID, otherID
+          else
+            row[1], row[2] = otherID, sourceID
+          end
+          NormalizeRows()
+          Relayout()
+          return
+        end
       end
 
       RemoveGroupFromRows(sourceID)
@@ -909,23 +1097,14 @@ local function Initialize()
         table.insert(db.rows, targetRow, { sourceID })
       elseif intent == "after" then
         table.insert(db.rows, targetRow + 1, { sourceID })
-      else
+      elseif intent == "pair" then
         local row = db.rows[targetRow]
-
         if table.getn(row) == 1 then
-          if rx and rx < .5 then
-            table.insert(row, 1, sourceID)
-          else
-            table.insert(row, sourceID)
-          end
-        elseif sameRow then
-          table.insert(db.rows, targetRow + 1, { sourceID })
+          if side == "left" then table.insert(row, 1, sourceID)
+          else table.insert(row, sourceID) end
         else
-          if rx and rx < .5 then
-            table.insert(db.rows, targetRow, { sourceID })
-          else
-            table.insert(db.rows, targetRow + 1, { sourceID })
-          end
+          if side == "left" then table.insert(db.rows, targetRow, { sourceID })
+          else table.insert(db.rows, targetRow + 1, { sourceID }) end
         end
       end
 
@@ -938,24 +1117,41 @@ local function Initialize()
       if not id then return end
 
       draggingGroupID = id
-      dragHoverGroupID = nil
-      dragHoverFrame = nil
+      dragTargetID = nil
+      dragTargetSection = nil
+      dragIntent = nil
+      dragSide = nil
+      HideItemHighlight()
       HideMenus()
+      EnsureDragVisuals()
+
+      if not dragWatcher then
+        dragWatcher = CreateFrame("Frame")
+        dragWatcher:SetScript("OnUpdate", function()
+          if draggingGroupID then UpdateDragVisual() end
+        end)
+      end
     end
 
     local function EndGroupDrag()
       if not draggingGroupID then return end
 
+      UpdateDragVisual()
+
       local source = draggingGroupID
-      local target = dragHoverGroupID
-      local targetFrame = dragHoverFrame
+      local target = dragTargetID
+      local intent = dragIntent
+      local side = dragSide
 
       draggingGroupID = nil
-      dragHoverGroupID = nil
-      dragHoverFrame = nil
+      dragTargetID = nil
+      dragTargetSection = nil
+      dragIntent = nil
+      dragSide = nil
       lastDragStop = GetTime and GetTime() or 0
+      HideDragVisuals()
 
-      if target then PlaceDraggedGroup(source, target, targetFrame) end
+      if target and intent then PlaceDraggedGroup(source, target, intent, side) end
     end
 
     local function Header(key, name, groupID)
@@ -988,8 +1184,6 @@ local function Initialize()
           EndGroupDrag()
         end)
 
-        -- Use OnMouseUp instead of Button OnClick/RegisterForClicks. This is
-        -- reliable on 1.12 and gives us left/right clicks without modern API assumptions.
         h:SetScript("OnMouseUp", function()
           if arg1 ~= "LeftButton" and arg1 ~= "RightButton" then return end
           if AssignSelected(h.groupID) then return end
@@ -1002,9 +1196,11 @@ local function Initialize()
         end)
 
         h:SetScript("OnEnter", function()
-          if draggingGroupID then
-            dragHoverGroupID = h.groupID or "general"
-            dragHoverFrame = h
+          if draggingGroupID then return end
+
+          local section = sections[SectionKeyForGroupID(h.groupID)]
+          if selectedItemID and CursorStillHasItem() then
+            ShowItemHighlight(section)
             return
           end
 
@@ -1012,18 +1208,15 @@ local function Initialize()
             local g = FindGroup(h.groupID)
             local mode = g and SORT_LABEL[g.sort or "bag"] or ""
             local scope = g and g.scope == "char" and "Per Character" or "Account Wide"
-            local quest = g and g.quest and " · Quest Items" or ""
-            Tooltip(h.text:GetText(), scope .. quest .. " · " .. mode .. " · click menu / drag header")
+            local quest = g and g.quest and " - Quest Items" or ""
+            Tooltip(h.text:GetText(), scope .. quest .. " - " .. mode .. " - click menu / drag header")
           else
             Tooltip("General", "Click for category/sorting menu")
           end
         end)
 
         h:SetScript("OnLeave", function()
-          if draggingGroupID and dragHoverFrame == h then
-            dragHoverGroupID = nil
-            dragHoverFrame = nil
-          end
+          HideItemHighlight()
           GameTooltip:Hide()
         end)
 
@@ -1043,18 +1236,24 @@ local function Initialize()
         s = CreateFrame("Frame", nil, pfUI.bag.right)
         s:EnableMouse(1)
 
+        s.itemHighlight = s:CreateTexture(nil, "BACKGROUND")
+        s.itemHighlight:SetAllPoints(s)
+        s.itemHighlight:SetTexture(1, 1, 1, 1)
+        s.itemHighlight:SetVertexColor(.15, 1, .15, .16)
+        s.itemHighlight:Hide()
+
         s:SetScript("OnReceiveDrag", function()
           if not draggingGroupID then AssignSelected(s.groupID) end
         end)
 
         s:SetScript("OnMouseUp", function()
-          if arg1 == "LeftButton" and not draggingGroupID then
-            AssignSelected(s.groupID)
-          end
+          if arg1 == "LeftButton" and not draggingGroupID then AssignSelected(s.groupID) end
         end)
 
         s:SetScript("OnEnter", function()
+          if draggingGroupID then return end
           if selectedItemID and CursorStillHasItem() then
+            ShowItemHighlight(s)
             if s.groupID then
               Tooltip("Add to Category", "Release/click to classify the selected item here")
             else
@@ -1064,6 +1263,7 @@ local function Initialize()
         end)
 
         s:SetScript("OnLeave", function()
+          if itemHighlightSection == s then HideItemHighlight() end
           GameTooltip:Hide()
         end)
 
@@ -1099,6 +1299,7 @@ local function Initialize()
       local general = {}
       local grouped = {}
       local questGroupID = ActiveQuestGroupID()
+      local ordinal = 0
 
       for i = 1, table.getn(db.groups) do
         local g = db.groups[i]
@@ -1115,6 +1316,7 @@ local function Initialize()
           local frame = data and data.frame
 
           if frame then
+            ordinal = ordinal + 1
             local id = ItemID(bag, slot)
             local meta
 
@@ -1137,6 +1339,7 @@ local function Initialize()
               frame=frame,
               itemID=id,
               meta=meta,
+              ordinal=ordinal,
             }
 
             local groupID = nil
@@ -1208,9 +1411,6 @@ local function Initialize()
       local h = Header(key, name, groupID)
       local baseLevel = pfUI.bag.right:GetFrameLevel() or 0
 
-      -- Explicit hit-test layering:
-      --   section background (drop target) < item buttons < header.
-      -- Without this, the mouse-enabled section can swallow header clicks.
       s:SetFrameLevel(baseLevel + 1)
       h:SetFrameLevel(baseLevel + 4)
 
@@ -1245,9 +1445,7 @@ local function Initialize()
     end
 
     local function RowFrame(index)
-      if not rowFrames[index] then
-        rowFrames[index] = CreateFrame("Frame", nil, pfUI.bag.right)
-      end
+      if not rowFrames[index] then rowFrames[index] = CreateFrame("Frame", nil, pfUI.bag.right) end
       rowFrames[index]:Show()
       return rowFrames[index]
     end
@@ -1322,13 +1520,13 @@ local function Initialize()
       generalSection:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, bottomSpace)
       generalSection:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, bottomSpace)
       generalSection:SetHeight(generalHeight)
+      generalSection.bagtweaks_rowFrame = generalSection
 
       local below = generalSection
       local activeRows = ActiveRows()
       local visibleRowCount = table.getn(activeRows)
-
-      -- db.rows is stored top-to-bottom. Anchor from General upward in reverse.
       local rowFrameIndex = 0
+
       for r = visibleRowCount, 1, -1 do
         local row = activeRows[r]
         rowFrameIndex = rowFrameIndex + 1
@@ -1343,9 +1541,7 @@ local function Initialize()
         local rightList = rightID and (grouped[rightID] or {}) or nil
 
         SortEntries(leftList, leftGroup and leftGroup.sort or "bag", leftGroup and leftGroup.reverse or false)
-        if rightGroup then
-          SortEntries(rightList, rightGroup.sort or "bag", rightGroup.reverse)
-        end
+        if rightGroup then SortEntries(rightList, rightGroup.sort or "bag", rightGroup.reverse) end
 
         local leftSection, leftHeight = LayoutSection(
           leftID,
@@ -1379,6 +1575,7 @@ local function Initialize()
         rf:SetHeight(rowHeight)
 
         leftSection:ClearAllPoints()
+        leftSection.bagtweaks_rowFrame = rf
         if rightSection then
           leftSection:SetPoint("TOPLEFT", rf, "TOPLEFT", 0, 0)
           leftSection:SetPoint("BOTTOMLEFT", rf, "BOTTOMLEFT", 0, 0)
@@ -1388,6 +1585,7 @@ local function Initialize()
           rightSection:SetPoint("TOPRIGHT", rf, "TOPRIGHT", 0, 0)
           rightSection:SetPoint("BOTTOMRIGHT", rf, "BOTTOMRIGHT", 0, 0)
           rightSection:SetPoint("LEFT", rf, "CENTER", border, 0)
+          rightSection.bagtweaks_rowFrame = rf
 
           active[rightID] = true
         else
@@ -1401,9 +1599,15 @@ local function Initialize()
 
       for i = rowFrameIndex + 1, table.getn(rowFrames) do rowFrames[i]:Hide() end
       for key, h in pairs(headers) do if not active[key] then h:Hide() end end
-      for key, s in pairs(sections) do if not active[key] then s:Hide() end end
+      for key, s in pairs(sections) do
+        if not active[key] then
+          if itemHighlightSection == s then HideItemHighlight() end
+          s:Hide()
+        end
+      end
 
       frame:SetHeight(bottomSpace + totalHeight + topSpace + border * 2)
+      if draggingGroupID then UpdateDragVisual() end
     end
 
     pfUI.bagtweaks.Relayout = Relayout
