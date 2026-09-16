@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.11-dev
+-- pfUI_BagTweaks 0.1.12-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, may optionally collect Quest items,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -487,7 +487,10 @@ local function Initialize()
     end
 
     local function HideMenus()
-      if menu then menu:Hide() end
+      if menu then
+        menu:Hide()
+        menu.anchor = nil
+      end
       if sortMenu then sortMenu:Hide() end
     end
 
@@ -811,6 +814,7 @@ local function Initialize()
       end
 
       menu.groupID = groupID
+      menu.anchor = anchor
       menu:ClearAllPoints()
       menu:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -2, 0)
 
@@ -1188,6 +1192,12 @@ local function Initialize()
           if arg1 ~= "LeftButton" and arg1 ~= "RightButton" then return end
           if AssignSelected(h.groupID) then return end
           if GetTime and lastDragStop > 0 and (GetTime() - lastDragStop) < .15 then return end
+
+          if arg1 == "RightButton" and menu and menu:IsShown() and menu.anchor == h then
+            HideMenus()
+            return
+          end
+
           ShowGroupMenu(h, h.groupID)
         end)
 
@@ -1623,6 +1633,16 @@ local function Initialize()
         oldUpdateBag(self, bag)
         if bag == -2 or (bag >= 0 and bag <= 4) then Relayout() end
       end
+    end
+
+    local bagFrame = pfUI.bag.right
+    if bagFrame and not bagFrame.bagtweaks_menu_hide_hooked then
+      local oldOnHide = bagFrame:GetScript("OnHide")
+      bagFrame:SetScript("OnHide", function()
+        if oldOnHide then oldOnHide() end
+        HideMenus()
+      end)
+      bagFrame.bagtweaks_menu_hide_hooked = true
     end
 
     if G.C_Item and type(G.C_Item.GetItemInfo) == "function" then
