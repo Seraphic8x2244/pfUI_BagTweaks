@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.16-dev
+-- pfUI_BagTweaks 0.1.17-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, with an optional default Quest category,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -1739,6 +1739,7 @@ local toolbarState = {
   searchOpen = false,
   activeMode = nil,
   castBusy = false,
+  waitingForLoot = false,
   rearmAt = nil,
   lastUpdate = 0,
   buttons = {},
@@ -1972,6 +1973,7 @@ end
 local function ToolbarDisablePersistentMode()
   toolbarState.activeMode = nil
   toolbarState.castBusy = false
+  toolbarState.waitingForLoot = false
   toolbarState.rearmAt = nil
   ToolbarCancelTargeting()
   ToolbarUpdateActiveVisuals()
@@ -1988,7 +1990,8 @@ local function ToolbarActivatePersistentMode(mode)
   ToolbarCancelTargeting()
   toolbarState.activeMode = mode
   toolbarState.castBusy = false
-  toolbarState.rearmAt = GetTime() + .50
+  toolbarState.waitingForLoot = false
+  toolbarState.rearmAt = nil
   ToolbarUpdateActiveVisuals()
 
   if not ToolbarCastPersistentMode(mode) then
@@ -2010,6 +2013,9 @@ local function ToolbarUpdatePersistentMode(now)
     return
   end
 
+  -- Disenchant is event-driven: successful casts wait for the loot window to close.
+  if mode == "disenchant" then return end
+
   if SpellIsTargeting and SpellIsTargeting() then return end
   if toolbarState.castBusy or ToolbarPlayerIsCasting() then return end
 
@@ -2024,10 +2030,48 @@ local function ToolbarOnSpellStarted()
   if toolbarState.activeMode then toolbarState.castBusy = true end
 end
 
-local function ToolbarOnSpellFinished()
-  if not toolbarState.activeMode then return end
+local function ToolbarOnSpellFinished(failed)
+  local mode = toolbarState.activeMode
+  if not mode then return end
+
   toolbarState.castBusy = false
+
+  if mode == "disenchant" then
+    toolbarState.rearmAt = nil
+
+    if failed then
+      toolbarState.waitingForLoot = false
+      if not ToolbarCastPersistentMode("disenchant") then
+        ToolbarDisablePersistentMode()
+      end
+    else
+      toolbarState.waitingForLoot = true
+    end
+    return
+  end
+
   toolbarState.rearmAt = GetTime() + .15
+end
+
+local function ToolbarOnLootOpened()
+  if toolbarState.activeMode ~= "disenchant" then return end
+  if not toolbarState.castBusy and not toolbarState.waitingForLoot then return end
+
+  toolbarState.castBusy = false
+  toolbarState.waitingForLoot = true
+  toolbarState.rearmAt = nil
+end
+
+local function ToolbarOnLootClosed()
+  if toolbarState.activeMode ~= "disenchant" or not toolbarState.waitingForLoot then return end
+
+  toolbarState.castBusy = false
+  toolbarState.waitingForLoot = false
+  toolbarState.rearmAt = nil
+
+  if not ToolbarCastPersistentMode("disenchant") then
+    ToolbarDisablePersistentMode()
+  end
 end
 
 local function ToolbarMenuButton(parent, index)
@@ -2442,12 +2486,20 @@ toolbarWatcher:RegisterEvent("SPELLCAST_START")
 toolbarWatcher:RegisterEvent("SPELLCAST_STOP")
 toolbarWatcher:RegisterEvent("SPELLCAST_FAILED")
 toolbarWatcher:RegisterEvent("SPELLCAST_INTERRUPTED")
+toolbarWatcher:RegisterEvent("LOOT_OPENED")
+toolbarWatcher:RegisterEvent("LOOT_CLOSED")
 
 toolbarWatcher:SetScript("OnEvent", function()
   if event == "SPELLCAST_START" then
     ToolbarOnSpellStarted()
-  elseif event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
-    ToolbarOnSpellFinished()
+  elseif event == "SPELLCAST_STOP" then
+    ToolbarOnSpellFinished(false)
+  elseif event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
+    ToolbarOnSpellFinished(true)
+  elseif event == "LOOT_OPENED" then
+    ToolbarOnLootOpened()
+  elseif event == "LOOT_CLOSED" then
+    ToolbarOnLootClosed()
   end
   ToolbarSetup()
 end)
