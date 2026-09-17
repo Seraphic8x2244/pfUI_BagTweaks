@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.13-dev-toolbar
+-- pfUI_BagTweaks 0.1.14-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, may optionally collect Quest items,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -197,7 +197,6 @@ local function Initialize()
     end
     db.questGroupID = nil
     NormalizeRows()
-
     local function ActiveRows()
       local result = {}
 
@@ -1197,7 +1196,6 @@ local function Initialize()
             HideMenus()
             return
           end
-
           ShowGroupMenu(h, h.groupID)
         end)
 
@@ -1397,7 +1395,6 @@ local function Initialize()
               selectedItemID = ItemID(b, s)
               if oldDragStart then oldDragStart() else PickupContainerItem(b, s) end
             end)
-
             frame.bagtweaks_select_hooked = true
           end
         end
@@ -1463,6 +1460,8 @@ local function Initialize()
     local function ApplyHeaderOptions()
       local frame = pfUI.bag.right
       if frame and frame.search then
+        -- The labelled toolbar owns search visibility once it has initialized.
+        if frame.bagtweaks_toolbar_managed then return end
         if C.bagtweaks and C.bagtweaks.show_search == "0" then frame.search:Hide()
         else frame.search:Show() end
       end
@@ -1622,6 +1621,7 @@ local function Initialize()
 
     pfUI.bagtweaks.Relayout = Relayout
     pfUI.bagtweaks.ShowGroupEditor = ShowNameDialog
+    pfUI.bagtweaks.HideMenus = HideMenus
 
     pfUI.bag.CreateBags = function(self, object)
       oldCreateBags(self, object)
@@ -1684,27 +1684,29 @@ loader:SetScript("OnEvent", function()
     this:UnregisterAllEvents()
   end
 end)
-
 -- ---------------------------------------------------------------------------
--- Toolbar prototype (dev branch only)
+-- Labelled bag toolbar
 -- ---------------------------------------------------------------------------
 
-local TOOLBAR_HEIGHT = 12
-local TOOLBAR_GAP = 2
-local SEARCH_GAP = 2
-local SEARCH_HEIGHT = 14
-local UPDATE_INTERVAL = .20
+local TOOLBAR_UPDATE_INTERVAL = .20
+local TOOLBAR_MENU_ROW_HEIGHT = 18
+local TOOLBAR_SEARCH_GAP = 2
 
 local toolbarState = {
   initialized = false,
   searchOpen = false,
-  searchButton = nil,
   activeMode = nil,
   wasTargeting = false,
   awaitingCompletion = false,
   rearmAt = nil,
   lastUpdate = 0,
-  oldBagOnHide = nil,
+  buttons = {},
+  extras = {},
+  native = {},
+  menu = nil,
+  menuOwner = nil,
+  baseOnHide = nil,
+  onHideWrapper = nil,
 }
 
 local function ToolbarFontSize()
@@ -1717,43 +1719,74 @@ local function ToolbarFontSize()
   return size
 end
 
-local function ToolbarFriendlyLabel(frame, bag)
-  if frame == toolbarState.searchButton then return "Search" end
-  if frame == bag.sort then return "Sort" end
-  if frame == bag.keys then return "Keys" end
-  if frame == bag.picklock then return "Pick Lock" end
-  if frame == bag.disenchant then return "Disenchant" end
-  if frame == bag.open then return "Open" end
-  if frame == bag.bags then return "Bags" end
+local function ToolbarMetrics(bag)
+  local close = bag and bag.close
+  local height = close and close:GetHeight() or 12
+  local border = 1
+  local topInset = 1
 
-  if frame.GetText then
-    local text = frame:GetText()
-    if text and text ~= "" then return text end
+  if close and close.GetPoint then
+    local _, _, _, x, y = close:GetPoint(1)
+    if x and x ~= 0 then border = math.abs(x) end
+    if y and y ~= 0 then topInset = math.abs(y) end
   end
 
-  if frame.GetName then
-    local name = frame:GetName()
-    if name and name ~= "" then
-      name = string.gsub(name, "^pfBag", "")
-      name = string.gsub(name, "^pfUIBag", "")
-      name = string.gsub(name, "Button$", "")
-      name = string.gsub(name, "Slot", "")
-      if name ~= "" then return name end
-    end
-  end
+  if border < 1 then border = 1 end
+  if topInset < 1 then topInset = border end
 
-  return "Button"
+  return height, border, border * 3, topInset
 end
 
-local function ToolbarKnownRank(frame, bag)
-  if frame == toolbarState.searchButton then return 10 end
-  if frame == bag.sort then return 20 end
-  if frame == bag.keys then return 30 end
-  if frame == bag.picklock then return 40 end
-  if frame == bag.disenchant then return 50 end
-  if frame == bag.open then return 60 end
-  if frame == bag.bags then return 70 end
-  return 100
+local function ToolbarCreateBackdrop(frame, border)
+  if frame.bagtweaks_toolbar_backdrop then return end
+
+  if pfUI.api and type(pfUI.api.CreateBackdrop) == "function" then
+    pfUI.api.CreateBackdrop(frame, border)
+  else
+    frame:SetBackdrop({
+      bgFile="Interface\\Tooltips\\UI-Tooltip-Background",
+      edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",
+      tile=true,
+      tileSize=16,
+      edgeSize=8,
+      insets={left=2,right=2,top=2,bottom=2},
+    })
+    frame:SetBackdropColor(0, 0, 0, .85)
+    frame.bagtweaks_toolbar_direct_backdrop = true
+  end
+
+  frame.bagtweaks_toolbar_backdrop = true
+end
+
+local function ToolbarSetBorderColor(frame, r, g, b, a)
+  if frame.backdrop and frame.backdrop.SetBackdropBorderColor then
+    frame.backdrop:SetBackdropBorderColor(r, g, b, a or 1)
+  elseif frame.SetBackdropBorderColor then
+    frame:SetBackdropBorderColor(r, g, b, a or 1)
+  end
+end
+
+local function ToolbarSetHover(frame, hover)
+  if hover then
+    ToolbarSetBorderColor(frame, 1, 1, .25, 1)
+    if frame.bagtweaks_toolbar_label then
+      frame.bagtweaks_toolbar_label:SetTextColor(1, 1, .25, 1)
+    end
+  else
+    ToolbarSetBorderColor(frame, .25, .25, .25, 1)
+    if frame.bagtweaks_toolbar_label then
+      frame.bagtweaks_toolbar_label:SetTextColor(.82, .82, .82, 1)
+    end
+  end
+end
+
+local function ToolbarHideIcon(frame)
+  if not frame then return end
+  if frame.texture and frame.texture.Hide then frame.texture:Hide() end
+  if frame.GetNormalTexture then
+    local t = frame:GetNormalTexture()
+    if t and t.SetAlpha then t:SetAlpha(0) end
+  end
 end
 
 local function ToolbarEnsureLabel(button, text)
@@ -1768,46 +1801,40 @@ local function ToolbarEnsureLabel(button, text)
   local label = button.bagtweaks_toolbar_label
   label:SetFont(pfUI.font_default or STANDARD_TEXT_FONT, ToolbarFontSize(), "OUTLINE")
   label:SetText(text)
+  label:SetTextColor(.82, .82, .82, 1)
   label:Show()
-
-  if button.texture and button.texture.SetAlpha then
-    button.texture:SetAlpha(0)
-  end
+  ToolbarHideIcon(button)
 end
 
 local function ToolbarEnsureActiveOverlay(button)
-  if not button then return end
-  if not button.bagtweaks_active_overlay then
-    local tex = button:CreateTexture(nil, "ARTWORK")
-    tex:SetAllPoints(button)
-    tex:SetTexture(1, 1, 1, 1)
-    tex:SetVertexColor(.15, 1, .15, .20)
-    tex:Hide()
-    button.bagtweaks_active_overlay = tex
-  end
+  if not button or button.bagtweaks_active_overlay then return end
+  local tex = button:CreateTexture(nil, "ARTWORK")
+  tex:SetAllPoints(button)
+  tex:SetTexture(1, 1, 1, 1)
+  tex:SetVertexColor(.15, 1, .15, .18)
+  tex:Hide()
+  button.bagtweaks_active_overlay = tex
+end
+
+local function ToolbarHideMenu()
+  if toolbarState.menu then toolbarState.menu:Hide() end
+  toolbarState.menuOwner = nil
 end
 
 local function ToolbarUpdateActiveVisuals()
-  local bag = pfUI.bag and pfUI.bag.right
-  if not bag then return end
+  local search = toolbarState.buttons.search
+  local profession = toolbarState.buttons.profession
 
-  ToolbarEnsureActiveOverlay(toolbarState.searchButton)
-  ToolbarEnsureActiveOverlay(bag.disenchant)
-  ToolbarEnsureActiveOverlay(bag.picklock)
-
-  if toolbarState.searchButton and toolbarState.searchButton.bagtweaks_active_overlay then
-    if toolbarState.searchOpen then toolbarState.searchButton.bagtweaks_active_overlay:Show()
-    else toolbarState.searchButton.bagtweaks_active_overlay:Hide() end
+  if search then
+    ToolbarEnsureActiveOverlay(search)
+    if toolbarState.searchOpen then search.bagtweaks_active_overlay:Show()
+    else search.bagtweaks_active_overlay:Hide() end
   end
 
-  if bag.disenchant and bag.disenchant.bagtweaks_active_overlay then
-    if toolbarState.activeMode == "disenchant" then bag.disenchant.bagtweaks_active_overlay:Show()
-    else bag.disenchant.bagtweaks_active_overlay:Hide() end
-  end
-
-  if bag.picklock and bag.picklock.bagtweaks_active_overlay then
-    if toolbarState.activeMode == "picklock" then bag.picklock.bagtweaks_active_overlay:Show()
-    else bag.picklock.bagtweaks_active_overlay:Hide() end
+  if profession then
+    ToolbarEnsureActiveOverlay(profession)
+    if toolbarState.activeMode then profession.bagtweaks_active_overlay:Show()
+    else profession.bagtweaks_active_overlay:Hide() end
   end
 end
 
@@ -1816,11 +1843,13 @@ local function ToolbarApplySearchState()
   local search = bag and bag.search
   if not search then return end
 
+  local _, border, _, _ = ToolbarMetrics(bag)
+
   search:Show()
   search:ClearAllPoints()
-  search:SetPoint("BOTTOMLEFT", bag, "TOPLEFT", 0, SEARCH_GAP)
-  search:SetPoint("BOTTOMRIGHT", bag, "TOPRIGHT", 0, SEARCH_GAP)
-  search:SetHeight(SEARCH_HEIGHT)
+  search:SetPoint("BOTTOMLEFT", bag, "TOPLEFT", border, TOOLBAR_SEARCH_GAP)
+  search:SetPoint("BOTTOMRIGHT", bag, "TOPRIGHT", -border, TOOLBAR_SEARCH_GAP)
+  search:SetHeight(bag.close and bag.close:GetHeight() or 12)
 
   if toolbarState.searchOpen then
     search:SetAlpha(1)
@@ -1839,6 +1868,7 @@ local function ToolbarApplySearchState()
 end
 
 local function ToolbarToggleSearch()
+  ToolbarHideMenu()
   toolbarState.searchOpen = not toolbarState.searchOpen
   ToolbarApplySearchState()
 
@@ -1846,132 +1876,6 @@ local function ToolbarToggleSearch()
   if toolbarState.searchOpen and bag and bag.search and bag.search.edit then
     bag.search.edit:SetFocus()
   end
-end
-
-local function ToolbarEnsureSearchButton(bag)
-  if toolbarState.searchButton then return toolbarState.searchButton end
-
-  local b = CreateFrame("Button", nil, bag)
-  b.bagtweaks_toolbar_control = true
-  b:SetHeight(TOOLBAR_HEIGHT)
-  b:EnableMouse(1)
-  b:SetScript("OnClick", ToolbarToggleSearch)
-  b:SetScript("OnEnter", function()
-    GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
-    GameTooltip:SetText("Search")
-    GameTooltip:Show()
-  end)
-  b:SetScript("OnLeave", function()
-    if GameTooltip:IsOwned(this) then GameTooltip:Hide() end
-  end)
-
-  b:SetBackdrop({
-    bgFile="Interface\\Tooltips\\UI-Tooltip-Background",
-    edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",
-    tile=true,
-    tileSize=16,
-    edgeSize=8,
-    insets={left=2,right=2,top=2,bottom=2},
-  })
-  b:SetBackdropColor(0, 0, 0, .85)
-  b:SetBackdropBorderColor(.25, .25, .25, 1)
-
-  toolbarState.searchButton = b
-  ToolbarEnsureLabel(b, "Search")
-  ToolbarEnsureActiveOverlay(b)
-  return b
-end
-
-local function ToolbarIsCandidate(child, bag)
-  if not child or child == bag.close or child == toolbarState.searchButton then return false end
-  if child.bagtweaks_toolbar_ignore or child.bagtweaks_header then return false end
-  if not child.GetObjectType or child:GetObjectType() ~= "Button" then return false end
-  if not child.GetName or not child:GetName() then return false end
-
-  if child == bag.sort or child == bag.keys or child == bag.picklock or
-     child == bag.disenchant or child == bag.open or child == bag.bags then
-    return true
-  end
-
-  local h = child.GetHeight and child:GetHeight() or 0
-  return h > 0 and h <= 24
-end
-
-local function ToolbarDiscoverButtons(bag)
-  local buttons = {}
-  table.insert(buttons, ToolbarEnsureSearchButton(bag))
-
-  local children = { bag:GetChildren() }
-  for i = 1, table.getn(children) do
-    local child = children[i]
-    if ToolbarIsCandidate(child, bag) and child:IsShown() then
-      if not child.bagtweaks_original_left and child.GetLeft then
-        child.bagtweaks_original_left = child:GetLeft()
-      end
-      table.insert(buttons, child)
-    end
-  end
-
-  table.sort(buttons, function(a, b)
-    local ar = ToolbarKnownRank(a, bag)
-    local br = ToolbarKnownRank(b, bag)
-    if ar ~= 100 or br ~= 100 then
-      if ar ~= br then return ar < br end
-    end
-
-    local al = a.bagtweaks_original_left or (a.GetLeft and a:GetLeft()) or 99999
-    local bl = b.bagtweaks_original_left or (b.GetLeft and b:GetLeft()) or 99999
-    if al ~= bl then return al < bl end
-
-    local an = a.GetName and a:GetName() or ""
-    local bn = b.GetName and b:GetName() or ""
-    return an < bn
-  end)
-
-  return buttons
-end
-
-local function ToolbarLayout()
-  local bag = pfUI.bag and pfUI.bag.right
-  if not bag or not bag.close or not bag.GetWidth then return end
-
-  local buttons = ToolbarDiscoverButtons(bag)
-  local count = table.getn(buttons)
-  if count == 0 then return end
-
-  local closeWidth = bag.close:GetWidth() or 12
-  local width = bag:GetWidth() or 0
-  local available = width - closeWidth - TOOLBAR_GAP * 2
-  if available < count then return end
-
-  local gaps = (count - 1) * TOOLBAR_GAP
-  local base = math.floor((available - gaps) / count)
-  local remainder = (available - gaps) - base * count
-  local previous = nil
-
-  for i = 1, count do
-    local button = buttons[i]
-    local buttonWidth = base
-    if remainder > 0 then
-      buttonWidth = buttonWidth + 1
-      remainder = remainder - 1
-    end
-
-    button:ClearAllPoints()
-    button:SetHeight(TOOLBAR_HEIGHT)
-    button:SetWidth(buttonWidth)
-
-    if previous then
-      button:SetPoint("TOPLEFT", previous, "TOPRIGHT", TOOLBAR_GAP, 0)
-    else
-      button:SetPoint("TOPLEFT", bag, "TOPLEFT", 0, 0)
-    end
-
-    ToolbarEnsureLabel(button, ToolbarFriendlyLabel(button, bag))
-    previous = button
-  end
-
-  ToolbarApplySearchState()
 end
 
 local function ToolbarCancelTargeting()
@@ -1985,10 +1889,9 @@ local function ToolbarCastPersistentMode(mode)
   if not bag then return false end
 
   local button = mode == "disenchant" and bag.disenchant or bag.picklock
-  if not button or not button:IsShown() then return false end
+  if not button or (button:GetID() or 0) <= 0 then return false end
 
   local id = button:GetID()
-  if not id or id <= 0 then return false end
 
   -- brues-code stores real spell IDs; Shagu stores spellbook indices.
   if (mode == "disenchant" and id == 13262) or (mode == "picklock" and id == 1804) then
@@ -2013,7 +1916,7 @@ local function ToolbarDisablePersistentMode()
   ToolbarUpdateActiveVisuals()
 end
 
-local function ToolbarActivatePersistentMode(mode, oldOnClick)
+local function ToolbarActivatePersistentMode(mode)
   if toolbarState.activeMode == mode then
     ToolbarDisablePersistentMode()
     return
@@ -2027,19 +1930,8 @@ local function ToolbarActivatePersistentMode(mode, oldOnClick)
   toolbarState.rearmAt = nil
   ToolbarUpdateActiveVisuals()
 
-  if oldOnClick then oldOnClick() end
+  ToolbarCastPersistentMode(mode)
   if SpellIsTargeting and SpellIsTargeting() then toolbarState.wasTargeting = true end
-end
-
-local function ToolbarHookPersistentButton(button, mode)
-  if not button or button.bagtweaks_persistent_hooked then return end
-
-  local oldOnClick = button:GetScript("OnClick")
-  button.bagtweaks_original_onclick = oldOnClick
-  button:SetScript("OnClick", function()
-    ToolbarActivatePersistentMode(mode, oldOnClick)
-  end)
-  button.bagtweaks_persistent_hooked = true
 end
 
 local function ToolbarPlayerIsCasting()
@@ -2051,7 +1943,7 @@ local function ToolbarUpdatePersistentMode(now)
 
   local bag = pfUI.bag and pfUI.bag.right
   local button = bag and (toolbarState.activeMode == "disenchant" and bag.disenchant or bag.picklock)
-  if not button or not button:IsShown() or (button:GetID() or 0) <= 0 then
+  if not button or (button:GetID() or 0) <= 0 then
     ToolbarDisablePersistentMode()
     return
   end
@@ -2091,25 +1983,593 @@ local function ToolbarOnSpellFinished()
   toolbarState.rearmAt = GetTime() + .10
 end
 
+local function ToolbarItemID(bag, slot)
+  if C_Container and type(C_Container.GetContainerItemID) == "function" then
+    local id = C_Container.GetContainerItemID(bag, slot)
+    if id then return tonumber(id) end
+  end
+
+  local link = GetContainerItemLink(bag, slot)
+  if not link then return nil end
+  local _, _, id = string.find(link, "item:(%d+)")
+  return tonumber(id)
+end
+
+local function ToolbarItemNameAndValue(bag, slot, id)
+  local link = GetContainerItemLink(bag, slot)
+  local name = ""
+  local value = nil
+
+  if link then
+    local _, _, linkName = string.find(link, "%[([^%]]+)%]")
+    name = string.lower(linkName or "")
+  end
+
+  if id and C_Item and type(C_Item.GetItemInfo) == "function" then
+    local n, _, _, _, _, _, _, _, _, _, sellPrice = C_Item.GetItemInfo(id)
+    if name == "" then name = string.lower(n or "") end
+    if sellPrice ~= nil then value = tonumber(sellPrice) end
+  end
+
+  if name == "" then
+    local n = GetItemInfo(link or id)
+    name = string.lower(n or "")
+  end
+
+  if value == nil and type(GetSellValue) == "function" then
+    local ok, v = pcall(GetSellValue, link or id)
+    if ok and v ~= nil then value = tonumber(v) end
+  end
+
+  if value == nil and type(GetItemSellPrice) == "function" and id then
+    local ok, v = pcall(GetItemSellPrice, id)
+    if ok and v ~= nil then value = tonumber(v) end
+  end
+
+  return name, value
+end
+
+local function ToolbarItemFamily(id)
+  if id and C_Item and type(C_Item.GetItemFamily) == "function" then
+    return tonumber(C_Item.GetItemFamily(id)) or 0
+  end
+  return 0
+end
+
+local function ToolbarBagFamily(bag)
+  if bag == 0 then return 0 end
+  if not ContainerIDToInventoryID or not GetInventoryItemID then return 0 end
+  local inv = ContainerIDToInventoryID(bag)
+  local id = inv and GetInventoryItemID("player", inv)
+  return ToolbarItemFamily(id)
+end
+
+local function ToolbarSortLess(a, b, mode, reverse)
+  local av, bv
+
+  if mode == "value" then
+    if a.value == nil and b.value ~= nil then return false end
+    if a.value ~= nil and b.value == nil then return true end
+    av, bv = a.value or 0, b.value or 0
+  else
+    av, bv = a.name or "", b.name or ""
+  end
+
+  if av ~= bv then
+    if reverse then return av > bv end
+    return av < bv
+  end
+
+  if a.name ~= b.name then
+    if reverse then return a.name > b.name end
+    return a.name < b.name
+  end
+
+  return a.ordinal < b.ordinal
+end
+
+local function ToolbarPhysicalSort(mode, reverse)
+  if not (C_Container and type(C_Container.SwapItems) == "function") then
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00Bag Tweaks:|r physical sort requires ClassicAPI.")
+    return
+  end
+
+  local items = {}
+  local grid = {}
+  local generalCells = {}
+  local specialtyCells = {}
+  local ordinal = 0
+
+  for bag = 0, 4 do
+    grid[bag] = {}
+    local family = ToolbarBagFamily(bag)
+    local count = GetContainerNumSlots(bag)
+
+    for slot = 1, count do
+      local cell = { bag=bag, slot=slot }
+      if family == 0 then
+        table.insert(generalCells, cell)
+      else
+        specialtyCells[family] = specialtyCells[family] or {}
+        table.insert(specialtyCells[family], cell)
+      end
+
+      local id = ToolbarItemID(bag, slot)
+      if id then
+        ordinal = ordinal + 1
+        local name, value = ToolbarItemNameAndValue(bag, slot, id)
+        local item = {
+          id=id,
+          name=name or "",
+          value=value,
+          family=ToolbarItemFamily(id),
+          ordinal=ordinal,
+          curBag=bag,
+          curSlot=slot,
+        }
+        grid[bag][slot] = item
+        table.insert(items, item)
+      end
+    end
+  end
+
+  table.sort(items, function(a, b)
+    return ToolbarSortLess(a, b, mode, reverse)
+  end)
+
+  local generalIndex = 1
+  local specialtyIndex = {}
+
+  for i = 1, table.getn(items) do
+    local item = items[i]
+    local cell = nil
+    local family = item.family or 0
+
+    if family ~= 0 and specialtyCells[family] then
+      local index = specialtyIndex[family] or 1
+      if index <= table.getn(specialtyCells[family]) then
+        cell = specialtyCells[family][index]
+        specialtyIndex[family] = index + 1
+      end
+    end
+
+    if not cell and generalIndex <= table.getn(generalCells) then
+      cell = generalCells[generalIndex]
+      generalIndex = generalIndex + 1
+    end
+
+    if cell then
+      item.destBag = cell.bag
+      item.destSlot = cell.slot
+    end
+  end
+
+  local toMove = {}
+  for i = 1, table.getn(items) do
+    local item = items[i]
+    if item.destBag and (item.destBag ~= item.curBag or item.destSlot ~= item.curSlot) then
+      table.insert(toMove, item)
+    end
+  end
+
+  for i = 1, table.getn(toMove) do
+    local item = toMove[i]
+    local curBag, curSlot = item.curBag, item.curSlot
+    local destBag, destSlot = item.destBag, item.destSlot
+
+    if curBag ~= destBag or curSlot ~= destSlot then
+      local _, _, lock1 = GetContainerItemInfo(curBag, curSlot)
+      local _, _, lock2 = GetContainerItemInfo(destBag, destSlot)
+
+      if not lock1 and not lock2 then
+        local displaced = grid[destBag][destSlot]
+        C_Container.SwapItems(curBag, curSlot, destBag, destSlot)
+        grid[destBag][destSlot] = item
+        grid[curBag][curSlot] = displaced
+        item.curBag, item.curSlot = destBag, destSlot
+        if displaced then displaced.curBag, displaced.curSlot = curBag, curSlot end
+      end
+    end
+  end
+end
+
+local function ToolbarMenuButton(parent, index)
+  parent.buttons = parent.buttons or {}
+
+  if not parent.buttons[index] then
+    local b = CreateFrame("Button", nil, parent)
+    b:SetHeight(TOOLBAR_MENU_ROW_HEIGHT)
+    b:SetPoint("TOPLEFT", parent, "TOPLEFT", 4, -(4 + (index - 1) * TOOLBAR_MENU_ROW_HEIGHT))
+    b:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -4, -(4 + (index - 1) * TOOLBAR_MENU_ROW_HEIGHT))
+    b:SetFont(pfUI.font_default or STANDARD_TEXT_FONT, ToolbarFontSize(), "OUTLINE")
+    b:SetTextColor(.9, .9, .9, 1)
+    b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+    if b:GetHighlightTexture() then b:GetHighlightTexture():SetAlpha(.20) end
+    b:SetScript("OnClick", function()
+      if this.action then this.action() end
+    end)
+    parent.buttons[index] = b
+  end
+
+  return parent.buttons[index]
+end
+
+local function ToolbarEnsureMenu()
+  if toolbarState.menu then return toolbarState.menu end
+
+  local menu = CreateFrame("Frame", "pfBagTweaksToolbarMenu", UIParent)
+  menu:SetFrameStrata("DIALOG")
+  menu:EnableMouse(1)
+  ToolbarCreateBackdrop(menu, 1)
+  menu:Hide()
+  toolbarState.menu = menu
+  return menu
+end
+
+local function ToolbarShowMenu(owner, width, entries)
+  local menu = ToolbarEnsureMenu()
+
+  if menu:IsShown() and toolbarState.menuOwner == owner then
+    ToolbarHideMenu()
+    return
+  end
+
+  toolbarState.menuOwner = owner
+  menu:ClearAllPoints()
+  menu:SetPoint("BOTTOMLEFT", owner, "TOPLEFT", 0, 2)
+  menu:SetWidth(width or 150)
+  menu:SetHeight(table.getn(entries) * TOOLBAR_MENU_ROW_HEIGHT + 8)
+
+  for i = 1, table.getn(entries) do
+    local row = ToolbarMenuButton(menu, i)
+    row:SetText(entries[i].text or "")
+    row.action = entries[i].action
+    row:Show()
+  end
+
+  for i = table.getn(entries) + 1, table.getn(menu.buttons or {}) do
+    menu.buttons[i]:Hide()
+    menu.buttons[i].action = nil
+  end
+
+  menu:Show()
+end
+
+local function ToolbarToggleBagSlots()
+  local bag = pfUI.bag and pfUI.bag.right
+  local slots = bag and bag.bagslots
+  if not slots then return end
+  if slots:IsShown() then slots:Hide() else slots:Show() end
+end
+
+local function ToolbarToggleKeys()
+  if not pfUI.bag then return end
+  if pfUI.bag.showKeyring then pfUI.bag.showKeyring = nil
+  else pfUI.bag.showKeyring = true end
+
+  if pfUI.bag.CheckFullUpdate then pfUI.bag:CheckFullUpdate()
+  elseif pfUI.bag.CreateBags then pfUI.bag:CreateBags() end
+end
+
+local function ToolbarShowViewMenu(owner)
+  local bag = pfUI.bag and pfUI.bag.right
+  local bagsOn = bag and bag.bagslots and bag.bagslots:IsShown()
+  local keysOn = pfUI.bag and pfUI.bag.showKeyring
+
+  ToolbarShowMenu(owner, 120, {
+    { text=(bagsOn and "[x] " or "[ ] ") .. "Bags", action=function()
+        ToolbarToggleBagSlots()
+        ToolbarHideMenu()
+      end },
+    { text=(keysOn and "[x] " or "[ ] ") .. "Keys", action=function()
+        ToolbarToggleKeys()
+        ToolbarHideMenu()
+      end },
+  })
+end
+
+local function ToolbarShowProfessionMenu(owner)
+  local bag = pfUI.bag and pfUI.bag.right
+  if not bag then return end
+
+  local entries = {}
+  if bag.disenchant and (bag.disenchant:GetID() or 0) > 0 then
+    table.insert(entries, {
+      text=(toolbarState.activeMode == "disenchant" and "[x] " or "[ ] ") .. "Disenchant",
+      action=function()
+        ToolbarActivatePersistentMode("disenchant")
+        ToolbarHideMenu()
+      end,
+    })
+  end
+
+  if bag.picklock and (bag.picklock:GetID() or 0) > 0 then
+    table.insert(entries, {
+      text=(toolbarState.activeMode == "picklock" and "[x] " or "[ ] ") .. "Pick Lock",
+      action=function()
+        ToolbarActivatePersistentMode("picklock")
+        ToolbarHideMenu()
+      end,
+    })
+  end
+
+  if table.getn(entries) > 0 then ToolbarShowMenu(owner, 135, entries) end
+end
+
+local function ToolbarShowSortMenu(owner)
+  ToolbarShowMenu(owner, 160, {
+    { text="Name A-Z", action=function() ToolbarHideMenu(); ToolbarPhysicalSort("name", false) end },
+    { text="Name Z-A", action=function() ToolbarHideMenu(); ToolbarPhysicalSort("name", true) end },
+    { text="Vendor Ascending", action=function() ToolbarHideMenu(); ToolbarPhysicalSort("value", false) end },
+    { text="Vendor Descending", action=function() ToolbarHideMenu(); ToolbarPhysicalSort("value", true) end },
+  })
+end
+
+local function ToolbarOpenOptions()
+  ToolbarHideMenu()
+  if not pfUI.gui then return end
+
+  pfUI.gui:Show()
+  local frames = pfUI.gui.frames
+  if not frames then return end
+
+  local thirdParty = "Thirdparty"
+  if pfUI.env and pfUI.env.T and pfUI.env.T["Thirdparty"] then
+    thirdParty = pfUI.env.T["Thirdparty"]
+  end
+
+  local root = frames[thirdParty]
+  if not root or not root.area then return end
+
+  for key, entry in pairs(frames) do
+    if key ~= "area" and type(entry) == "table" and entry.area and entry.area.Hide then
+      entry.area:Hide()
+    end
+  end
+  root.area:Show()
+
+  local child = root["Bag Tweaks"]
+  if not child or not child.area then return end
+
+  for key, entry in pairs(root) do
+    if key ~= "area" and type(entry) == "table" and entry.area and entry.area.Hide then
+      entry.area:Hide()
+    end
+  end
+  child.area:Show()
+end
+
+local function ToolbarNativeClick(which)
+  ToolbarHideMenu()
+  local func = toolbarState.native[which]
+  if func then func() end
+end
+
+local function ToolbarMakeButton(key, text, onclick)
+  local button = toolbarState.buttons[key]
+  if button then
+    ToolbarEnsureLabel(button, text)
+    button:Show()
+    return button
+  end
+
+  local bag = pfUI.bag and pfUI.bag.right
+  if not bag then return nil end
+
+  button = CreateFrame("Button", nil, bag)
+  button.bagtweaks_toolbar_control = true
+  button:EnableMouse(1)
+  local _, border = ToolbarMetrics(bag)
+  ToolbarCreateBackdrop(button, border)
+  ToolbarEnsureLabel(button, text)
+  ToolbarEnsureActiveOverlay(button)
+  button:SetScript("OnClick", onclick)
+  button:SetScript("OnEnter", function()
+    ToolbarSetHover(this, true)
+  end)
+  button:SetScript("OnLeave", function()
+    ToolbarSetHover(this, false)
+  end)
+  ToolbarSetHover(button, false)
+  toolbarState.buttons[key] = button
+  return button
+end
+
+local function ToolbarFriendlyExtraLabel(frame)
+  if frame.GetText then
+    local text = frame:GetText()
+    if text and text ~= "" then return text end
+  end
+
+  if frame.GetName then
+    local name = frame:GetName()
+    if name and name ~= "" then
+      name = string.gsub(name, "^pfBag", "")
+      name = string.gsub(name, "^pfUIBag", "")
+      name = string.gsub(name, "Button$", "")
+      name = string.gsub(name, "Slot", "")
+      if name ~= "" then return name end
+    end
+  end
+
+  return "Button"
+end
+
+local function ToolbarIsKnownNative(child, bag)
+  return child == bag.bags or child == bag.open or child == bag.disenchant or
+    child == bag.picklock or child == bag.keys or child == bag.sort
+end
+
+local function ToolbarSuppressNative(bag)
+  local natives = { bag.bags, bag.open, bag.disenchant, bag.picklock, bag.keys, bag.sort }
+
+  if bag.open and not toolbarState.native.open then
+    toolbarState.native.open = bag.open:GetScript("OnClick")
+  end
+
+  for i = 1, table.getn(natives) do
+    local button = natives[i]
+    if button then
+      button:SetAlpha(0)
+      button:EnableMouse(0)
+      ToolbarHideIcon(button)
+    end
+  end
+end
+
+local function ToolbarPrepareExtra(button, border)
+  if not button.bagtweaks_toolbar_extra then
+    button.bagtweaks_toolbar_extra = true
+    button.bagtweaks_extra_enter = button:GetScript("OnEnter")
+    button.bagtweaks_extra_leave = button:GetScript("OnLeave")
+
+    button:SetScript("OnEnter", function()
+      if this.bagtweaks_extra_enter then this.bagtweaks_extra_enter() end
+      ToolbarHideIcon(this)
+      ToolbarSetHover(this, true)
+    end)
+
+    button:SetScript("OnLeave", function()
+      if this.bagtweaks_extra_leave then this.bagtweaks_extra_leave() end
+      ToolbarHideIcon(this)
+      ToolbarSetHover(this, false)
+    end)
+  end
+
+  ToolbarCreateBackdrop(button, border)
+  ToolbarEnsureLabel(button, ToolbarFriendlyExtraLabel(button))
+  ToolbarHideIcon(button)
+  ToolbarSetHover(button, false)
+end
+
+local function ToolbarDiscoverExtras(bag, border)
+  local result = {}
+  local children = { bag:GetChildren() }
+
+  for i = 1, table.getn(children) do
+    local child = children[i]
+    if child and child ~= bag.close and not ToolbarIsKnownNative(child, bag) and
+       not child.bagtweaks_toolbar_control and not child.bagtweaks_header and
+       child.GetObjectType and child:GetObjectType() == "Button" and
+       child.GetName and child:GetName() and child:IsShown() then
+      local h = child.GetHeight and child:GetHeight() or 0
+      if h > 0 and h <= 24 then
+        ToolbarPrepareExtra(child, border)
+        table.insert(result, child)
+      end
+    end
+  end
+
+  return result
+end
+
+local function ToolbarHasProfession(bag)
+  return (bag.disenchant and (bag.disenchant:GetID() or 0) > 0) or
+    (bag.picklock and (bag.picklock:GetID() or 0) > 0)
+end
+
+local function ToolbarLayout()
+  local bag = pfUI.bag and pfUI.bag.right
+  if not bag or not bag.close or not bag.GetWidth then return end
+
+  local height, border, gap, topInset = ToolbarMetrics(bag)
+  ToolbarSuppressNative(bag)
+
+  local buttons = {}
+  local search = ToolbarMakeButton("search", "Search", ToolbarToggleSearch)
+  local sort = ToolbarMakeButton("sort", "Sort", function() ToolbarShowSortMenu(this) end)
+  local view = ToolbarMakeButton("view", "View", function() ToolbarShowViewMenu(this) end)
+  local profession = ToolbarMakeButton("profession", "Profession", function() ToolbarShowProfessionMenu(this) end)
+  local open = ToolbarMakeButton("open", "Open", function() ToolbarNativeClick("open") end)
+  local options = ToolbarMakeButton("options", "Options", ToolbarOpenOptions)
+
+  if search then table.insert(buttons, search) end
+  if sort then table.insert(buttons, sort) end
+  if view then table.insert(buttons, view) end
+
+  if profession then
+    if ToolbarHasProfession(bag) then
+      profession:Show()
+      table.insert(buttons, profession)
+    else
+      profession:Hide()
+      if toolbarState.activeMode then ToolbarDisablePersistentMode() end
+    end
+  end
+
+  if open then table.insert(buttons, open) end
+  if options then table.insert(buttons, options) end
+
+  local extras = ToolbarDiscoverExtras(bag, border)
+  for i = 1, table.getn(extras) do table.insert(buttons, extras[i]) end
+
+  local count = table.getn(buttons)
+  if count == 0 then return end
+
+  local closeWidth = bag.close:GetWidth() or height
+  local available = bag:GetWidth() - border - border - closeWidth - gap
+  local gaps = (count - 1) * gap
+  local usable = available - gaps
+  if usable < count then return end
+
+  local base = math.floor(usable / count)
+  local remainder = usable - base * count
+  local previous = nil
+
+  for i = 1, count do
+    local button = buttons[i]
+    local width = base
+    if remainder > 0 then
+      width = width + 1
+      remainder = remainder - 1
+    end
+
+    button:ClearAllPoints()
+    button:SetHeight(height)
+    button:SetWidth(width)
+
+    if previous then
+      button:SetPoint("TOPLEFT", previous, "TOPRIGHT", gap, 0)
+    else
+      button:SetPoint("TOPLEFT", bag, "TOPLEFT", border, -topInset)
+    end
+
+    ToolbarHideIcon(button)
+    previous = button
+  end
+
+  ToolbarApplySearchState()
+  ToolbarUpdateActiveVisuals()
+end
+
+local function ToolbarEnsureBagHideHook(bag)
+  local current = bag:GetScript("OnHide")
+  if current == toolbarState.onHideWrapper then return end
+
+  toolbarState.baseOnHide = current
+
+  if not toolbarState.onHideWrapper then
+    toolbarState.onHideWrapper = function()
+      local old = toolbarState.baseOnHide
+      if old and old ~= toolbarState.onHideWrapper then old() end
+      toolbarState.searchOpen = false
+      ToolbarHideMenu()
+      if pfUI.bagtweaks and pfUI.bagtweaks.HideMenus then pfUI.bagtweaks.HideMenus() end
+      ToolbarApplySearchState()
+    end
+  end
+
+  bag:SetScript("OnHide", toolbarState.onHideWrapper)
+end
+
 local function ToolbarSetup()
   local bag = pfUI.bag and pfUI.bag.right
   if not bag or not bag.search or not bag.close then return false end
 
-  ToolbarEnsureSearchButton(bag)
-  ToolbarHookPersistentButton(bag.disenchant, "disenchant")
-  ToolbarHookPersistentButton(bag.picklock, "picklock")
-
-  if not toolbarState.initialized then
-    toolbarState.oldBagOnHide = bag:GetScript("OnHide")
-    bag:SetScript("OnHide", function()
-      if toolbarState.oldBagOnHide then toolbarState.oldBagOnHide() end
-      toolbarState.searchOpen = false
-      ToolbarApplySearchState()
-    end)
-    toolbarState.initialized = true
-  end
-
+  bag.bagtweaks_toolbar_managed = true
+  ToolbarEnsureBagHideHook(bag)
   ToolbarLayout()
+  toolbarState.initialized = true
   return true
 end
 
@@ -2131,7 +2591,7 @@ toolbarWatcher:SetScript("OnUpdate", function()
   local now = GetTime()
   ToolbarUpdatePersistentMode(now)
 
-  if now - toolbarState.lastUpdate < UPDATE_INTERVAL then return end
+  if now - toolbarState.lastUpdate < TOOLBAR_UPDATE_INTERVAL then return end
   toolbarState.lastUpdate = now
 
   if ToolbarSetup() and pfUI.bag.right:IsShown() then
