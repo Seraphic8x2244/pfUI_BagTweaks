@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.19-dev
+-- pfUI_BagTweaks 0.1.20-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, with an optional default Quest category,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -2582,5 +2582,94 @@ toolbarWatcher:SetScript("OnUpdate", function()
     ToolbarLayout()
   end
 end)
+
+ToolbarSetup()
+
+-- ---------------------------------------------------------------------------
+-- Click-time Disenchant mode
+-- ---------------------------------------------------------------------------
+-- Mirrors AutoPickLockbox's proven Vanilla pattern: cast the profession spell
+-- on the item click, then immediately target that same bag slot.
+
+local DISENCHANT_SPELL = "Disenchant"
+
+local function ToolbarToggleDisenchantClickMode()
+  ToolbarHideMenu()
+
+  if toolbarState.activeMode == "disenchant" then
+    ToolbarDisablePersistentMode()
+    return
+  end
+
+  ToolbarCancelTargeting()
+  toolbarState.activeMode = "disenchant"
+  toolbarState.castBusy = false
+  toolbarState.waitingForLoot = false
+  ToolbarResetDisenchantRearm()
+  ToolbarUpdateActiveVisuals()
+end
+
+local function ToolbarGetClickedBagSlot()
+  local itemButton = this
+  if not itemButton or not itemButton.GetParent or not itemButton.GetID then
+    return nil, nil
+  end
+
+  local parent = itemButton:GetParent()
+  if not parent or not parent.GetID then return nil, nil end
+
+  return parent:GetID(), itemButton:GetID()
+end
+
+local function ToolbarTryDisenchantClick(button)
+  if toolbarState.activeMode ~= "disenchant" then return false end
+
+  -- Match AutoPickLockbox: only replace an ordinary right-click.
+  if button ~= "RightButton" then return false end
+  if IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown() then return false end
+
+  -- Do not interfere with an item already held on the cursor or another
+  -- targeting operation. Normal bag handling gets the click instead.
+  if CursorHasItem() or (SpellIsTargeting and SpellIsTargeting()) then return false end
+
+  local bag, slot = ToolbarGetClickedBagSlot()
+  if bag == nil or slot == nil or not GetContainerItemLink(bag, slot) then return false end
+
+  CastSpellByName(DISENCHANT_SPELL)
+
+  if SpellIsTargeting and SpellIsTargeting() then
+    PickupContainerItem(bag, slot)
+    return true
+  end
+
+  -- If Disenchant could not be armed, preserve the item's normal right-click.
+  return false
+end
+
+-- The old timer/loot rearm machinery remains inert for DE. Pick Lock keeps its
+-- existing persistent-mode updater until it is migrated separately.
+local ToolbarUpdatePersistentModeBase = ToolbarUpdatePersistentMode
+ToolbarUpdatePersistentMode = function(now)
+  if toolbarState.activeMode == "disenchant" then return end
+  return ToolbarUpdatePersistentModeBase(now)
+end
+
+-- AutoPickLockbox-style bag click interception. pfUI's inventory slots use
+-- ContainerFrameItemButtonTemplate, so this covers the unified pfUI bag too.
+local OriginalContainerFrameItemButton_OnClick_BagTweaks = ContainerFrameItemButton_OnClick
+function ContainerFrameItemButton_OnClick(button, ignoreShift)
+  if ToolbarTryDisenchantClick(button) then return end
+  return OriginalContainerFrameItemButton_OnClick_BagTweaks(button, ignoreShift)
+end
+
+-- ToolbarSetup can run before or after pfUI has finished constructing the bag.
+-- Wrap it so the DE button always gets the click-mode toggle when it exists.
+local ToolbarSetupBase = ToolbarSetup
+ToolbarSetup = function()
+  local ready = ToolbarSetupBase()
+  local de = toolbarState.buttons.disenchant
+  if de then de:SetScript("OnClick", ToolbarToggleDisenchantClickMode) end
+  return ready
+end
 
 ToolbarSetup()
