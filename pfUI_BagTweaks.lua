@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.12-dev
+-- pfUI_BagTweaks 0.1.13-dev-toolbar
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, may optionally collect Quest items,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -1684,3 +1684,459 @@ loader:SetScript("OnEvent", function()
     this:UnregisterAllEvents()
   end
 end)
+
+-- ---------------------------------------------------------------------------
+-- Toolbar prototype (dev branch only)
+-- ---------------------------------------------------------------------------
+
+local TOOLBAR_HEIGHT = 12
+local TOOLBAR_GAP = 2
+local SEARCH_GAP = 2
+local SEARCH_HEIGHT = 14
+local UPDATE_INTERVAL = .20
+
+local toolbarState = {
+  initialized = false,
+  searchOpen = false,
+  searchButton = nil,
+  activeMode = nil,
+  wasTargeting = false,
+  awaitingCompletion = false,
+  rearmAt = nil,
+  lastUpdate = 0,
+  oldBagOnHide = nil,
+}
+
+local function ToolbarFontSize()
+  local size = 9
+  if pfUI_config and pfUI_config.global and pfUI_config.global.font_size then
+    size = tonumber(pfUI_config.global.font_size) or size
+  end
+  if size > 9 then size = 9 end
+  if size < 7 then size = 7 end
+  return size
+end
+
+local function ToolbarFriendlyLabel(frame, bag)
+  if frame == toolbarState.searchButton then return "Search" end
+  if frame == bag.sort then return "Sort" end
+  if frame == bag.keys then return "Keys" end
+  if frame == bag.picklock then return "Pick Lock" end
+  if frame == bag.disenchant then return "Disenchant" end
+  if frame == bag.open then return "Open" end
+  if frame == bag.bags then return "Bags" end
+
+  if frame.GetText then
+    local text = frame:GetText()
+    if text and text ~= "" then return text end
+  end
+
+  if frame.GetName then
+    local name = frame:GetName()
+    if name and name ~= "" then
+      name = string.gsub(name, "^pfBag", "")
+      name = string.gsub(name, "^pfUIBag", "")
+      name = string.gsub(name, "Button$", "")
+      name = string.gsub(name, "Slot", "")
+      if name ~= "" then return name end
+    end
+  end
+
+  return "Button"
+end
+
+local function ToolbarKnownRank(frame, bag)
+  if frame == toolbarState.searchButton then return 10 end
+  if frame == bag.sort then return 20 end
+  if frame == bag.keys then return 30 end
+  if frame == bag.picklock then return 40 end
+  if frame == bag.disenchant then return 50 end
+  if frame == bag.open then return 60 end
+  if frame == bag.bags then return 70 end
+  return 100
+end
+
+local function ToolbarEnsureLabel(button, text)
+  if not button.bagtweaks_toolbar_label then
+    local label = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("LEFT", button, "LEFT", 2, 0)
+    label:SetPoint("RIGHT", button, "RIGHT", -2, 0)
+    label:SetJustifyH("CENTER")
+    button.bagtweaks_toolbar_label = label
+  end
+
+  local label = button.bagtweaks_toolbar_label
+  label:SetFont(pfUI.font_default or STANDARD_TEXT_FONT, ToolbarFontSize(), "OUTLINE")
+  label:SetText(text)
+  label:Show()
+
+  if button.texture and button.texture.SetAlpha then
+    button.texture:SetAlpha(0)
+  end
+end
+
+local function ToolbarEnsureActiveOverlay(button)
+  if not button then return end
+  if not button.bagtweaks_active_overlay then
+    local tex = button:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints(button)
+    tex:SetTexture(1, 1, 1, 1)
+    tex:SetVertexColor(.15, 1, .15, .20)
+    tex:Hide()
+    button.bagtweaks_active_overlay = tex
+  end
+end
+
+local function ToolbarUpdateActiveVisuals()
+  local bag = pfUI.bag and pfUI.bag.right
+  if not bag then return end
+
+  ToolbarEnsureActiveOverlay(toolbarState.searchButton)
+  ToolbarEnsureActiveOverlay(bag.disenchant)
+  ToolbarEnsureActiveOverlay(bag.picklock)
+
+  if toolbarState.searchButton and toolbarState.searchButton.bagtweaks_active_overlay then
+    if toolbarState.searchOpen then toolbarState.searchButton.bagtweaks_active_overlay:Show()
+    else toolbarState.searchButton.bagtweaks_active_overlay:Hide() end
+  end
+
+  if bag.disenchant and bag.disenchant.bagtweaks_active_overlay then
+    if toolbarState.activeMode == "disenchant" then bag.disenchant.bagtweaks_active_overlay:Show()
+    else bag.disenchant.bagtweaks_active_overlay:Hide() end
+  end
+
+  if bag.picklock and bag.picklock.bagtweaks_active_overlay then
+    if toolbarState.activeMode == "picklock" then bag.picklock.bagtweaks_active_overlay:Show()
+    else bag.picklock.bagtweaks_active_overlay:Hide() end
+  end
+end
+
+local function ToolbarApplySearchState()
+  local bag = pfUI.bag and pfUI.bag.right
+  local search = bag and bag.search
+  if not search then return end
+
+  search:Show()
+  search:ClearAllPoints()
+  search:SetPoint("BOTTOMLEFT", bag, "TOPLEFT", 0, SEARCH_GAP)
+  search:SetPoint("BOTTOMRIGHT", bag, "TOPRIGHT", 0, SEARCH_GAP)
+  search:SetHeight(SEARCH_HEIGHT)
+
+  if toolbarState.searchOpen then
+    search:SetAlpha(1)
+    search:EnableMouse(1)
+    if search.edit then search.edit:EnableMouse(1) end
+  else
+    if search.edit then
+      search.edit:ClearFocus()
+      search.edit:EnableMouse(0)
+    end
+    search:EnableMouse(0)
+    search:SetAlpha(0)
+  end
+
+  ToolbarUpdateActiveVisuals()
+end
+
+local function ToolbarToggleSearch()
+  toolbarState.searchOpen = not toolbarState.searchOpen
+  ToolbarApplySearchState()
+
+  local bag = pfUI.bag and pfUI.bag.right
+  if toolbarState.searchOpen and bag and bag.search and bag.search.edit then
+    bag.search.edit:SetFocus()
+  end
+end
+
+local function ToolbarEnsureSearchButton(bag)
+  if toolbarState.searchButton then return toolbarState.searchButton end
+
+  local b = CreateFrame("Button", nil, bag)
+  b.bagtweaks_toolbar_control = true
+  b:SetHeight(TOOLBAR_HEIGHT)
+  b:EnableMouse(1)
+  b:SetScript("OnClick", ToolbarToggleSearch)
+  b:SetScript("OnEnter", function()
+    GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Search")
+    GameTooltip:Show()
+  end)
+  b:SetScript("OnLeave", function()
+    if GameTooltip:IsOwned(this) then GameTooltip:Hide() end
+  end)
+
+  b:SetBackdrop({
+    bgFile="Interface\\Tooltips\\UI-Tooltip-Background",
+    edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",
+    tile=true,
+    tileSize=16,
+    edgeSize=8,
+    insets={left=2,right=2,top=2,bottom=2},
+  })
+  b:SetBackdropColor(0, 0, 0, .85)
+  b:SetBackdropBorderColor(.25, .25, .25, 1)
+
+  toolbarState.searchButton = b
+  ToolbarEnsureLabel(b, "Search")
+  ToolbarEnsureActiveOverlay(b)
+  return b
+end
+
+local function ToolbarIsCandidate(child, bag)
+  if not child or child == bag.close or child == toolbarState.searchButton then return false end
+  if child.bagtweaks_toolbar_ignore or child.bagtweaks_header then return false end
+  if not child.GetObjectType or child:GetObjectType() ~= "Button" then return false end
+  if not child.GetName or not child:GetName() then return false end
+
+  if child == bag.sort or child == bag.keys or child == bag.picklock or
+     child == bag.disenchant or child == bag.open or child == bag.bags then
+    return true
+  end
+
+  local h = child.GetHeight and child:GetHeight() or 0
+  return h > 0 and h <= 24
+end
+
+local function ToolbarDiscoverButtons(bag)
+  local buttons = {}
+  table.insert(buttons, ToolbarEnsureSearchButton(bag))
+
+  local children = { bag:GetChildren() }
+  for i = 1, table.getn(children) do
+    local child = children[i]
+    if ToolbarIsCandidate(child, bag) and child:IsShown() then
+      if not child.bagtweaks_original_left and child.GetLeft then
+        child.bagtweaks_original_left = child:GetLeft()
+      end
+      table.insert(buttons, child)
+    end
+  end
+
+  table.sort(buttons, function(a, b)
+    local ar = ToolbarKnownRank(a, bag)
+    local br = ToolbarKnownRank(b, bag)
+    if ar ~= 100 or br ~= 100 then
+      if ar ~= br then return ar < br end
+    end
+
+    local al = a.bagtweaks_original_left or (a.GetLeft and a:GetLeft()) or 99999
+    local bl = b.bagtweaks_original_left or (b.GetLeft and b:GetLeft()) or 99999
+    if al ~= bl then return al < bl end
+
+    local an = a.GetName and a:GetName() or ""
+    local bn = b.GetName and b:GetName() or ""
+    return an < bn
+  end)
+
+  return buttons
+end
+
+local function ToolbarLayout()
+  local bag = pfUI.bag and pfUI.bag.right
+  if not bag or not bag.close or not bag.GetWidth then return end
+
+  local buttons = ToolbarDiscoverButtons(bag)
+  local count = table.getn(buttons)
+  if count == 0 then return end
+
+  local closeWidth = bag.close:GetWidth() or 12
+  local width = bag:GetWidth() or 0
+  local available = width - closeWidth - TOOLBAR_GAP * 2
+  if available < count then return end
+
+  local gaps = (count - 1) * TOOLBAR_GAP
+  local base = math.floor((available - gaps) / count)
+  local remainder = (available - gaps) - base * count
+  local previous = nil
+
+  for i = 1, count do
+    local button = buttons[i]
+    local buttonWidth = base
+    if remainder > 0 then
+      buttonWidth = buttonWidth + 1
+      remainder = remainder - 1
+    end
+
+    button:ClearAllPoints()
+    button:SetHeight(TOOLBAR_HEIGHT)
+    button:SetWidth(buttonWidth)
+
+    if previous then
+      button:SetPoint("TOPLEFT", previous, "TOPRIGHT", TOOLBAR_GAP, 0)
+    else
+      button:SetPoint("TOPLEFT", bag, "TOPLEFT", 0, 0)
+    end
+
+    ToolbarEnsureLabel(button, ToolbarFriendlyLabel(button, bag))
+    previous = button
+  end
+
+  ToolbarApplySearchState()
+end
+
+local function ToolbarCancelTargeting()
+  if SpellIsTargeting and SpellIsTargeting() and SpellStopTargeting then
+    SpellStopTargeting()
+  end
+end
+
+local function ToolbarCastPersistentMode(mode)
+  local bag = pfUI.bag and pfUI.bag.right
+  if not bag then return false end
+
+  local button = mode == "disenchant" and bag.disenchant or bag.picklock
+  if not button or not button:IsShown() then return false end
+
+  local id = button:GetID()
+  if not id or id <= 0 then return false end
+
+  -- brues-code stores real spell IDs; Shagu stores spellbook indices.
+  if (mode == "disenchant" and id == 13262) or (mode == "picklock" and id == 1804) then
+    if CastSpellByName then
+      CastSpellByName(id)
+      return true
+    end
+  elseif CastSpell then
+    CastSpell(id, BOOKTYPE_SPELL)
+    return true
+  end
+
+  return false
+end
+
+local function ToolbarDisablePersistentMode()
+  toolbarState.activeMode = nil
+  toolbarState.wasTargeting = false
+  toolbarState.awaitingCompletion = false
+  toolbarState.rearmAt = nil
+  ToolbarCancelTargeting()
+  ToolbarUpdateActiveVisuals()
+end
+
+local function ToolbarActivatePersistentMode(mode, oldOnClick)
+  if toolbarState.activeMode == mode then
+    ToolbarDisablePersistentMode()
+    return
+  end
+
+  if toolbarState.activeMode then ToolbarCancelTargeting() end
+
+  toolbarState.activeMode = mode
+  toolbarState.wasTargeting = false
+  toolbarState.awaitingCompletion = false
+  toolbarState.rearmAt = nil
+  ToolbarUpdateActiveVisuals()
+
+  if oldOnClick then oldOnClick() end
+  if SpellIsTargeting and SpellIsTargeting() then toolbarState.wasTargeting = true end
+end
+
+local function ToolbarHookPersistentButton(button, mode)
+  if not button or button.bagtweaks_persistent_hooked then return end
+
+  local oldOnClick = button:GetScript("OnClick")
+  button.bagtweaks_original_onclick = oldOnClick
+  button:SetScript("OnClick", function()
+    ToolbarActivatePersistentMode(mode, oldOnClick)
+  end)
+  button.bagtweaks_persistent_hooked = true
+end
+
+local function ToolbarPlayerIsCasting()
+  return CastingBarFrame and (CastingBarFrame.casting or CastingBarFrame.channeling)
+end
+
+local function ToolbarUpdatePersistentMode(now)
+  if not toolbarState.activeMode then return end
+
+  local bag = pfUI.bag and pfUI.bag.right
+  local button = bag and (toolbarState.activeMode == "disenchant" and bag.disenchant or bag.picklock)
+  if not button or not button:IsShown() or (button:GetID() or 0) <= 0 then
+    ToolbarDisablePersistentMode()
+    return
+  end
+
+  local targeting = SpellIsTargeting and SpellIsTargeting()
+  if targeting then
+    toolbarState.wasTargeting = true
+    toolbarState.awaitingCompletion = false
+    toolbarState.rearmAt = nil
+    return
+  end
+
+  if toolbarState.wasTargeting then
+    toolbarState.wasTargeting = false
+    toolbarState.awaitingCompletion = true
+    toolbarState.rearmAt = now + .75
+  end
+
+  if toolbarState.awaitingCompletion and toolbarState.rearmAt and now >= toolbarState.rearmAt and not ToolbarPlayerIsCasting() then
+    toolbarState.awaitingCompletion = false
+    toolbarState.rearmAt = nil
+    if ToolbarCastPersistentMode(toolbarState.activeMode) then
+      toolbarState.rearmAt = now + .30
+    end
+  elseif not toolbarState.awaitingCompletion and toolbarState.rearmAt and now >= toolbarState.rearmAt then
+    if SpellIsTargeting and SpellIsTargeting() then
+      toolbarState.wasTargeting = true
+      toolbarState.rearmAt = nil
+    elseif not ToolbarPlayerIsCasting() then
+      if ToolbarCastPersistentMode(toolbarState.activeMode) then toolbarState.rearmAt = now + .30 end
+    end
+  end
+end
+
+local function ToolbarOnSpellFinished()
+  if not toolbarState.activeMode or not toolbarState.awaitingCompletion then return end
+  toolbarState.rearmAt = GetTime() + .10
+end
+
+local function ToolbarSetup()
+  local bag = pfUI.bag and pfUI.bag.right
+  if not bag or not bag.search or not bag.close then return false end
+
+  ToolbarEnsureSearchButton(bag)
+  ToolbarHookPersistentButton(bag.disenchant, "disenchant")
+  ToolbarHookPersistentButton(bag.picklock, "picklock")
+
+  if not toolbarState.initialized then
+    toolbarState.oldBagOnHide = bag:GetScript("OnHide")
+    bag:SetScript("OnHide", function()
+      if toolbarState.oldBagOnHide then toolbarState.oldBagOnHide() end
+      toolbarState.searchOpen = false
+      ToolbarApplySearchState()
+    end)
+    toolbarState.initialized = true
+  end
+
+  ToolbarLayout()
+  return true
+end
+
+local toolbarWatcher = CreateFrame("Frame")
+toolbarWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+toolbarWatcher:RegisterEvent("SPELLS_CHANGED")
+toolbarWatcher:RegisterEvent("SPELLCAST_STOP")
+toolbarWatcher:RegisterEvent("SPELLCAST_FAILED")
+toolbarWatcher:RegisterEvent("SPELLCAST_INTERRUPTED")
+
+toolbarWatcher:SetScript("OnEvent", function()
+  if event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
+    ToolbarOnSpellFinished()
+  end
+  ToolbarSetup()
+end)
+
+toolbarWatcher:SetScript("OnUpdate", function()
+  local now = GetTime()
+  ToolbarUpdatePersistentMode(now)
+
+  if now - toolbarState.lastUpdate < UPDATE_INTERVAL then return end
+  toolbarState.lastUpdate = now
+
+  if ToolbarSetup() and pfUI.bag.right:IsShown() then
+    ToolbarLayout()
+  end
+end)
+
+ToolbarSetup()
