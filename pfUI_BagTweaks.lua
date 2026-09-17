@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.17-dev
+-- pfUI_BagTweaks 0.1.18-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, with an optional default Quest category,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -1740,6 +1740,7 @@ local toolbarState = {
   activeMode = nil,
   castBusy = false,
   waitingForLoot = false,
+  deRearmPending = false,
   rearmAt = nil,
   lastUpdate = 0,
   buttons = {},
@@ -1974,6 +1975,7 @@ local function ToolbarDisablePersistentMode()
   toolbarState.activeMode = nil
   toolbarState.castBusy = false
   toolbarState.waitingForLoot = false
+  toolbarState.deRearmPending = false
   toolbarState.rearmAt = nil
   ToolbarCancelTargeting()
   ToolbarUpdateActiveVisuals()
@@ -1991,6 +1993,7 @@ local function ToolbarActivatePersistentMode(mode)
   toolbarState.activeMode = mode
   toolbarState.castBusy = false
   toolbarState.waitingForLoot = false
+  toolbarState.deRearmPending = false
   toolbarState.rearmAt = nil
   ToolbarUpdateActiveVisuals()
 
@@ -2013,8 +2016,26 @@ local function ToolbarUpdatePersistentMode(now)
     return
   end
 
-  -- Disenchant is event-driven: successful casts wait for the loot window to close.
-  if mode == "disenchant" then return end
+  if mode == "disenchant" then
+    if toolbarState.waitingForLoot then return end
+    if not toolbarState.deRearmPending then return end
+
+    if LootFrame and LootFrame.IsShown and LootFrame:IsShown() then return end
+
+    if SpellIsTargeting and SpellIsTargeting() then
+      toolbarState.deRearmPending = false
+      return
+    end
+
+    if toolbarState.castBusy or ToolbarPlayerIsCasting() then return end
+
+    if ToolbarCastPersistentMode("disenchant") then
+      toolbarState.deRearmPending = false
+    else
+      ToolbarDisablePersistentMode()
+    end
+    return
+  end
 
   if SpellIsTargeting and SpellIsTargeting() then return end
   if toolbarState.castBusy or ToolbarPlayerIsCasting() then return end
@@ -2041,11 +2062,7 @@ local function ToolbarOnSpellFinished(failed)
 
     if failed then
       toolbarState.waitingForLoot = false
-      if not ToolbarCastPersistentMode("disenchant") then
-        ToolbarDisablePersistentMode()
-      end
-    else
-      toolbarState.waitingForLoot = true
+      toolbarState.deRearmPending = true
     end
     return
   end
@@ -2055,23 +2072,20 @@ end
 
 local function ToolbarOnLootOpened()
   if toolbarState.activeMode ~= "disenchant" then return end
-  if not toolbarState.castBusy and not toolbarState.waitingForLoot then return end
 
   toolbarState.castBusy = false
   toolbarState.waitingForLoot = true
+  toolbarState.deRearmPending = false
   toolbarState.rearmAt = nil
 end
 
 local function ToolbarOnLootClosed()
-  if toolbarState.activeMode ~= "disenchant" or not toolbarState.waitingForLoot then return end
+  if toolbarState.activeMode ~= "disenchant" then return end
 
   toolbarState.castBusy = false
   toolbarState.waitingForLoot = false
+  toolbarState.deRearmPending = true
   toolbarState.rearmAt = nil
-
-  if not ToolbarCastPersistentMode("disenchant") then
-    ToolbarDisablePersistentMode()
-  end
 end
 
 local function ToolbarMenuButton(parent, index)
