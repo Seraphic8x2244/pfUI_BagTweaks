@@ -1,8 +1,9 @@
 ## Interface: 11200
 ## Title: pfUI_BagTweaks
 ## Notes: User-controlled bag presentation tweaks for pfUI.
-## Version: 0.1.12-dev
+## Version: 0.1.13-dev-toolbar
 ## Dependencies: pfUI
 ## SavedVariables: pfUIBagTweaksDB
 
 pfUI_BagTweaks.lua
+pfUI_BagTweaks_toolbar_dev.lua
