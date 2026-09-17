@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.14-dev
+-- pfUI_BagTweaks 0.1.15-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, may optionally collect Quest items,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -2296,15 +2296,6 @@ local function ToolbarShowProfessionMenu(owner)
   if table.getn(entries) > 0 then ToolbarShowMenu(owner, 135, entries) end
 end
 
-local function ToolbarShowSortMenu(owner)
-  ToolbarShowMenu(owner, 160, {
-    { text="Name A-Z", action=function() ToolbarHideMenu(); ToolbarPhysicalSort("name", false) end },
-    { text="Name Z-A", action=function() ToolbarHideMenu(); ToolbarPhysicalSort("name", true) end },
-    { text="Vendor Ascending", action=function() ToolbarHideMenu(); ToolbarPhysicalSort("value", false) end },
-    { text="Vendor Descending", action=function() ToolbarHideMenu(); ToolbarPhysicalSort("value", true) end },
-  })
-end
-
 local function ToolbarOpenOptions()
   ToolbarHideMenu()
   if not pfUI.gui then return end
@@ -2407,6 +2398,10 @@ local function ToolbarSuppressNative(bag)
     toolbarState.native.open = bag.open:GetScript("OnClick")
   end
 
+  if bag.sort and not toolbarState.native.sort then
+    toolbarState.native.sort = bag.sort:GetScript("OnClick")
+  end
+
   for i = 1, table.getn(natives) do
     local button = natives[i]
     if button then
@@ -2477,7 +2472,7 @@ local function ToolbarLayout()
 
   local buttons = {}
   local search = ToolbarMakeButton("search", "Search", ToolbarToggleSearch)
-  local sort = ToolbarMakeButton("sort", "Sort", function() ToolbarShowSortMenu(this) end)
+  local sort = ToolbarMakeButton("sort", "Sort", function() ToolbarNativeClick("sort") end)
   local view = ToolbarMakeButton("view", "View", function() ToolbarShowViewMenu(this) end)
   local profession = ToolbarMakeButton("profession", "Profession", function() ToolbarShowProfessionMenu(this) end)
   local open = ToolbarMakeButton("open", "Open", function() ToolbarNativeClick("open") end)
