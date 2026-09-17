@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.18-dev
+-- pfUI_BagTweaks 0.1.19-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, with an optional default Quest category,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -1733,6 +1733,9 @@ end)
 local TOOLBAR_UPDATE_INTERVAL = .20
 local TOOLBAR_MENU_ROW_HEIGHT = 18
 local TOOLBAR_SEARCH_GAP = 2
+local DE_REARM_DELAY = .10
+local DE_VERIFY_DELAY = .02
+local DE_MAX_REARM_ATTEMPTS = 5
 
 local toolbarState = {
   initialized = false,
@@ -1741,6 +1744,9 @@ local toolbarState = {
   castBusy = false,
   waitingForLoot = false,
   deRearmPending = false,
+  deVerifyPending = false,
+  deVerifyAt = nil,
+  deRearmAttempts = 0,
   rearmAt = nil,
   lastUpdate = 0,
   buttons = {},
@@ -1971,12 +1977,29 @@ local function ToolbarCastPersistentMode(mode)
   return false
 end
 
+local function ToolbarDisenchantIsArmed()
+  if not SpellIsTargeting or not SpellIsTargeting() then return false end
+
+  if type(SpellCanTargetItem) == "function" then
+    return SpellCanTargetItem() and true or false
+  end
+
+  return true
+end
+
+local function ToolbarResetDisenchantRearm()
+  toolbarState.deRearmPending = false
+  toolbarState.deVerifyPending = false
+  toolbarState.deVerifyAt = nil
+  toolbarState.deRearmAttempts = 0
+  toolbarState.rearmAt = nil
+end
+
 local function ToolbarDisablePersistentMode()
   toolbarState.activeMode = nil
   toolbarState.castBusy = false
   toolbarState.waitingForLoot = false
-  toolbarState.deRearmPending = false
-  toolbarState.rearmAt = nil
+  ToolbarResetDisenchantRearm()
   ToolbarCancelTargeting()
   ToolbarUpdateActiveVisuals()
 end
@@ -1993,8 +2016,7 @@ local function ToolbarActivatePersistentMode(mode)
   toolbarState.activeMode = mode
   toolbarState.castBusy = false
   toolbarState.waitingForLoot = false
-  toolbarState.deRearmPending = false
-  toolbarState.rearmAt = nil
+  ToolbarResetDisenchantRearm()
   ToolbarUpdateActiveVisuals()
 
   if not ToolbarCastPersistentMode(mode) then
@@ -2004,6 +2026,15 @@ end
 
 local function ToolbarPlayerIsCasting()
   return CastingBarFrame and (CastingBarFrame.casting or CastingBarFrame.channeling)
+end
+
+local function ToolbarQueueDisenchantRearm(now)
+  toolbarState.waitingForLoot = false
+  toolbarState.deRearmPending = true
+  toolbarState.deVerifyPending = false
+  toolbarState.deVerifyAt = nil
+  toolbarState.deRearmAttempts = 0
+  toolbarState.rearmAt = now + DE_REARM_DELAY
 end
 
 local function ToolbarUpdatePersistentMode(now)
@@ -2018,21 +2049,51 @@ local function ToolbarUpdatePersistentMode(now)
 
   if mode == "disenchant" then
     if toolbarState.waitingForLoot then return end
-    if not toolbarState.deRearmPending then return end
 
-    if LootFrame and LootFrame.IsShown and LootFrame:IsShown() then return end
+    if toolbarState.deVerifyPending then
+      if ToolbarDisenchantIsArmed() then
+        ToolbarResetDisenchantRearm()
+        return
+      end
 
-    if SpellIsTargeting and SpellIsTargeting() then
-      toolbarState.deRearmPending = false
+      if not toolbarState.deVerifyAt or now < toolbarState.deVerifyAt then return end
+
+      toolbarState.deVerifyPending = false
+      toolbarState.deVerifyAt = nil
+
+      if toolbarState.deRearmAttempts >= DE_MAX_REARM_ATTEMPTS then
+        ToolbarDisablePersistentMode()
+      else
+        toolbarState.deRearmPending = true
+        toolbarState.rearmAt = now + DE_REARM_DELAY
+      end
       return
     end
 
+    if not toolbarState.deRearmPending then return end
+    if LootFrame and LootFrame.IsShown and LootFrame:IsShown() then return end
     if toolbarState.castBusy or ToolbarPlayerIsCasting() then return end
 
+    if ToolbarDisenchantIsArmed() then
+      ToolbarResetDisenchantRearm()
+      return
+    end
+
+    if not toolbarState.rearmAt then toolbarState.rearmAt = now + DE_REARM_DELAY end
+    if now < toolbarState.rearmAt then return end
+
+    toolbarState.deRearmAttempts = toolbarState.deRearmAttempts + 1
+    toolbarState.deRearmPending = false
+    toolbarState.rearmAt = nil
+
     if ToolbarCastPersistentMode("disenchant") then
-      toolbarState.deRearmPending = false
-    else
+      toolbarState.deVerifyPending = true
+      toolbarState.deVerifyAt = now + DE_VERIFY_DELAY
+    elseif toolbarState.deRearmAttempts >= DE_MAX_REARM_ATTEMPTS then
       ToolbarDisablePersistentMode()
+    else
+      toolbarState.deRearmPending = true
+      toolbarState.rearmAt = now + DE_REARM_DELAY
     end
     return
   end
@@ -2058,12 +2119,7 @@ local function ToolbarOnSpellFinished(failed)
   toolbarState.castBusy = false
 
   if mode == "disenchant" then
-    toolbarState.rearmAt = nil
-
-    if failed then
-      toolbarState.waitingForLoot = false
-      toolbarState.deRearmPending = true
-    end
+    if failed then ToolbarQueueDisenchantRearm(GetTime()) end
     return
   end
 
@@ -2075,17 +2131,14 @@ local function ToolbarOnLootOpened()
 
   toolbarState.castBusy = false
   toolbarState.waitingForLoot = true
-  toolbarState.deRearmPending = false
-  toolbarState.rearmAt = nil
+  ToolbarResetDisenchantRearm()
 end
 
 local function ToolbarOnLootClosed()
   if toolbarState.activeMode ~= "disenchant" then return end
 
   toolbarState.castBusy = false
-  toolbarState.waitingForLoot = false
-  toolbarState.deRearmPending = true
-  toolbarState.rearmAt = nil
+  ToolbarQueueDisenchantRearm(GetTime())
 end
 
 local function ToolbarMenuButton(parent, index)
