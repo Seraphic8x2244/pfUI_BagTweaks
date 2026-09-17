@@ -6,4 +6,3 @@
 ## SavedVariables: pfUIBagTweaksDB
 
 pfUI_BagTweaks.lua
-pfUI_BagTweaks_toolbar_dev.lua
