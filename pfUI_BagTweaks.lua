@@ -1,6 +1,6 @@
--- pfUI_BagTweaks 0.1.15-dev
+-- pfUI_BagTweaks 0.1.16-dev
 -- User-defined visual groups for pfUI unified bags.
--- Groups can be account-wide or character-specific, may optionally collect Quest items,
+-- Groups can be account-wide or character-specific, with an optional default Quest category,
 -- can be arranged as one or two columns, and never move physical inventory slots.
 
 if not pfUI then return end
@@ -104,6 +104,9 @@ local function Initialize()
     db.assignments = nil
     db.charAssignments = db.charAssignments or {}
     db.rows = db.rows or {}
+    if db.showEmptyCategories == nil then db.showEmptyCategories = true end
+
+    local legacyQuestEnabled = db.questGroupID ~= nil
 
     local function CharacterKey()
       local realm = GetRealmName and GetRealmName() or ""
@@ -139,6 +142,7 @@ local function Initialize()
 
     local function IsGroupActive(g)
       if not g then return false end
+      if g.system == "quest" then return db.questEnabled and true or false end
       if g.scope ~= "char" then return true end
       return g.owner == CharacterKey()
     end
@@ -174,6 +178,7 @@ local function Initialize()
       db.rows = clean
     end
 
+    local questSystem = nil
     for i = 1, table.getn(db.groups) do
       local g = db.groups[i]
 
@@ -191,13 +196,39 @@ local function Initialize()
       if g.scope ~= "char" then g.scope = "account" end
       if g.scope == "char" and not g.owner then g.owner = CharacterKey() end
 
-      if db.questGroupID and g.id == tonumber(db.questGroupID) then
-        g.quest = true
+      if g.quest then legacyQuestEnabled = true end
+      g.quest = nil
+
+      if g.system == "quest" and not questSystem then
+        questSystem = g
       end
     end
+
     db.questGroupID = nil
+    if db.questEnabled == nil then db.questEnabled = legacyQuestEnabled end
+    db.questEnabled = db.questEnabled and true or false
+
+    if not questSystem then
+      questSystem = {
+        id=db.nextGroupID,
+        name="Quest",
+        sort="bag",
+        reverse=false,
+        scope="account",
+        system="quest",
+      }
+      db.nextGroupID = db.nextGroupID + 1
+      table.insert(db.groups, questSystem)
+    else
+      questSystem.name = "Quest"
+      questSystem.scope = "account"
+      questSystem.owner = nil
+      questSystem.system = "quest"
+    end
+
     NormalizeRows()
-    local function ActiveRows()
+
+    local function ActiveRows(grouped)
       local result = {}
 
       for r = 1, table.getn(db.rows) do
@@ -206,7 +237,14 @@ local function Initialize()
 
         for c = 1, table.getn(source) do
           local g = FindGroup(source[c])
-          if g and IsGroupActive(g) then table.insert(row, g.id) end
+          if g and IsGroupActive(g) then
+            local visible = db.showEmptyCategories ~= false
+            if not visible then
+              local items = grouped and grouped[g.id]
+              visible = items and table.getn(items) > 0
+            end
+            if visible then table.insert(row, g.id) end
+          end
         end
 
         if table.getn(row) > 0 then table.insert(result, row) end
@@ -256,7 +294,7 @@ local function Initialize()
 
     local function ToggleScope(id, scope)
       local g = FindGroup(id)
-      if not g then return end
+      if not g or g.system then return end
 
       local ca = CharAssignments(true)
 
@@ -280,23 +318,6 @@ local function Initialize()
 
         g.scope = "char"
         g.owner = CharacterKey()
-      end
-
-      Relayout()
-    end
-
-    local function ToggleQuestGroup(id)
-      local g = FindGroup(id)
-      if not g or not IsGroupActive(g) then return end
-
-      if g.quest then
-        g.quest = false
-      else
-        for i = 1, table.getn(db.groups) do
-          local other = db.groups[i]
-          if IsGroupActive(other) then other.quest = false end
-        end
-        g.quest = true
       end
 
       Relayout()
@@ -545,6 +566,11 @@ local function Initialize()
     end
 
     local function ShowNameDialog(groupID)
+      if groupID then
+        local group = FindGroup(groupID)
+        if group and group.system then return end
+      end
+
       if not nameDialog then
         local f = CreateFrame("Frame", "pfBagTweaksGroupEditor", UIParent)
         f:SetWidth(250)
@@ -581,7 +607,7 @@ local function Initialize()
 
           if f.groupID then
             local g = FindGroup(f.groupID)
-            if g then g.name = name end
+            if g and not g.system then g.name = name end
           else
             local id = db.nextGroupID
             table.insert(db.groups, {
@@ -590,7 +616,6 @@ local function Initialize()
               sort="bag",
               reverse=false,
               scope="account",
-              quest=false,
             })
             table.insert(db.rows, { id })
             db.nextGroupID = id + 1
@@ -627,7 +652,7 @@ local function Initialize()
 
     local function DeleteGroup(groupID)
       local g, index = FindGroup(groupID)
-      if not g or not index then return end
+      if not g or not index or g.system then return end
 
       if g.scope == "char" then
         local ca = CharAssignments(true)
@@ -654,7 +679,7 @@ local function Initialize()
 
     local function ShowDeleteDialog(groupID)
       local g = FindGroup(groupID)
-      if not g then return end
+      if not g or g.system then return end
 
       if not deleteDialog then
         local f = CreateFrame("Frame", "pfBagTweaksDeleteConfirm", UIParent)
@@ -841,61 +866,65 @@ local function Initialize()
         local g = FindGroup(groupID)
         if not g then return end
 
-        ConfigureMenuFrame(menu, 6)
+        if g.system == "quest" then
+          ConfigureMenuFrame(menu, 1)
 
-        local rename = MenuButton(menu, 1)
-        rename:SetText("Rename Category")
-        rename:SetScript("OnClick", function()
-          local id = menu.groupID
-          HideMenus()
-          ShowNameDialog(id)
-        end)
-        rename:Show()
+          local sorting = MenuButton(menu, 1)
+          sorting:SetText("Sorting: " .. SORT_LABEL[g.sort or "bag"] .. "  >")
+          sorting:SetScript("OnClick", function()
+            ShowSortMenu(menu, menu.groupID)
+          end)
+          sorting:Show()
 
-        local account = MenuButton(menu, 2)
-        account:SetText((g.scope ~= "char" and "[x] " or "[ ] ") .. "Account Wide")
-        account:SetScript("OnClick", function()
-          local id = menu.groupID
-          HideMenus()
-          ToggleScope(id, "account")
-        end)
-        account:Show()
+          for i = 2, table.getn(menu.buttons or {}) do menu.buttons[i]:Hide() end
+        else
+          ConfigureMenuFrame(menu, 5)
 
-        local character = MenuButton(menu, 3)
-        character:SetText((g.scope == "char" and "[x] " or "[ ] ") .. "Per Character")
-        character:SetScript("OnClick", function()
-          local id = menu.groupID
-          HideMenus()
-          ToggleScope(id, "char")
-        end)
-        character:Show()
+          local rename = MenuButton(menu, 1)
+          rename:SetText("Rename Category")
+          rename:SetScript("OnClick", function()
+            local id = menu.groupID
+            HideMenus()
+            ShowNameDialog(id)
+          end)
+          rename:Show()
 
-        local quest = MenuButton(menu, 4)
-        quest:SetText((g.quest and "[x] " or "[ ] ") .. "Quest Items")
-        quest:SetScript("OnClick", function()
-          local id = menu.groupID
-          HideMenus()
-          ToggleQuestGroup(id)
-        end)
-        quest:Show()
+          local account = MenuButton(menu, 2)
+          account:SetText((g.scope ~= "char" and "[x] " or "[ ] ") .. "Account Wide")
+          account:SetScript("OnClick", function()
+            local id = menu.groupID
+            HideMenus()
+            ToggleScope(id, "account")
+          end)
+          account:Show()
 
-        local sorting = MenuButton(menu, 5)
-        sorting:SetText("Sorting: " .. SORT_LABEL[g.sort or "bag"] .. "  >")
-        sorting:SetScript("OnClick", function()
-          ShowSortMenu(menu, menu.groupID)
-        end)
-        sorting:Show()
+          local character = MenuButton(menu, 3)
+          character:SetText((g.scope == "char" and "[x] " or "[ ] ") .. "Per Character")
+          character:SetScript("OnClick", function()
+            local id = menu.groupID
+            HideMenus()
+            ToggleScope(id, "char")
+          end)
+          character:Show()
 
-        local delete = MenuButton(menu, 6)
-        delete:SetText("|cffff6666Delete Category|r")
-        delete:SetScript("OnClick", function()
-          local id = menu.groupID
-          HideMenus()
-          ShowDeleteDialog(id)
-        end)
-        delete:Show()
+          local sorting = MenuButton(menu, 4)
+          sorting:SetText("Sorting: " .. SORT_LABEL[g.sort or "bag"] .. "  >")
+          sorting:SetScript("OnClick", function()
+            ShowSortMenu(menu, menu.groupID)
+          end)
+          sorting:Show()
 
-        for i = 7, table.getn(menu.buttons or {}) do menu.buttons[i]:Hide() end
+          local delete = MenuButton(menu, 5)
+          delete:SetText("|cffff6666Delete Category|r")
+          delete:SetScript("OnClick", function()
+            local id = menu.groupID
+            HideMenus()
+            ShowDeleteDialog(id)
+          end)
+          delete:Show()
+
+          for i = 6, table.getn(menu.buttons or {}) do menu.buttons[i]:Hide() end
+        end
       end
 
       if sortMenu then sortMenu:Hide() end
@@ -1165,6 +1194,7 @@ local function Initialize()
         h:SetHeight(HEADER_HEIGHT)
         h:EnableMouse(1)
         h:RegisterForDrag("LeftButton")
+        h.bagtweaks_header = true
 
         h.text = h:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         h.text:SetFont(pfUI.font_default, C.global.font_size, "OUTLINE")
@@ -1215,9 +1245,12 @@ local function Initialize()
           if h.groupID then
             local g = FindGroup(h.groupID)
             local mode = g and SORT_LABEL[g.sort or "bag"] or ""
-            local scope = g and g.scope == "char" and "Per Character" or "Account Wide"
-            local quest = g and g.quest and " - Quest Items" or ""
-            Tooltip(h.text:GetText(), scope .. quest .. " - " .. mode .. " - click menu / drag header")
+            if g and g.system == "quest" then
+              Tooltip("Quest", "Default Quest Items - " .. mode .. " - click menu / drag header")
+            else
+              local scope = g and g.scope == "char" and "Per Character" or "Account Wide"
+              Tooltip(h.text:GetText(), scope .. " - " .. mode .. " - click menu / drag header")
+            end
           else
             Tooltip("General", "Click for category/sorting menu")
           end
@@ -1284,17 +1317,12 @@ local function Initialize()
     end
 
     local function ActiveQuestGroupID()
-      local accountQuest = nil
-
+      if not db.questEnabled then return nil end
       for i = 1, table.getn(db.groups) do
         local g = db.groups[i]
-        if IsGroupActive(g) and g.quest then
-          if g.scope == "char" then return g.id end
-          accountQuest = g.id
-        end
+        if g.system == "quest" then return g.id end
       end
-
-      return accountQuest
+      return nil
     end
 
     local function EffectiveManualAssignment(itemKey)
@@ -1460,7 +1488,6 @@ local function Initialize()
     local function ApplyHeaderOptions()
       local frame = pfUI.bag.right
       if frame and frame.search then
-        -- The labelled toolbar owns search visibility once it has initialized.
         if frame.bagtweaks_toolbar_managed then return end
         if C.bagtweaks and C.bagtweaks.show_search == "0" then frame.search:Hide()
         else frame.search:Show() end
@@ -1532,7 +1559,7 @@ local function Initialize()
       generalSection.bagtweaks_rowFrame = generalSection
 
       local below = generalSection
-      local activeRows = ActiveRows()
+      local activeRows = ActiveRows(grouped)
       local visibleRowCount = table.getn(activeRows)
       local rowFrameIndex = 0
 
@@ -1622,6 +1649,20 @@ local function Initialize()
     pfUI.bagtweaks.Relayout = Relayout
     pfUI.bagtweaks.ShowGroupEditor = ShowNameDialog
     pfUI.bagtweaks.HideMenus = HideMenus
+    pfUI.bagtweaks.ToggleQuestCategory = function()
+      db.questEnabled = not db.questEnabled
+      Relayout()
+    end
+    pfUI.bagtweaks.QuestEnabled = function()
+      return db.questEnabled and true or false
+    end
+    pfUI.bagtweaks.ToggleEmptyCategories = function()
+      db.showEmptyCategories = not db.showEmptyCategories
+      Relayout()
+    end
+    pfUI.bagtweaks.ShowEmptyCategories = function()
+      return db.showEmptyCategories ~= false
+    end
 
     pfUI.bag.CreateBags = function(self, object)
       oldCreateBags(self, object)
@@ -1684,6 +1725,7 @@ loader:SetScript("OnEvent", function()
     this:UnregisterAllEvents()
   end
 end)
+
 -- ---------------------------------------------------------------------------
 -- Labelled bag toolbar
 -- ---------------------------------------------------------------------------
@@ -1696,8 +1738,7 @@ local toolbarState = {
   initialized = false,
   searchOpen = false,
   activeMode = nil,
-  wasTargeting = false,
-  awaitingCompletion = false,
+  castBusy = false,
   rearmAt = nil,
   lastUpdate = 0,
   buttons = {},
@@ -1821,21 +1862,23 @@ local function ToolbarHideMenu()
   toolbarState.menuOwner = nil
 end
 
+local function ToolbarSetActive(button, active)
+  if not button then return end
+  ToolbarEnsureActiveOverlay(button)
+  if active then button.bagtweaks_active_overlay:Show()
+  else button.bagtweaks_active_overlay:Hide() end
+end
+
 local function ToolbarUpdateActiveVisuals()
-  local search = toolbarState.buttons.search
-  local profession = toolbarState.buttons.profession
+  ToolbarSetActive(toolbarState.buttons.search, toolbarState.searchOpen)
 
-  if search then
-    ToolbarEnsureActiveOverlay(search)
-    if toolbarState.searchOpen then search.bagtweaks_active_overlay:Show()
-    else search.bagtweaks_active_overlay:Hide() end
+  local questEnabled = false
+  if pfUI.bagtweaks and pfUI.bagtweaks.QuestEnabled then
+    questEnabled = pfUI.bagtweaks.QuestEnabled()
   end
-
-  if profession then
-    ToolbarEnsureActiveOverlay(profession)
-    if toolbarState.activeMode then profession.bagtweaks_active_overlay:Show()
-    else profession.bagtweaks_active_overlay:Hide() end
-  end
+  ToolbarSetActive(toolbarState.buttons.quest, questEnabled)
+  ToolbarSetActive(toolbarState.buttons.disenchant, toolbarState.activeMode == "disenchant")
+  ToolbarSetActive(toolbarState.buttons.picklock, toolbarState.activeMode == "picklock")
 end
 
 local function ToolbarApplySearchState()
@@ -1843,7 +1886,7 @@ local function ToolbarApplySearchState()
   local search = bag and bag.search
   if not search then return end
 
-  local _, border, _, _ = ToolbarMetrics(bag)
+  local _, border = ToolbarMetrics(bag)
 
   search:Show()
   search:ClearAllPoints()
@@ -1878,17 +1921,36 @@ local function ToolbarToggleSearch()
   end
 end
 
+local function ToolbarAddCategory()
+  ToolbarHideMenu()
+  if pfUI.bagtweaks and pfUI.bagtweaks.ShowGroupEditor then
+    pfUI.bagtweaks.ShowGroupEditor(nil)
+  end
+end
+
+local function ToolbarToggleQuest()
+  ToolbarHideMenu()
+  if pfUI.bagtweaks and pfUI.bagtweaks.ToggleQuestCategory then
+    pfUI.bagtweaks.ToggleQuestCategory()
+  end
+  ToolbarUpdateActiveVisuals()
+end
+
 local function ToolbarCancelTargeting()
   if SpellIsTargeting and SpellIsTargeting() and SpellStopTargeting then
     SpellStopTargeting()
   end
 end
 
-local function ToolbarCastPersistentMode(mode)
+local function ToolbarModeButton(mode)
   local bag = pfUI.bag and pfUI.bag.right
-  if not bag then return false end
+  if not bag then return nil end
+  if mode == "disenchant" then return bag.disenchant end
+  return bag.picklock
+end
 
-  local button = mode == "disenchant" and bag.disenchant or bag.picklock
+local function ToolbarCastPersistentMode(mode)
+  local button = ToolbarModeButton(mode)
   if not button or (button:GetID() or 0) <= 0 then return false end
 
   local id = button:GetID()
@@ -1909,29 +1971,29 @@ end
 
 local function ToolbarDisablePersistentMode()
   toolbarState.activeMode = nil
-  toolbarState.wasTargeting = false
-  toolbarState.awaitingCompletion = false
+  toolbarState.castBusy = false
   toolbarState.rearmAt = nil
   ToolbarCancelTargeting()
   ToolbarUpdateActiveVisuals()
 end
 
 local function ToolbarActivatePersistentMode(mode)
+  ToolbarHideMenu()
+
   if toolbarState.activeMode == mode then
     ToolbarDisablePersistentMode()
     return
   end
 
-  if toolbarState.activeMode then ToolbarCancelTargeting() end
-
+  ToolbarCancelTargeting()
   toolbarState.activeMode = mode
-  toolbarState.wasTargeting = false
-  toolbarState.awaitingCompletion = false
-  toolbarState.rearmAt = nil
+  toolbarState.castBusy = false
+  toolbarState.rearmAt = GetTime() + .50
   ToolbarUpdateActiveVisuals()
 
-  ToolbarCastPersistentMode(mode)
-  if SpellIsTargeting and SpellIsTargeting() then toolbarState.wasTargeting = true end
+  if not ToolbarCastPersistentMode(mode) then
+    ToolbarDisablePersistentMode()
+  end
 end
 
 local function ToolbarPlayerIsCasting()
@@ -1939,238 +2001,33 @@ local function ToolbarPlayerIsCasting()
 end
 
 local function ToolbarUpdatePersistentMode(now)
-  if not toolbarState.activeMode then return end
+  local mode = toolbarState.activeMode
+  if not mode then return end
 
-  local bag = pfUI.bag and pfUI.bag.right
-  local button = bag and (toolbarState.activeMode == "disenchant" and bag.disenchant or bag.picklock)
+  local button = ToolbarModeButton(mode)
   if not button or (button:GetID() or 0) <= 0 then
     ToolbarDisablePersistentMode()
     return
   end
 
-  local targeting = SpellIsTargeting and SpellIsTargeting()
-  if targeting then
-    toolbarState.wasTargeting = true
-    toolbarState.awaitingCompletion = false
-    toolbarState.rearmAt = nil
-    return
-  end
+  if SpellIsTargeting and SpellIsTargeting() then return end
+  if toolbarState.castBusy or ToolbarPlayerIsCasting() then return end
 
-  if toolbarState.wasTargeting then
-    toolbarState.wasTargeting = false
-    toolbarState.awaitingCompletion = true
-    toolbarState.rearmAt = now + .75
-  end
+  if not toolbarState.rearmAt then toolbarState.rearmAt = now + .15 end
+  if now < toolbarState.rearmAt then return end
 
-  if toolbarState.awaitingCompletion and toolbarState.rearmAt and now >= toolbarState.rearmAt and not ToolbarPlayerIsCasting() then
-    toolbarState.awaitingCompletion = false
-    toolbarState.rearmAt = nil
-    if ToolbarCastPersistentMode(toolbarState.activeMode) then
-      toolbarState.rearmAt = now + .30
-    end
-  elseif not toolbarState.awaitingCompletion and toolbarState.rearmAt and now >= toolbarState.rearmAt then
-    if SpellIsTargeting and SpellIsTargeting() then
-      toolbarState.wasTargeting = true
-      toolbarState.rearmAt = nil
-    elseif not ToolbarPlayerIsCasting() then
-      if ToolbarCastPersistentMode(toolbarState.activeMode) then toolbarState.rearmAt = now + .30 end
-    end
-  end
+  ToolbarCastPersistentMode(mode)
+  toolbarState.rearmAt = now + .50
+end
+
+local function ToolbarOnSpellStarted()
+  if toolbarState.activeMode then toolbarState.castBusy = true end
 end
 
 local function ToolbarOnSpellFinished()
-  if not toolbarState.activeMode or not toolbarState.awaitingCompletion then return end
-  toolbarState.rearmAt = GetTime() + .10
-end
-
-local function ToolbarItemID(bag, slot)
-  if C_Container and type(C_Container.GetContainerItemID) == "function" then
-    local id = C_Container.GetContainerItemID(bag, slot)
-    if id then return tonumber(id) end
-  end
-
-  local link = GetContainerItemLink(bag, slot)
-  if not link then return nil end
-  local _, _, id = string.find(link, "item:(%d+)")
-  return tonumber(id)
-end
-
-local function ToolbarItemNameAndValue(bag, slot, id)
-  local link = GetContainerItemLink(bag, slot)
-  local name = ""
-  local value = nil
-
-  if link then
-    local _, _, linkName = string.find(link, "%[([^%]]+)%]")
-    name = string.lower(linkName or "")
-  end
-
-  if id and C_Item and type(C_Item.GetItemInfo) == "function" then
-    local n, _, _, _, _, _, _, _, _, _, sellPrice = C_Item.GetItemInfo(id)
-    if name == "" then name = string.lower(n or "") end
-    if sellPrice ~= nil then value = tonumber(sellPrice) end
-  end
-
-  if name == "" then
-    local n = GetItemInfo(link or id)
-    name = string.lower(n or "")
-  end
-
-  if value == nil and type(GetSellValue) == "function" then
-    local ok, v = pcall(GetSellValue, link or id)
-    if ok and v ~= nil then value = tonumber(v) end
-  end
-
-  if value == nil and type(GetItemSellPrice) == "function" and id then
-    local ok, v = pcall(GetItemSellPrice, id)
-    if ok and v ~= nil then value = tonumber(v) end
-  end
-
-  return name, value
-end
-
-local function ToolbarItemFamily(id)
-  if id and C_Item and type(C_Item.GetItemFamily) == "function" then
-    return tonumber(C_Item.GetItemFamily(id)) or 0
-  end
-  return 0
-end
-
-local function ToolbarBagFamily(bag)
-  if bag == 0 then return 0 end
-  if not ContainerIDToInventoryID or not GetInventoryItemID then return 0 end
-  local inv = ContainerIDToInventoryID(bag)
-  local id = inv and GetInventoryItemID("player", inv)
-  return ToolbarItemFamily(id)
-end
-
-local function ToolbarSortLess(a, b, mode, reverse)
-  local av, bv
-
-  if mode == "value" then
-    if a.value == nil and b.value ~= nil then return false end
-    if a.value ~= nil and b.value == nil then return true end
-    av, bv = a.value or 0, b.value or 0
-  else
-    av, bv = a.name or "", b.name or ""
-  end
-
-  if av ~= bv then
-    if reverse then return av > bv end
-    return av < bv
-  end
-
-  if a.name ~= b.name then
-    if reverse then return a.name > b.name end
-    return a.name < b.name
-  end
-
-  return a.ordinal < b.ordinal
-end
-
-local function ToolbarPhysicalSort(mode, reverse)
-  if not (C_Container and type(C_Container.SwapItems) == "function") then
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00Bag Tweaks:|r physical sort requires ClassicAPI.")
-    return
-  end
-
-  local items = {}
-  local grid = {}
-  local generalCells = {}
-  local specialtyCells = {}
-  local ordinal = 0
-
-  for bag = 0, 4 do
-    grid[bag] = {}
-    local family = ToolbarBagFamily(bag)
-    local count = GetContainerNumSlots(bag)
-
-    for slot = 1, count do
-      local cell = { bag=bag, slot=slot }
-      if family == 0 then
-        table.insert(generalCells, cell)
-      else
-        specialtyCells[family] = specialtyCells[family] or {}
-        table.insert(specialtyCells[family], cell)
-      end
-
-      local id = ToolbarItemID(bag, slot)
-      if id then
-        ordinal = ordinal + 1
-        local name, value = ToolbarItemNameAndValue(bag, slot, id)
-        local item = {
-          id=id,
-          name=name or "",
-          value=value,
-          family=ToolbarItemFamily(id),
-          ordinal=ordinal,
-          curBag=bag,
-          curSlot=slot,
-        }
-        grid[bag][slot] = item
-        table.insert(items, item)
-      end
-    end
-  end
-
-  table.sort(items, function(a, b)
-    return ToolbarSortLess(a, b, mode, reverse)
-  end)
-
-  local generalIndex = 1
-  local specialtyIndex = {}
-
-  for i = 1, table.getn(items) do
-    local item = items[i]
-    local cell = nil
-    local family = item.family or 0
-
-    if family ~= 0 and specialtyCells[family] then
-      local index = specialtyIndex[family] or 1
-      if index <= table.getn(specialtyCells[family]) then
-        cell = specialtyCells[family][index]
-        specialtyIndex[family] = index + 1
-      end
-    end
-
-    if not cell and generalIndex <= table.getn(generalCells) then
-      cell = generalCells[generalIndex]
-      generalIndex = generalIndex + 1
-    end
-
-    if cell then
-      item.destBag = cell.bag
-      item.destSlot = cell.slot
-    end
-  end
-
-  local toMove = {}
-  for i = 1, table.getn(items) do
-    local item = items[i]
-    if item.destBag and (item.destBag ~= item.curBag or item.destSlot ~= item.curSlot) then
-      table.insert(toMove, item)
-    end
-  end
-
-  for i = 1, table.getn(toMove) do
-    local item = toMove[i]
-    local curBag, curSlot = item.curBag, item.curSlot
-    local destBag, destSlot = item.destBag, item.destSlot
-
-    if curBag ~= destBag or curSlot ~= destSlot then
-      local _, _, lock1 = GetContainerItemInfo(curBag, curSlot)
-      local _, _, lock2 = GetContainerItemInfo(destBag, destSlot)
-
-      if not lock1 and not lock2 then
-        local displaced = grid[destBag][destSlot]
-        C_Container.SwapItems(curBag, curSlot, destBag, destSlot)
-        grid[destBag][destSlot] = item
-        grid[curBag][curSlot] = displaced
-        item.curBag, item.curSlot = destBag, destSlot
-        if displaced then displaced.curBag, displaced.curSlot = curBag, curSlot end
-      end
-    end
-  end
+  if not toolbarState.activeMode then return end
+  toolbarState.castBusy = false
+  toolbarState.rearmAt = GetTime() + .15
 end
 
 local function ToolbarMenuButton(parent, index)
@@ -2251,12 +2108,22 @@ local function ToolbarToggleKeys()
   elseif pfUI.bag.CreateBags then pfUI.bag:CreateBags() end
 end
 
+local function ToolbarToggleEmptyCategories()
+  if pfUI.bagtweaks and pfUI.bagtweaks.ToggleEmptyCategories then
+    pfUI.bagtweaks.ToggleEmptyCategories()
+  end
+end
+
 local function ToolbarShowViewMenu(owner)
   local bag = pfUI.bag and pfUI.bag.right
   local bagsOn = bag and bag.bagslots and bag.bagslots:IsShown()
   local keysOn = pfUI.bag and pfUI.bag.showKeyring
+  local emptyOn = true
+  if pfUI.bagtweaks and pfUI.bagtweaks.ShowEmptyCategories then
+    emptyOn = pfUI.bagtweaks.ShowEmptyCategories()
+  end
 
-  ToolbarShowMenu(owner, 120, {
+  ToolbarShowMenu(owner, 145, {
     { text=(bagsOn and "[x] " or "[ ] ") .. "Bags", action=function()
         ToolbarToggleBagSlots()
         ToolbarHideMenu()
@@ -2265,35 +2132,11 @@ local function ToolbarShowViewMenu(owner)
         ToolbarToggleKeys()
         ToolbarHideMenu()
       end },
+    { text=(emptyOn and "[x] " or "[ ] ") .. "Empty Categories", action=function()
+        ToolbarToggleEmptyCategories()
+        ToolbarHideMenu()
+      end },
   })
-end
-
-local function ToolbarShowProfessionMenu(owner)
-  local bag = pfUI.bag and pfUI.bag.right
-  if not bag then return end
-
-  local entries = {}
-  if bag.disenchant and (bag.disenchant:GetID() or 0) > 0 then
-    table.insert(entries, {
-      text=(toolbarState.activeMode == "disenchant" and "[x] " or "[ ] ") .. "Disenchant",
-      action=function()
-        ToolbarActivatePersistentMode("disenchant")
-        ToolbarHideMenu()
-      end,
-    })
-  end
-
-  if bag.picklock and (bag.picklock:GetID() or 0) > 0 then
-    table.insert(entries, {
-      text=(toolbarState.activeMode == "picklock" and "[x] " or "[ ] ") .. "Pick Lock",
-      action=function()
-        ToolbarActivatePersistentMode("picklock")
-        ToolbarHideMenu()
-      end,
-    })
-  end
-
-  if table.getn(entries) > 0 then ToolbarShowMenu(owner, 135, entries) end
 end
 
 local function ToolbarOpenOptions()
@@ -2458,11 +2301,6 @@ local function ToolbarDiscoverExtras(bag, border)
   return result
 end
 
-local function ToolbarHasProfession(bag)
-  return (bag.disenchant and (bag.disenchant:GetID() or 0) > 0) or
-    (bag.picklock and (bag.picklock:GetID() or 0) > 0)
-end
-
 local function ToolbarLayout()
   local bag = pfUI.bag and pfUI.bag.right
   if not bag or not bag.close or not bag.GetWidth then return end
@@ -2470,25 +2308,41 @@ local function ToolbarLayout()
   local height, border, gap, topInset = ToolbarMetrics(bag)
   ToolbarSuppressNative(bag)
 
-  local buttons = {}
+  local add = ToolbarMakeButton("add", "+", ToolbarAddCategory)
   local search = ToolbarMakeButton("search", "Search", ToolbarToggleSearch)
   local sort = ToolbarMakeButton("sort", "Sort", function() ToolbarNativeClick("sort") end)
   local view = ToolbarMakeButton("view", "View", function() ToolbarShowViewMenu(this) end)
-  local profession = ToolbarMakeButton("profession", "Profession", function() ToolbarShowProfessionMenu(this) end)
+  local quest = ToolbarMakeButton("quest", "Quest", ToolbarToggleQuest)
+  local disenchant = ToolbarMakeButton("disenchant", "DE", function() ToolbarActivatePersistentMode("disenchant") end)
+  local picklock = ToolbarMakeButton("picklock", "Pick", function() ToolbarActivatePersistentMode("picklock") end)
   local open = ToolbarMakeButton("open", "Open", function() ToolbarNativeClick("open") end)
   local options = ToolbarMakeButton("options", "Options", ToolbarOpenOptions)
 
+  local buttons = {}
   if search then table.insert(buttons, search) end
   if sort then table.insert(buttons, sort) end
   if view then table.insert(buttons, view) end
+  if quest then table.insert(buttons, quest) end
 
-  if profession then
-    if ToolbarHasProfession(bag) then
-      profession:Show()
-      table.insert(buttons, profession)
+  local deAvailable = bag.disenchant and (bag.disenchant:GetID() or 0) > 0
+  if disenchant then
+    if deAvailable then
+      disenchant:Show()
+      table.insert(buttons, disenchant)
     else
-      profession:Hide()
-      if toolbarState.activeMode then ToolbarDisablePersistentMode() end
+      disenchant:Hide()
+      if toolbarState.activeMode == "disenchant" then ToolbarDisablePersistentMode() end
+    end
+  end
+
+  local pickAvailable = bag.picklock and (bag.picklock:GetID() or 0) > 0
+  if picklock then
+    if pickAvailable then
+      picklock:Show()
+      table.insert(buttons, picklock)
+    else
+      picklock:Hide()
+      if toolbarState.activeMode == "picklock" then ToolbarDisablePersistentMode() end
     end
   end
 
@@ -2498,18 +2352,31 @@ local function ToolbarLayout()
   local extras = ToolbarDiscoverExtras(bag, border)
   for i = 1, table.getn(extras) do table.insert(buttons, extras[i]) end
 
-  local count = table.getn(buttons)
-  if count == 0 then return end
-
   local closeWidth = bag.close:GetWidth() or height
-  local available = bag:GetWidth() - border - border - closeWidth - gap
+  local addWidth = closeWidth
+
+  if add then
+    add:ClearAllPoints()
+    add:SetHeight(height)
+    add:SetWidth(addWidth)
+    add:SetPoint("TOPLEFT", bag, "TOPLEFT", border, -topInset)
+  end
+
+  local count = table.getn(buttons)
+  if count == 0 then
+    ToolbarApplySearchState()
+    ToolbarUpdateActiveVisuals()
+    return
+  end
+
+  local available = bag:GetWidth() - border - border - closeWidth - gap - addWidth - gap
   local gaps = (count - 1) * gap
   local usable = available - gaps
   if usable < count then return end
 
   local base = math.floor(usable / count)
   local remainder = usable - base * count
-  local previous = nil
+  local previous = add
 
   for i = 1, count do
     local button = buttons[i]
@@ -2571,12 +2438,15 @@ end
 local toolbarWatcher = CreateFrame("Frame")
 toolbarWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 toolbarWatcher:RegisterEvent("SPELLS_CHANGED")
+toolbarWatcher:RegisterEvent("SPELLCAST_START")
 toolbarWatcher:RegisterEvent("SPELLCAST_STOP")
 toolbarWatcher:RegisterEvent("SPELLCAST_FAILED")
 toolbarWatcher:RegisterEvent("SPELLCAST_INTERRUPTED")
 
 toolbarWatcher:SetScript("OnEvent", function()
-  if event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
+  if event == "SPELLCAST_START" then
+    ToolbarOnSpellStarted()
+  elseif event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
     ToolbarOnSpellFinished()
   end
   ToolbarSetup()
