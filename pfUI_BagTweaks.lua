@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.20-dev
+-- pfUI_BagTweaks 0.1.21-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, with an optional default Quest category,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -96,14 +96,28 @@ local function Initialize()
 
     G.pfUIBagTweaksDB = G.pfUIBagTweaksDB or {}
     local db = G.pfUIBagTweaksDB
-    db.groups = db.groups or {}
-    db.nextGroupID = tonumber(db.nextGroupID) or 1
-    db.generalSort = db.generalSort or "bag"
+
+    -- Only write defaults/migrations when the stored value actually needs it.
+    -- Normal logins and relayouts should leave an already-valid DB untouched.
+    if db.groups == nil then db.groups = {} end
+
+    if db.nextGroupID == nil then
+      db.nextGroupID = 1
+    else
+      local nextID = tonumber(db.nextGroupID)
+      if nextID and nextID ~= db.nextGroupID then db.nextGroupID = nextID end
+    end
+
+    if db.generalSort == nil then db.generalSort = "bag" end
     if db.generalReverse == nil then db.generalReverse = false end
-    db.accountAssignments = db.accountAssignments or db.assignments or {}
-    db.assignments = nil
-    db.charAssignments = db.charAssignments or {}
-    db.rows = db.rows or {}
+
+    if db.accountAssignments == nil then
+      db.accountAssignments = db.assignments or {}
+    end
+    if db.assignments ~= nil then db.assignments = nil end
+
+    if db.charAssignments == nil then db.charAssignments = {} end
+    if db.rows == nil then db.rows = {} end
     if db.showEmptyCategories == nil then db.showEmptyCategories = true end
 
     local legacyQuestEnabled = db.questGroupID ~= nil
@@ -147,6 +161,22 @@ local function Initialize()
       return g.owner == CharacterKey()
     end
 
+    local function RowsEqual(a, b)
+      if table.getn(a) ~= table.getn(b) then return false end
+
+      for r = 1, table.getn(a) do
+        local ar = a[r]
+        local br = b[r]
+        if not br or table.getn(ar) ~= table.getn(br) then return false end
+
+        for c = 1, table.getn(ar) do
+          if ar[c] ~= br[c] then return false end
+        end
+      end
+
+      return true
+    end
+
     local function NormalizeRows()
       local clean = {}
       local seen = {}
@@ -175,7 +205,9 @@ local function Initialize()
         end
       end
 
-      db.rows = clean
+      if not RowsEqual(db.rows, clean) then
+        db.rows = clean
+      end
     end
 
     local questSystem = nil
@@ -189,24 +221,32 @@ local function Initialize()
         db.nextGroupID = g.id + 1
       end
 
-      g.name = g.name or ("Group " .. tostring(g.id))
-      g.sort = g.sort or "bag"
+      if g.name == nil then g.name = "Group " .. tostring(g.id) end
+      if g.sort == nil then g.sort = "bag" end
       if g.reverse == nil then g.reverse = false end
-      if g.scope == "character" then g.scope = "char" end
-      if g.scope ~= "char" then g.scope = "account" end
+
+      if g.scope == "character" then
+        g.scope = "char"
+      elseif g.scope ~= "char" and g.scope ~= "account" then
+        g.scope = "account"
+      end
+
       if g.scope == "char" and not g.owner then g.owner = CharacterKey() end
 
       if g.quest then legacyQuestEnabled = true end
-      g.quest = nil
+      if g.quest ~= nil then g.quest = nil end
 
       if g.system == "quest" and not questSystem then
         questSystem = g
       end
     end
 
-    db.questGroupID = nil
-    if db.questEnabled == nil then db.questEnabled = legacyQuestEnabled end
-    db.questEnabled = db.questEnabled and true or false
+    if db.questGroupID ~= nil then db.questGroupID = nil end
+    if db.questEnabled == nil then
+      db.questEnabled = legacyQuestEnabled
+    elseif db.questEnabled ~= true and db.questEnabled ~= false then
+      db.questEnabled = db.questEnabled and true or false
+    end
 
     if not questSystem then
       questSystem = {
@@ -220,10 +260,10 @@ local function Initialize()
       db.nextGroupID = db.nextGroupID + 1
       table.insert(db.groups, questSystem)
     else
-      questSystem.name = "Quest"
-      questSystem.scope = "account"
-      questSystem.owner = nil
-      questSystem.system = "quest"
+      if questSystem.name ~= "Quest" then questSystem.name = "Quest" end
+      if questSystem.scope ~= "account" then questSystem.scope = "account" end
+      if questSystem.owner ~= nil then questSystem.owner = nil end
+      if questSystem.system ~= "quest" then questSystem.system = "quest" end
     end
 
     NormalizeRows()
@@ -2252,36 +2292,23 @@ end
 
 local function ToolbarOpenOptions()
   ToolbarHideMenu()
-  if not pfUI.gui then return end
-
-  pfUI.gui:Show()
-  local frames = pfUI.gui.frames
-  if not frames then return end
+  if not pfUI.gui or not pfUI.gui.frames then return end
 
   local thirdParty = "Thirdparty"
   if pfUI.env and pfUI.env.T and pfUI.env.T["Thirdparty"] then
     thirdParty = pfUI.env.T["Thirdparty"]
   end
 
-  local root = frames[thirdParty]
-  if not root or not root.area then return end
+  local root = pfUI.gui.frames[thirdParty]
+  local child = root and root["Bag Tweaks"]
+  if not root or not child then return end
 
-  for key, entry in pairs(frames) do
-    if key ~= "area" and type(entry) == "table" and entry.area and entry.area.Hide then
-      entry.area:Hide()
-    end
-  end
-  root.area:Show()
+  pfUI.gui:Show()
 
-  local child = root["Bag Tweaks"]
-  if not child or not child.area then return end
-
-  for key, entry in pairs(root) do
-    if key ~= "area" and type(entry) == "table" and entry.area and entry.area.Hide then
-      entry.area:Hide()
-    end
-  end
-  child.area:Show()
+  -- Use pfUI's own tab click path. This handles hiding sibling pages and,
+  -- importantly, triggers the lazy OnShow population for our options page.
+  if root.Click then root:Click() end
+  if child.Click then child:Click() end
 end
 
 local function ToolbarNativeClick(which)
@@ -2471,6 +2498,14 @@ local function ToolbarLayout()
     add:SetHeight(height)
     add:SetWidth(addWidth)
     add:SetPoint("TOPLEFT", bag, "TOPLEFT", border, -topInset)
+
+    -- The + button is intentionally as narrow as pfUI's close button.
+    -- Do not constrain its one-character label with the generic 2px insets,
+    -- otherwise Vanilla shortens it to "...".
+    if add.bagtweaks_toolbar_label then
+      add.bagtweaks_toolbar_label:ClearAllPoints()
+      add.bagtweaks_toolbar_label:SetPoint("CENTER", add, "CENTER", 0, 0)
+    end
   end
 
   local count = table.getn(buttons)
