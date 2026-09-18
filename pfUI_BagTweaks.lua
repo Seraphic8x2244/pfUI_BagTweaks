@@ -1465,15 +1465,19 @@ local function Initialize()
       if target and intent then PlaceDraggedGroup(source, target, intent, side) end
     end
 
-    local function Header(key, name, groupID)
-      local h = headers[key]
+    local function Header(view, key, name, groupID)
+      local viewHeaders = headers[view]
+      local h = viewHeaders[key]
+      local parent = ViewFrame(view)
+      if not parent then return nil end
 
       if not h then
-        h = CreateFrame("Button", nil, pfUI.bag.right)
+        h = CreateFrame("Button", nil, parent)
         h:SetHeight(HEADER_HEIGHT)
         h:EnableMouse(1)
         h:RegisterForDrag("LeftButton")
         h.bagtweaks_header = true
+        h.bagtweaks_view = view
 
         h.text = h:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         h.text:SetFont(pfUI.font_default, C.global.font_size, "OUTLINE")
@@ -1489,7 +1493,7 @@ local function Initialize()
         h.line:SetPoint("BOTTOMRIGHT", h)
 
         h:SetScript("OnDragStart", function()
-          if h.groupID then BeginGroupDrag(h.groupID) end
+          if h.groupID then BeginGroupDrag(h.groupID, h.bagtweaks_view) end
         end)
 
         h:SetScript("OnDragStop", function()
@@ -1515,7 +1519,7 @@ local function Initialize()
         h:SetScript("OnEnter", function()
           if draggingGroupID then return end
 
-          local section = sections[SectionKeyForGroupID(h.groupID)]
+          local section = sections[h.bagtweaks_view][SectionKeyForGroupID(h.groupID)]
           if selectedItemID and CursorStillHasItem() then
             ShowItemHighlight(section)
             return
@@ -1540,20 +1544,25 @@ local function Initialize()
           GameTooltip:Hide()
         end)
 
-        headers[key] = h
+        viewHeaders[key] = h
       end
 
+      h.bagtweaks_view = view
       h.groupID = groupID
       h.text:SetText(name)
       h:Show()
       return h
     end
 
-    local function Section(key, groupID)
-      local s = sections[key]
+    local function Section(view, key, groupID)
+      local viewSections = sections[view]
+      local s = viewSections[key]
+      local parent = ViewFrame(view)
+      if not parent then return nil end
 
       if not s then
-        s = CreateFrame("Frame", nil, pfUI.bag.right)
+        s = CreateFrame("Frame", nil, parent)
+        s.bagtweaks_view = view
         s:EnableMouse(1)
 
         s.itemHighlight = s:CreateTexture(nil, "BACKGROUND")
@@ -1587,9 +1596,10 @@ local function Initialize()
           GameTooltip:Hide()
         end)
 
-        sections[key] = s
+        viewSections[key] = s
       end
 
+      s.bagtweaks_view = view
       s.groupID = groupID
       s:Show()
       return s
