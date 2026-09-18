@@ -2471,7 +2471,15 @@ local function ToolbarLayout()
     end
   end
 
-  if sort then table.insert(buttons, sort) end
+  if sort then
+    if toolbarState.native.sort then
+      sort:Show()
+      table.insert(buttons, sort)
+    else
+      sort:Hide()
+    end
+  end
+
   if view then table.insert(buttons, view) end
   if quest then table.insert(buttons, quest) end
 
