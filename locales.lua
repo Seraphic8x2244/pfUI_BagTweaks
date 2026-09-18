@@ -4,7 +4,7 @@
 pfUIBagTweaks_L = pfUIBagTweaks_L or {}
 local L = pfUIBagTweaks_L
 
-L.SORT_BAG = "Bag Order"
+L.SORT_BAG = "Default"
 L.SORT_NAME = "Name"
 L.SORT_VENDOR_VALUE = "Vendor Value"
 L.SORT_CHARACTER_SLOT = "Character Slot"
@@ -37,7 +37,6 @@ L.MOVE_TO_GENERAL_TOOLTIP = "Release/click to keep the selected item in General"
 
 L.PLUGIN_NAME = "Bag Tweaks"
 L.PLUGIN_HEADER = "pfUI_BagTweaks"
-L.SHOW_SEARCH_BAR = "Show Search Bar"
 
 L.BAGS = "Bags"
 L.KEYS = "Keys"
