@@ -799,35 +799,44 @@ local function Initialize()
     end
 
     local function HideDragVisuals()
-      if dragPreview then dragPreview:Hide() end
-      if dragInsertLine then dragInsertLine:Hide() end
+      for _, frame in pairs(dragPreviews) do frame:Hide() end
+      for _, frame in pairs(dragInsertLines) do frame:Hide() end
     end
 
-    local function EnsureDragVisuals()
-      local baseLevel = pfUI.bag.right:GetFrameLevel() or 0
+    local function EnsureDragVisuals(view)
+      local parent = ViewFrame(view)
+      if not parent then return nil, nil end
 
-      if not dragPreview then
-        dragPreview = CreateFrame("Frame", nil, pfUI.bag.right)
-        dragPreview:EnableMouse(false)
-        dragPreview.texture = dragPreview:CreateTexture(nil, "BACKGROUND")
-        dragPreview.texture:SetAllPoints(dragPreview)
-        dragPreview.texture:SetTexture(1, 1, 1, 1)
-        dragPreview.texture:SetVertexColor(.15, 1, .15, .20)
-        dragPreview:Hide()
-      end
-      dragPreview:SetFrameLevel(baseLevel + 2)
+      local baseLevel = parent:GetFrameLevel() or 0
+      local preview = dragPreviews[view]
+      local insertLine = dragInsertLines[view]
 
-      if not dragInsertLine then
-        dragInsertLine = CreateFrame("Frame", nil, pfUI.bag.right)
-        dragInsertLine:EnableMouse(false)
-        dragInsertLine.texture = dragInsertLine:CreateTexture(nil, "ARTWORK")
-        dragInsertLine.texture:SetAllPoints(dragInsertLine)
-        dragInsertLine.texture:SetTexture(1, 1, 1, 1)
-        dragInsertLine.texture:SetVertexColor(.15, 1, .15, .95)
-        dragInsertLine:SetHeight(INSERT_LINE_HEIGHT)
-        dragInsertLine:Hide()
+      if not preview then
+        preview = CreateFrame("Frame", nil, parent)
+        preview:EnableMouse(false)
+        preview.texture = preview:CreateTexture(nil, "BACKGROUND")
+        preview.texture:SetAllPoints(preview)
+        preview.texture:SetTexture(1, 1, 1, 1)
+        preview.texture:SetVertexColor(.15, 1, .15, .20)
+        preview:Hide()
+        dragPreviews[view] = preview
       end
-      dragInsertLine:SetFrameLevel(baseLevel + 6)
+      preview:SetFrameLevel(baseLevel + 2)
+
+      if not insertLine then
+        insertLine = CreateFrame("Frame", nil, parent)
+        insertLine:EnableMouse(false)
+        insertLine.texture = insertLine:CreateTexture(nil, "ARTWORK")
+        insertLine.texture:SetAllPoints(insertLine)
+        insertLine.texture:SetTexture(1, 1, 1, 1)
+        insertLine.texture:SetVertexColor(.15, 1, .15, .95)
+        insertLine:SetHeight(INSERT_LINE_HEIGHT)
+        insertLine:Hide()
+        dragInsertLines[view] = insertLine
+      end
+      insertLine:SetFrameLevel(baseLevel + 6)
+
+      return preview, insertLine
     end
 
     local function ShowNameDialog(groupID)
@@ -1219,7 +1228,8 @@ local function Initialize()
     end
 
     local function FindDragTargetUnderCursor()
-      for _, s in pairs(sections) do
+      local viewSections = sections[draggingView] or {}
+      for _, s in pairs(viewSections) do
         if s:IsShown() then
           local rx, ry = CursorPositionFor(s)
           if rx and ry then
@@ -1237,45 +1247,47 @@ local function Initialize()
     end
 
     local function ShowInsertLine(section, before)
-      EnsureDragVisuals()
-      dragPreview:Hide()
+      local preview, insertLine = EnsureDragVisuals(draggingView)
+      if not preview or not insertLine then return end
+      preview:Hide()
 
       local row = RowForSection(section)
       if not row then
-        dragInsertLine:Hide()
+        insertLine:Hide()
         return
       end
 
-      dragInsertLine:ClearAllPoints()
+      insertLine:ClearAllPoints()
       if before then
-        dragInsertLine:SetPoint("BOTTOMLEFT", row, "TOPLEFT", 0, 0)
-        dragInsertLine:SetPoint("BOTTOMRIGHT", row, "TOPRIGHT", 0, 0)
+        insertLine:SetPoint("BOTTOMLEFT", row, "TOPLEFT", 0, 0)
+        insertLine:SetPoint("BOTTOMRIGHT", row, "TOPRIGHT", 0, 0)
       else
-        dragInsertLine:SetPoint("TOPLEFT", row, "BOTTOMLEFT", 0, 0)
-        dragInsertLine:SetPoint("TOPRIGHT", row, "BOTTOMRIGHT", 0, 0)
+        insertLine:SetPoint("TOPLEFT", row, "BOTTOMLEFT", 0, 0)
+        insertLine:SetPoint("TOPRIGHT", row, "BOTTOMRIGHT", 0, 0)
       end
-      dragInsertLine:Show()
+      insertLine:Show()
     end
 
     local function ShowPairPreview(section, side)
-      EnsureDragVisuals()
-      dragInsertLine:Hide()
+      local preview, insertLine = EnsureDragVisuals(draggingView)
+      if not preview or not insertLine then return end
+      insertLine:Hide()
 
       local row = RowForSection(section)
       if not row then
-        dragPreview:Hide()
+        preview:Hide()
         return
       end
 
-      dragPreview:ClearAllPoints()
+      preview:ClearAllPoints()
       if side == "left" then
-        dragPreview:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
-        dragPreview:SetPoint("BOTTOMRIGHT", row, "BOTTOM", -1, 0)
+        preview:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+        preview:SetPoint("BOTTOMRIGHT", row, "BOTTOM", -1, 0)
       else
-        dragPreview:SetPoint("TOPLEFT", row, "TOP", 1, 0)
-        dragPreview:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+        preview:SetPoint("TOPLEFT", row, "TOP", 1, 0)
+        preview:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
       end
-      dragPreview:Show()
+      preview:Show()
     end
 
     local function DetermineDragIntent(targetID, section, rx, ry)
@@ -1406,18 +1418,19 @@ local function Initialize()
       Relayout()
     end
 
-    local function BeginGroupDrag(id)
+    local function BeginGroupDrag(id, view)
       if selectedItemID and CursorStillHasItem() then return end
-      if not id then return end
+      if not id or not view then return end
 
       draggingGroupID = id
+      draggingView = view
       dragTargetID = nil
       dragTargetSection = nil
       dragIntent = nil
       dragSide = nil
       HideItemHighlight()
       HideMenus()
-      EnsureDragVisuals()
+      EnsureDragVisuals(view)
 
       if not dragWatcher then
         dragWatcher = CreateFrame("Frame")
@@ -1440,6 +1453,7 @@ local function Initialize()
       local side = dragSide
 
       draggingGroupID = nil
+      draggingView = nil
       dragTargetID = nil
       dragTargetSection = nil
       dragIntent = nil
