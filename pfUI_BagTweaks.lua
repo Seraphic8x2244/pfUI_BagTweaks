@@ -139,6 +139,13 @@ local function Initialize()
       return currentCharAssignments
     end
 
+    local function PruneCurrentCharAssignments()
+      if currentCharAssignments and not next(currentCharAssignments) then
+        db.charAssignments[characterKey] = nil
+        currentCharAssignments = nil
+      end
+    end
+
     local function Trim(s)
       s = tostring(s or "")
       s = string.gsub(s, "^%s+", "")
@@ -360,6 +367,7 @@ local function Initialize()
 
         g.scope = "account"
         g.owner = nil
+        PruneCurrentCharAssignments()
       elseif scope == "char" and g.scope ~= "char" then
         for itemID, groupID in pairs(db.accountAssignments) do
           if groupID == id then
@@ -816,6 +824,8 @@ local function Initialize()
           if ca then ca[itemKey] = nil end
         end
       end
+
+      PruneCurrentCharAssignments()
 
       if type(ClearCursor) == "function" then ClearCursor() end
       selectedItemID = nil
@@ -2571,11 +2581,7 @@ local function ToolbarSetup()
     pfUI.bagtweaks.ApplyHeaderOptions = ToolbarApplyOptions
   end
 
-  if not toolbarState.initialized then
-    toolbarState.initialized = true
-    ToolbarLayout()
-  end
-
+  if not toolbarState.initialized then toolbarState.initialized = true end
   return true
 end
 
@@ -2622,4 +2628,4 @@ toolbarWatcher:SetScript("OnUpdate", function()
   end
 end)
 
-ToolbarSetup()
+if ToolbarSetup() then ToolbarLayout() end
