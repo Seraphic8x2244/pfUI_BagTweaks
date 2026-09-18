@@ -1723,11 +1723,11 @@ local function Initialize()
         s.itemHighlight:SetVertexColor(.15, 1, .15, .16)
         s.itemHighlight:Hide()
 
-        s.divider = s:CreateTexture(nil, "ARTWORK")
-        s.divider:SetTexture(1, 1, 1, 1)
-        s.divider:SetVertexColor(.25, .25, .25, 1)
-        s.divider:SetWidth(1)
-        s.divider:Hide()
+        s.leftEdge = s:CreateTexture(nil, "ARTWORK")
+        s.leftEdge:SetTexture(1, 1, 1, 1)
+        s.leftEdge:SetVertexColor(.25, .25, .25, 1)
+        s.leftEdge:SetWidth(1)
+        s.leftEdge:Hide()
 
         s:SetScript("OnReceiveDrag", function()
           if not draggingSubcategoryID then AssignSelected(s.categoryID) end
@@ -2011,7 +2011,7 @@ local function Initialize()
       }
     end
 
-    local function LayoutSection(view, key, name, subcategoryID, list, columns, size, border, showDivider)
+    local function LayoutSection(view, key, name, subcategoryID, list, columns, size, border)
       if columns < 1 then columns = 1 end
 
       local spacing = border * 3
@@ -2034,11 +2034,11 @@ local function Initialize()
       header:SetPoint("TOPLEFT", section, "TOPLEFT", border, 0)
       header:SetPoint("TOPRIGHT", section, "TOPRIGHT", -border, 0)
 
-      if section.divider then
-        section.divider:ClearAllPoints()
-        section.divider:SetPoint("TOPRIGHT", section, "TOPRIGHT", 0, -HEADER_HEIGHT)
-        section.divider:SetPoint("BOTTOMRIGHT", section, "BOTTOMRIGHT", 0, 0)
-        if showDivider then section.divider:Show() else section.divider:Hide() end
+      if section.leftEdge then
+        section.leftEdge:ClearAllPoints()
+        section.leftEdge:SetPoint("TOPLEFT", section, "TOPLEFT", border, -HEADER_HEIGHT)
+        section.leftEdge:SetPoint("BOTTOMLEFT", section, "BOTTOMLEFT", border, 0)
+        if subcategoryID then section.leftEdge:Show() else section.leftEdge:Hide() end
       end
 
       local row, col = 0, 0
@@ -2191,7 +2191,7 @@ local function Initialize()
       SortEntries(general, db.generalSort, db.generalReverse)
 
       local generalSection, generalHeight = LayoutSection(
-        view, "general", L.GENERAL, nil, general, fullColumns, size, border, false
+        view, "general", L.GENERAL, nil, general, fullColumns, size, border
       )
       if not generalSection then return end
 
@@ -2226,7 +2226,6 @@ local function Initialize()
 
             for n = 1, table.getn(row.entries) do
               local entry = row.entries[n]
-              local showDivider = n < table.getn(row.entries)
               local section, _, sectionWidth = LayoutSection(
                 view,
                 entry.id,
@@ -2235,8 +2234,7 @@ local function Initialize()
                 entry.list,
                 entry.columns,
                 size,
-                border,
-                showDivider
+                border
               )
 
               if section then
