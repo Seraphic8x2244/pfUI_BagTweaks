@@ -4,12 +4,23 @@
 
 - Repository: `Seraphic8x2244/pfUI_BagTweaks`.
 - Work from the `dev` branch. Fetch current files before editing; the user may have changed the repo externally.
-- Current development version: `0.1.28-dev`.
+- Current development version: `0.1.29-dev`.
 - Work directly on `dev`; do not open a PR unless asked.
 - `main` is the stable user branch. Do not develop directly on `main`.
 - Keep this handoff updated when behaviour, invariants, test status, or TODOs change.
 - The user drives UX/design decisions; flag compatibility/performance risks instead of adding unnecessary options.
 - Primary test target is brues-code pfUI. Shagu pfUI compatibility is best-effort unless a tester is available.
+
+## Current Status
+
+- Branch: `dev`.
+- Version: `0.1.29-dev`.
+- Latest functional commit: `638f2ea` — refine Subcategory spacing/dividers and DE safety.
+- Latest version commit: `d4bb1f7` — bump dev version to 0.1.29-dev.
+- Completed this pass: account-wide parent Category model confirmed; wider horizontal Subcategory separation; grey vertical dividers; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition.
+- Untested this pass: in-game visual feel at the user's current pfUI scale/row width; DE target consumption; all three disarm paths.
+- Deferred: Pick Lock workflow test, active-quest ordinary-item detection, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
+- Exact next step: user reloads/tests 0.1.29-dev, sends a screenshot of the new Category/Subcategory spacing and confirms DE left-click plus disarm behaviour.
 
 ## Goals
 
@@ -23,7 +34,7 @@
 
 ## Terminology / Model
 
-- **Category**: full-width organisational container. Categories do not directly own item assignments or sorting rules.
+- **Category**: full-width organisational container. Categories are always account-wide and do not directly own item assignments or sorting rules.
 - **Subcategory**: item classification target. This is what the pre-0.1.28 addon called a Category.
 - **General**: fixed full-width special section at the bottom; not a normal Category/Subcategory.
 - **Quest**: built-in system Subcategory with fixed display name and account scope.
@@ -73,6 +84,9 @@ Migration from schema 1:
 - Backpack uses pfUI `bagrowlength`; bank uses `bankrowlength`.
 - Item size comes from pfUI's calculated `button_size`; border/spacing comes from pfUI bag border settings.
 - Subcategories pack left-to-right in stable user order and wrap when the next block will not fit.
+- Horizontal Subcategory gaps are accounted for inside pfUI's existing bag width; BagTweaks does not widen the bag.
+- Subcategory header underlines continue downward as a subtle grey divider between adjacent Subcategories on the same row.
+- Item icons sit slightly farther below their Subcategory underline, while wrapped Subcategory rows use a tighter vertical gap.
 - Preferred Subcategory width is count-driven: approximately `ceil(sqrt(itemCount * 1.5))`, clamped to the parent width with a two-slot minimum where possible.
 - Spare columns are only assigned when they reduce a Subcategory's item-row count.
 - This is deliberately greedy/deterministic rather than a bin-packing optimiser.
@@ -97,7 +111,8 @@ Migration from schema 1:
 - Other visual sorts: Name, Vendor Value, Character Slot; each supports Reverse.
 - Bank Default uses bank physical traversal order.
 - Bank DE/Pick/Open controls are intentionally absent.
-- Backpack DE does not consume bank-item right-clicks.
+- Backpack DE uses Vanilla-style left-click targeting and does not consume bank-item left-clicks.
+- Persistent DE/Pick mode is disarmed when the backpack closes, the bank closes, or `PLAYER_ENTERING_WORLD` fires (including loading/world transitions).
 
 ## Toolbar
 
@@ -121,23 +136,25 @@ Previously confirmed on the pre-0.1.28 brues-code pfUI base:
 - Item assignment, account/per-character scope, visual sorting, Reverse, Quest, Search, View, Options.
 - Backpack/bank shared categorization.
 - Physical backpack/bank Sort delegates to pfUI.
-- Persistent Disenchant works using right-click.
+- Persistent Disenchant worked on the pre-0.1.29 implementation; 0.1.29 changes its target click to Vanilla-style left-click.
 - Quest class-12 categorization and manual precedence work.
 
-`0.1.28-dev` requires a fresh in-game pass after the Category/Subcategory refactor:
+`0.1.29-dev` requires a fresh in-game pass after the Category/Subcategory refactor and spacing/DE changes:
 - Schema-1 migration and reload persistence.
 - Category/Subcategory creation, rename, delete, and ordering.
 - Dynamic packing at different pfUI bag row lengths and icon sizes.
+- Horizontal Subcategory gap, grey vertical divider, and revised vertical spacing.
 - Subcategory drag/reorder/move between Categories.
 - Backpack and bank layout parity.
 - Empty Subcategories toggle.
 - Existing assignment/scope/sort/Quest behaviour after migration.
+- DE left-click targeting and disarm on backpack close, bank close, and world/instance transition.
 
 ## TODO / Untested
 
 - Rogue Pick Lock workflow.
 - Temporary active-quest objective detection for ordinary item-class items; implemented but not yet encountered in-game.
-- DE discoverability: targeting-style cursor / candidate-item hover feedback; keep right-click behaviour.
+- DE discoverability: targeting-style cursor / candidate-item hover feedback; keep Vanilla-style left-click targeting.
 - Custom tiny toolbar artwork: Search, Sort, Options, DE, Pick, Open.
 - Consider reducing the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
