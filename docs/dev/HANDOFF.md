@@ -142,7 +142,9 @@ Intended interaction:
 
 BagTweaks should not maintain a loot-window/timer rearm state machine for DE.
 
-Pending in-game test: repeated disenchanting on a character with enough eligible items.
+Confirmed in-game on brues-code pfUI: persistent Disenchant works across repeated items using right-click.
+
+UX TODO: make active DE mode more discoverable without sacrificing normal left-click item movement/category interactions. Candidate treatment: targeting-style cursor feedback plus a red-to-transparent hover pulse on disenchantable items.
 
 ## Pick Lock
 
@@ -187,13 +189,13 @@ Confirmed on brues-code pfUI:
 - Category drag/reorder/scope behaviour appears correct.
 - Visual sort modes and Reverse appear correct.
 - Quest category and manual precedence work.
-- Active item-objective detection is implemented; Vanilla name matching is the dependency-free path with optional exact ClassicAPI IDs.
+- Repeated Disenchant workflow works using the current right-click interaction.
+- Active item-objective detection is implemented; Vanilla name matching is the dependency-free path with optional exact ClassicAPI IDs, but this temporary-objective behaviour is not yet in-game tested.
 
 Pending:
 
-- Repeated DE workflow.
 - Rogue Pick Lock workflow.
 - Toolbar icon conversion.
-- Temporary quest-objective item behaviour on a quest that uses a normal item class, including a quest hidden under a collapsed quest-log header.
+- Temporary quest-objective item behaviour on a quest that uses a normal item class, including a quest hidden under a collapsed quest-log header. This remains untested until a suitable quest is encountered.
 
 Shagu pfUI is not part of the user's test setup; compatibility there is best-effort unless another tester is available.
