@@ -2698,6 +2698,311 @@ local function ToolbarDiscoverExtras(bag, border)
   return result
 end
 
+local function BankToolbarFilter(query)
+  query = string.lower(tostring(query or ""))
+  query = string.gsub(query, "^%s+", "")
+  query = string.gsub(query, "%s+$", "")
+
+  local bags = pfUI.BANK or {}
+  for i = 1, table.getn(bags) do
+    local bagID = bags[i]
+    local count = GetContainerNumSlots(bagID)
+
+    for slot = 1, count do
+      local data = pfUI.bags and pfUI.bags[bagID] and pfUI.bags[bagID].slots[slot]
+      local frame = data and data.frame
+
+      if frame then
+        local alpha = 1
+        if query ~= "" then
+          alpha = .25
+          local link = GetContainerItemLink(bagID, slot)
+          if link then
+            local _, _, name = string.find(link, "%[([^%]]+)%]")
+            name = string.lower(name or "")
+            if string.find(name, query, 1, true) then alpha = 1 end
+          end
+        end
+        frame:SetAlpha(alpha)
+      end
+    end
+  end
+end
+
+local function BankToolbarEnsureSearch()
+  if bankToolbarState.search then return bankToolbarState.search end
+
+  local bank = pfUI.bag and pfUI.bag.left
+  if not bank then return nil end
+
+  local search = CreateFrame("Frame", nil, bank)
+  search:EnableMouse(1)
+  ToolbarCreateBackdrop(search, 1)
+
+  search.edit = CreateFrame("EditBox", nil, search)
+  search.edit:SetPoint("TOPLEFT", search, "TOPLEFT", 4, -1)
+  search.edit:SetPoint("BOTTOMRIGHT", search, "BOTTOMRIGHT", -4, 1)
+  search.edit:SetFont(pfUI.font_default or STANDARD_TEXT_FONT, ToolbarFontSize(), "OUTLINE")
+  search.edit:SetTextColor(.9, .9, .9, 1)
+  search.edit:SetAutoFocus(false)
+  search.edit:SetText("")
+
+  search.edit:SetScript("OnTextChanged", function()
+    BankToolbarFilter(this:GetText())
+  end)
+  search.edit:SetScript("OnEscapePressed", function()
+    bankToolbarState.searchOpen = false
+    this:ClearFocus()
+    BankToolbarFilter("")
+    search:SetAlpha(0)
+    search:EnableMouse(0)
+    this:EnableMouse(0)
+    ToolbarUpdateActiveVisuals()
+  end)
+  search.edit:SetScript("OnEnterPressed", function()
+    this:ClearFocus()
+  end)
+
+  search:SetAlpha(0)
+  search:EnableMouse(0)
+  search.edit:EnableMouse(0)
+  bankToolbarState.search = search
+  return search
+end
+
+local function BankToolbarApplySearchState()
+  local bank = pfUI.bag and pfUI.bag.left
+  local search = BankToolbarEnsureSearch()
+  if not bank or not search then return end
+
+  local _, border = ToolbarMetrics(bank)
+  local y = TOOLBAR_SEARCH_GAP
+  if bank.bagslots and bank.bagslots:IsShown() then
+    y = y + (bank.bagslots:GetHeight() or 0) + border * 2
+  end
+
+  search:ClearAllPoints()
+  search:SetPoint("BOTTOMLEFT", bank, "TOPLEFT", border, y)
+  search:SetPoint("BOTTOMRIGHT", bank, "TOPRIGHT", -border, y)
+  search:SetHeight(bank.close and bank.close:GetHeight() or 12)
+
+  if bankToolbarState.searchOpen then
+    search:SetAlpha(1)
+    search:EnableMouse(1)
+    search.edit:EnableMouse(1)
+  else
+    search.edit:ClearFocus()
+    search.edit:SetText("")
+    search.edit:EnableMouse(0)
+    search:EnableMouse(0)
+    search:SetAlpha(0)
+    BankToolbarFilter("")
+  end
+
+  ToolbarUpdateActiveVisuals()
+end
+
+local function BankToolbarToggleSearch()
+  ToolbarHideMenu()
+  bankToolbarState.searchOpen = not bankToolbarState.searchOpen
+  BankToolbarApplySearchState()
+
+  local search = bankToolbarState.search
+  if bankToolbarState.searchOpen and search and search.edit then
+    search.edit:SetFocus()
+  end
+end
+
+local function BankToolbarToggleBagSlots()
+  local bank = pfUI.bag and pfUI.bag.left
+  local slots = bank and bank.bagslots
+  if not slots then return end
+  if slots:IsShown() then slots:Hide() else slots:Show() end
+  BankToolbarApplySearchState()
+end
+
+local function BankToolbarShowViewMenu(owner)
+  local bank = pfUI.bag and pfUI.bag.left
+  local bagsOn = bank and bank.bagslots and bank.bagslots:IsShown()
+  local emptyOn = true
+
+  if pfUI.bagtweaks and pfUI.bagtweaks.ShowEmptyCategories then
+    emptyOn = pfUI.bagtweaks.ShowEmptyCategories()
+  end
+
+  ToolbarShowMenu(owner, 145, {
+    { text=(bagsOn and "[x] " or "[ ] ") .. L.BAGS, action=function()
+        BankToolbarToggleBagSlots()
+        ToolbarHideMenu()
+      end },
+    { text=(emptyOn and "[x] " or "[ ] ") .. L.EMPTY_CATEGORIES, action=function()
+        ToolbarToggleEmptyCategories()
+        ToolbarHideMenu()
+      end },
+  })
+end
+
+local function BankToolbarNativeClick(which)
+  ToolbarHideMenu()
+  local func = bankToolbarState.native[which]
+  if func then func() end
+end
+
+local function BankToolbarMakeButton(key, textValue, onclick)
+  local button = bankToolbarState.buttons[key]
+  if button then
+    ToolbarEnsureLabel(button, textValue)
+    button:Show()
+    return button
+  end
+
+  local bank = pfUI.bag and pfUI.bag.left
+  if not bank then return nil end
+
+  button = CreateFrame("Button", nil, bank)
+  button.bagtweaks_toolbar_control = true
+  button:EnableMouse(1)
+
+  local _, border = ToolbarMetrics(bank)
+  ToolbarCreateBackdrop(button, border)
+  ToolbarEnsureLabel(button, textValue)
+  ToolbarEnsureActiveOverlay(button)
+  button:SetScript("OnClick", onclick)
+  button:SetScript("OnEnter", function() ToolbarSetHover(this, true) end)
+  button:SetScript("OnLeave", function() ToolbarSetHover(this, false) end)
+
+  ToolbarSetHover(button, false)
+  bankToolbarState.buttons[key] = button
+  return button
+end
+
+local function BankToolbarSuppressNative(bank)
+  if bank.sort and not bankToolbarState.native.sort then
+    bankToolbarState.native.sort = bank.sort:GetScript("OnClick")
+  end
+
+  local natives = { bank.bags, bank.sort }
+  for i = 1, table.getn(natives) do
+    local button = natives[i]
+    if button and not button.bagtweaks_toolbar_suppressed then
+      button:SetAlpha(0)
+      button:EnableMouse(0)
+      ToolbarHideIcon(button)
+      button.bagtweaks_toolbar_suppressed = true
+    end
+  end
+end
+
+local function BankToolbarClickSort()
+  BankToolbarNativeClick("sort")
+end
+
+local function BankToolbarClickView()
+  BankToolbarShowViewMenu(this)
+end
+
+local function BankToolbarLayout()
+  local bank = pfUI.bag and pfUI.bag.left
+  if not bank or not bank.close or not bank.GetWidth then return end
+
+  local height, border, gap, topInset = ToolbarMetrics(bank)
+  BankToolbarSuppressNative(bank)
+
+  local add = BankToolbarMakeButton("add", "+", ToolbarAddCategory)
+  local search = BankToolbarMakeButton("search", L.TOOLBAR_SEARCH, BankToolbarToggleSearch)
+  local sort = BankToolbarMakeButton("sort", L.TOOLBAR_SORT, BankToolbarClickSort)
+  local view = BankToolbarMakeButton("view", L.TOOLBAR_VIEW, BankToolbarClickView)
+  local quest = BankToolbarMakeButton("quest", L.TOOLBAR_QUEST, ToolbarToggleQuest)
+  local options = BankToolbarMakeButton("options", L.TOOLBAR_OPTIONS, ToolbarOpenOptions)
+
+  local buttons = {}
+  if search then table.insert(buttons, search) end
+
+  if sort then
+    if bankToolbarState.native.sort then
+      sort:Show()
+      table.insert(buttons, sort)
+    else
+      sort:Hide()
+    end
+  end
+
+  if view then table.insert(buttons, view) end
+  if quest then table.insert(buttons, quest) end
+  if options then table.insert(buttons, options) end
+
+  local closeWidth = bank.close:GetWidth() or height
+  local addWidth = closeWidth
+
+  if add then
+    add:ClearAllPoints()
+    add:SetHeight(height)
+    add:SetWidth(addWidth)
+    add:SetPoint("TOPLEFT", bank, "TOPLEFT", border, -topInset)
+
+    if add.bagtweaks_toolbar_label then
+      add.bagtweaks_toolbar_label:ClearAllPoints()
+      add.bagtweaks_toolbar_label:SetPoint("CENTER", add, "CENTER", 0, 0)
+    end
+  end
+
+  local count = table.getn(buttons)
+  if count > 0 then
+    local available = bank:GetWidth() - border - border - closeWidth - gap - addWidth - gap
+    local gaps = (count - 1) * gap
+    local usable = available - gaps
+
+    if usable >= count then
+      local base = math.floor(usable / count)
+      local remainder = usable - base * count
+      local previous = add
+
+      for i = 1, count do
+        local button = buttons[i]
+        local width = base
+
+        if remainder > 0 then
+          width = width + 1
+          remainder = remainder - 1
+        end
+
+        button:ClearAllPoints()
+        button:SetHeight(height)
+        button:SetWidth(width)
+        button:SetPoint("TOPLEFT", previous, "TOPRIGHT", gap, 0)
+        ToolbarHideIcon(button)
+        previous = button
+      end
+    end
+  end
+
+  BankToolbarApplySearchState()
+  ToolbarUpdateActiveVisuals()
+end
+
+local function BankToolbarSetup()
+  local bank = pfUI.bag and pfUI.bag.left
+  if not bank or not bank.close then return false end
+
+  bank.bagtweaks_toolbar_managed = true
+  if not bankToolbarState.initialized then bankToolbarState.initialized = true end
+  return true
+end
+
+local function BankToolbarClose()
+  bankToolbarState.searchOpen = false
+  ToolbarHideMenu()
+  if bankToolbarState.search then
+    bankToolbarState.search.edit:ClearFocus()
+    bankToolbarState.search.edit:SetText("")
+    bankToolbarState.search.edit:EnableMouse(0)
+    bankToolbarState.search:EnableMouse(0)
+    bankToolbarState.search:SetAlpha(0)
+  end
+  BankToolbarFilter("")
+  ToolbarUpdateActiveVisuals()
+end
+
 local function ToolbarLayout()
   local bag = pfUI.bag and pfUI.bag.right
   if not bag or not bag.close or not bag.GetWidth then return end
