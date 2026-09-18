@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.22-dev
+-- pfUI_BagTweaks 0.1.23-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, with an optional default Quest category,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -15,16 +15,6 @@ local function Initialize()
   initialized = true
 
   pfUI.bagtweaks = pfUI.bagtweaks or {}
-
-  if pfUI.UpdateConfig then
-    pfUI:UpdateConfig("bagtweaks", nil, "show_search", "1")
-  else
-    pfUI_config = pfUI_config or {}
-    pfUI_config.bagtweaks = pfUI_config.bagtweaks or {}
-    if pfUI_config.bagtweaks.show_search == nil then
-      pfUI_config.bagtweaks.show_search = "1"
-    end
-  end
 
   pfUI:RegisterModule("bagtweaks", "vanilla", function()
     if not pfUI.bag or not pfUI.bag.CreateBags or pfUI.bag.bagtweaks_hooked then return end
@@ -1556,16 +1546,6 @@ local function Initialize()
       return rowFrames[index]
     end
 
-    local function ApplyHeaderOptions()
-      local frame = pfUI.bag.right
-      if frame and frame.search then
-        if frame.bagtweaks_toolbar_managed then return end
-        if C.bagtweaks and C.bagtweaks.show_search == "0" then frame.search:Hide()
-        else frame.search:Show() end
-      end
-    end
-    pfUI.bagtweaks.ApplyHeaderOptions = ApplyHeaderOptions
-
     local function StabilizeBottomAnchor(frame)
       if C.appearance.bags.movable == "1" then return end
       if not frame.GetNumPoints or not frame.GetPoint then return end
@@ -1591,7 +1571,6 @@ local function Initialize()
       local frame = pfUI.bag.right
       if not frame or not frame.button_size or not frame.close or not pfUI.BACKPACK or not pfUI.bags then return end
 
-      ApplyHeaderOptions()
       HookItemSelection()
       StabilizeBottomAnchor(frame)
 
@@ -1799,11 +1778,6 @@ local function Initialize()
 
     pfUI.gui.CreateGUIEntry(thirdParty, L.PLUGIN_NAME, function()
       pfUI.gui.CreateConfig(nil, L.PLUGIN_HEADER, nil, nil, "header")
-      pfUI.gui.CreateConfig(function()
-        if pfUI.bagtweaks and pfUI.bagtweaks.ApplyHeaderOptions then
-          pfUI.bagtweaks.ApplyHeaderOptions()
-        end
-      end, L.SHOW_SEARCH_BAR, pfUI_config.bagtweaks, "show_search", "checkbox")
     end)
   end
 end
@@ -1975,16 +1949,10 @@ local function ToolbarUpdateActiveVisuals()
   ToolbarSetActive(toolbarState.buttons.picklock, toolbarState.activeMode == "picklock")
 end
 
-local function ToolbarSearchEnabled()
-  return not pfUI_config or not pfUI_config.bagtweaks or pfUI_config.bagtweaks.show_search ~= "0"
-end
-
 local function ToolbarApplySearchState()
   local bag = pfUI.bag and pfUI.bag.right
   local search = bag and bag.search
   if not search then return end
-
-  if not ToolbarSearchEnabled() then toolbarState.searchOpen = false end
 
   local _, border = ToolbarMetrics(bag)
 
@@ -2012,8 +1980,6 @@ end
 
 local function ToolbarToggleSearch()
   ToolbarHideMenu()
-  if not ToolbarSearchEnabled() then return end
-
   toolbarState.searchOpen = not toolbarState.searchOpen
   ToolbarApplySearchState()
 
@@ -2461,15 +2427,7 @@ local function ToolbarLayout()
 
   local buttons = {}
 
-  if search then
-    if ToolbarSearchEnabled() then
-      search:Show()
-      table.insert(buttons, search)
-    else
-      search:Hide()
-      toolbarState.searchOpen = false
-    end
-  end
+  if search then table.insert(buttons, search) end
 
   if sort then
     if toolbarState.native.sort then
@@ -2569,11 +2527,6 @@ local function ToolbarLayout()
   ToolbarUpdateActiveVisuals()
 end
 
-local function ToolbarApplyOptions()
-  ToolbarApplySearchState()
-  ToolbarLayout()
-end
-
 local function ToolbarEnsureBagHideHook(bag)
   local current = bag:GetScript("OnHide")
   if current == toolbarState.onHideWrapper then return end
@@ -2600,10 +2553,6 @@ local function ToolbarSetup()
 
   bag.bagtweaks_toolbar_managed = true
   ToolbarEnsureBagHideHook(bag)
-
-  if pfUI.bagtweaks then
-    pfUI.bagtweaks.ApplyHeaderOptions = ToolbarApplyOptions
-  end
 
   if not toolbarState.initialized then toolbarState.initialized = true end
   return true
