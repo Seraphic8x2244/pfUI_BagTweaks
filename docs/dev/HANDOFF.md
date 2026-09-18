@@ -11,7 +11,8 @@
 ## Core Behaviour
 
 - pfUI remains responsible for the actual bag frames and physical inventory.
-- BagTweaks adds visual categories inside the unified pfUI bag.
+- BagTweaks adds the same visual category system to both the unified pfUI backpack and bank.
+- Categories, item assignments, row order, scope, visual sort settings, Quest state, and Empty Categories state are shared between backpack and bank.
 - Visual category sorting never moves physical items.
 - The toolbar Sort control delegates to pfUI's native physical bag sorter when one exists.
 - General is always the bottom visual category.
@@ -107,18 +108,23 @@ Changing visual sort order must not move inventory.
 
 ## Toolbar
 
-Current intended order:
+Backpack intended order:
 
 `[+] [Search] [Sort] [View] [Quest] [DE?] [Pick?] [Open] [Options] [X]`
 
+Bank intended order:
+
+`[+] [Search] [Sort] [View] [Quest] [Options] [X]`
+
 - `+`: new category.
-- Search: toggles pfUI's search field.
-- Sort: invokes pfUI's native physical bag sorter. Hidden if the active pfUI fork has no native sorter.
-- View: Bags, Keys, Empty Categories.
+- Search: backpack toggles pfUI's native search field; bank uses a lightweight BagTweaks name filter because pfUI has no bank search field.
+- Sort: invokes pfUI's native physical sorter for the relevant frame. Hidden if the active pfUI fork has no native sorter.
+- View: backpack offers Bags, Keys, Empty Categories; bank offers Bags and Empty Categories.
 - Quest: toggles the built-in Quest category.
 - DE: visible only when Disenchant is available.
 - Pick: visible only when Pick Lock is available.
-- Open: delegates to pfUI's native open-container control.
+- Open: backpack only; delegates to pfUI's native open-container control.
+- DE/Pick/Open are intentionally omitted from the bank toolbar.
 - Options: opens Thirdparty -> Bag Tweaks in pfUI.
 - X: pfUI's native close button.
 
@@ -131,6 +137,17 @@ No BagTweaks options are currently exposed; the former "Show Search Bar" option 
 - Options: replace text with a cog/gear icon and keep the treatment visually consistent with pfUI.
 - Text controls should continue to truncate safely on narrow bag widths.
 - The `+` control is intentionally narrow and must always display `+`, never `...`.
+
+## Bank Integration
+
+- Bank categories use the same item-ID assignments as the backpack, so a category decision follows an item wherever it is stored.
+- Bank Default sorting follows the bank's physical traversal order and remains visual-only.
+- Bank physical Sort delegates to pfUI's native bank sorter.
+- Bank category headers support the same menu, drag/reorder, assignment, one/two-column layout, and Empty Categories behaviour as the backpack.
+- Bank item drag/click assignment uses the existing item-ID classification path and does not physically move the item.
+- Bank Search filters bank items by localized item name only and is runtime-only.
+- When bank bag-slot controls are visible, the bank search field is moved above them to avoid overlap.
+- Backpack DE mode does not consume bank-item right-clicks.
 
 ## Disenchant
 
@@ -195,7 +212,8 @@ Confirmed on brues-code pfUI:
 Pending:
 
 - Rogue Pick Lock workflow.
-- Toolbar icon conversion.
+- Toolbar icon conversion / custom tiny icon artwork (pinned for later).
+- Bank categories and bank toolbar integration.
 - Temporary quest-objective item behaviour on a quest that uses a normal item class, including a quest hidden under a collapsed quest-log header. This remains untested until a suitable quest is encountered.
 
 Shagu pfUI is not part of the user's test setup; compatibility there is best-effort unless another tester is available.
