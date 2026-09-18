@@ -3165,6 +3165,8 @@ end
 
 local toolbarWatcher = CreateFrame("Frame")
 toolbarWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+toolbarWatcher:RegisterEvent("BANKFRAME_OPENED")
+toolbarWatcher:RegisterEvent("BANKFRAME_CLOSED")
 toolbarWatcher:RegisterEvent("SPELLS_CHANGED")
 toolbarWatcher:RegisterEvent("SPELLCAST_START")
 toolbarWatcher:RegisterEvent("SPELLCAST_STOP")
@@ -3178,9 +3180,12 @@ toolbarWatcher:SetScript("OnEvent", function()
   elseif event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
     ToolbarOnSpellFinished()
     return
+  elseif event == "BANKFRAME_CLOSED" then
+    BankToolbarClose()
   end
 
   if ToolbarSetup() then ToolbarLayout() end
+  if BankToolbarSetup() and pfUI.bag.left:IsShown() then BankToolbarLayout() end
 end)
 
 toolbarWatcher:SetScript("OnUpdate", function()
@@ -3196,6 +3201,14 @@ toolbarWatcher:SetScript("OnUpdate", function()
   elseif bag and bag:IsShown() then
     ToolbarLayout()
   end
+
+  local bank = pfUI.bag and pfUI.bag.left
+  if not bankToolbarState.initialized then
+    BankToolbarSetup()
+  elseif bank and bank:IsShown() then
+    BankToolbarLayout()
+  end
 end)
 
 if ToolbarSetup() then ToolbarLayout() end
+if BankToolbarSetup() then BankToolbarLayout() end
