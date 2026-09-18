@@ -11,6 +11,7 @@ L.SORT_CHARACTER_SLOT = "Character Slot"
 
 L.DEFAULT_GROUP = "Group %d"
 L.QUEST = "Quest"
+L.ITEM_CLASS_QUEST = "Quest"
 L.GENERAL = "General"
 L.CATEGORY = "Category"
 
