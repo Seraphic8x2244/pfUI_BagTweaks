@@ -1921,18 +1921,21 @@ local function ToolbarHideIcon(frame)
 end
 
 local function ToolbarEnsureLabel(button, text)
+  local created = false
+
   if not button.bagtweaks_toolbar_label then
     local label = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint("LEFT", button, "LEFT", 2, 0)
     label:SetPoint("RIGHT", button, "RIGHT", -2, 0)
     label:SetJustifyH("CENTER")
     button.bagtweaks_toolbar_label = label
+    created = true
   end
 
   local label = button.bagtweaks_toolbar_label
   label:SetFont(pfUI.font_default or STANDARD_TEXT_FONT, ToolbarFontSize(), "OUTLINE")
   label:SetText(text)
-  label:SetTextColor(.82, .82, .82, 1)
+  if created then label:SetTextColor(.82, .82, .82, 1) end
   label:Show()
   ToolbarHideIcon(button)
 end
@@ -2397,12 +2400,25 @@ local function ToolbarPrepareExtra(button, border)
       ToolbarHideIcon(this)
       ToolbarSetHover(this, false)
     end)
+
+    ToolbarSetHover(button, false)
   end
 
   ToolbarCreateBackdrop(button, border)
   ToolbarEnsureLabel(button, ToolbarFriendlyExtraLabel(button))
   ToolbarHideIcon(button)
-  ToolbarSetHover(button, false)
+end
+
+local function ToolbarClickSort()
+  ToolbarNativeClick("sort")
+end
+
+local function ToolbarClickView()
+  ToolbarShowViewMenu(this)
+end
+
+local function ToolbarClickOpen()
+  ToolbarNativeClick("open")
 end
 
 local function ToolbarDiscoverExtras(bag, border)
@@ -2435,12 +2451,12 @@ local function ToolbarLayout()
 
   local add = ToolbarMakeButton("add", "+", ToolbarAddCategory)
   local search = ToolbarMakeButton("search", L.TOOLBAR_SEARCH, ToolbarToggleSearch)
-  local sort = ToolbarMakeButton("sort", L.TOOLBAR_SORT, function() ToolbarNativeClick("sort") end)
-  local view = ToolbarMakeButton("view", L.TOOLBAR_VIEW, function() ToolbarShowViewMenu(this) end)
+  local sort = ToolbarMakeButton("sort", L.TOOLBAR_SORT, ToolbarClickSort)
+  local view = ToolbarMakeButton("view", L.TOOLBAR_VIEW, ToolbarClickView)
   local quest = ToolbarMakeButton("quest", L.TOOLBAR_QUEST, ToolbarToggleQuest)
   local disenchant = ToolbarMakeButton("disenchant", L.TOOLBAR_DISENCHANT, ToolbarToggleDisenchantMode)
   local picklock = ToolbarMakeButton("picklock", L.TOOLBAR_PICKLOCK, ToolbarTogglePickLockMode)
-  local open = ToolbarMakeButton("open", L.TOOLBAR_OPEN, function() ToolbarNativeClick("open") end)
+  local open = ToolbarMakeButton("open", L.TOOLBAR_OPEN, ToolbarClickOpen)
   local options = ToolbarMakeButton("options", L.TOOLBAR_OPTIONS, ToolbarOpenOptions)
 
   local buttons = {}
@@ -2606,8 +2622,10 @@ toolbarWatcher:RegisterEvent("SPELLCAST_INTERRUPTED")
 toolbarWatcher:SetScript("OnEvent", function()
   if event == "SPELLCAST_START" then
     ToolbarOnSpellStarted()
+    return
   elseif event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
     ToolbarOnSpellFinished()
+    return
   end
 
   if ToolbarSetup() then ToolbarLayout() end
