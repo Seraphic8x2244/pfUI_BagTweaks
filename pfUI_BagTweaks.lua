@@ -1901,9 +1901,10 @@ local function Initialize()
       local count = table.getn(row.entries)
       if count == 0 then return 0 end
 
+      local itemInset = border * 3
       local width = 0
       for i = 1, count do
-        width = width + row.entries[i].columns * pitch - border
+        width = width + row.entries[i].columns * pitch - border + itemInset
         if i < count then width = width + subcategoryGap end
       end
       return width
@@ -1978,7 +1979,8 @@ local function Initialize()
           SortEntries(list, subcategory.sort or "bag", subcategory.reverse or false)
 
           local columns = PreferredSubcategoryColumns(table.getn(list), fullColumns)
-          local entryWidth = columns * pitch - border
+          local itemInset = border * 3
+          local entryWidth = columns * pitch - border + itemInset
           local currentWidth = PackedRowWidth(row, pitch, border, subcategoryGap)
           local neededWidth = currentWidth == 0 and entryWidth
             or currentWidth + subcategoryGap + entryWidth
@@ -2017,8 +2019,9 @@ local function Initialize()
       local spacing = border * 3
       local pitch = size + spacing
       local rows = RowsFor(list, columns)
+      local itemInset = subcategoryID and border * 3 or 0
       local wantedHeight = HEADER_HEIGHT + border + rows * pitch
-      local wantedWidth = columns * pitch - border
+      local wantedWidth = columns * pitch - border + itemInset
       local section = Section(view, key, subcategoryID)
       local header = Header(view, key, name, subcategoryID)
       local parent = ViewFrame(view)
@@ -2050,7 +2053,7 @@ local function Initialize()
           "TOPLEFT",
           section,
           "TOPLEFT",
-          border + col * pitch,
+          border + itemInset + col * pitch,
           -(HEADER_HEIGHT + border * 2 + row * pitch)
         )
         item:SetWidth(size)
@@ -3589,12 +3592,20 @@ end)
 
 toolbarWatcher:SetScript("OnUpdate", function()
   local now = GetTime()
+  local bag = pfUI.bag and pfUI.bag.right
+
+  -- pfUI rebuilds bag scripts from CreateBags(), which can replace our OnHide
+  -- wrapper. Keep persistent modes safe by treating a hidden backpack as an
+  -- authoritative close signal as well.
+  if toolbarState.activeMode and bag and not bag:IsShown() then
+    ToolbarDisablePersistentMode()
+  end
+
   ToolbarUpdatePickLock(now)
 
   if now - toolbarState.lastUpdate < TOOLBAR_UPDATE_INTERVAL then return end
   toolbarState.lastUpdate = now
 
-  local bag = pfUI.bag and pfUI.bag.right
   if not toolbarState.initialized then
     ToolbarSetup()
   elseif bag and bag:IsShown() then
