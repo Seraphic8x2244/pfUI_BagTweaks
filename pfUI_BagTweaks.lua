@@ -1,7 +1,7 @@
--- pfUI_BagTweaks 0.1.27-dev
--- User-defined visual categories for pfUI unified bags.
--- Categories can be account-wide or character-specific, with an optional default Quest category,
--- can be arranged as one or two columns, and never move physical inventory slots.
+-- pfUI_BagTweaks 0.1.28-dev
+-- User-defined visual categories and subcategories for pfUI unified bags.
+-- Categories are full-width organisational containers; subcategories classify and sort items.
+-- Layout is visual only and never moves physical inventory slots.
 
 if not pfUI then return end
 
@@ -21,6 +21,7 @@ local function Initialize()
 
     local G = _G
     local HEADER_HEIGHT = 15
+    local CATEGORY_HEADER_HEIGHT = 15
     local QUEST_CLASS_ID = 12
     local GENERAL_OVERRIDE = 0
     local MENU_WIDTH = 170
@@ -72,10 +73,11 @@ local function Initialize()
 
     local headers = { backpack={}, bank={} }
     local sections = { backpack={}, bank={} }
-    local rowFrames = { backpack={}, bank={} }
+    local categoryFrames = { backpack={}, bank={} }
+    local categoryHeaders = { backpack={}, bank={} }
     local selectedItemID = nil
     local itemHighlightSection = nil
-    local nameDialog, deleteDialog, menu, sortMenu
+    local nameDialog, deleteDialog, menu, sortMenu, parentMenu
     local dragPreviews = {}
     local dragInsertLines = {}
     local dragWatcher
@@ -88,45 +90,65 @@ local function Initialize()
     local questScanIgnoreUntil = 0
     local Relayout
 
-    local draggingCategoryID = nil
+    local draggingSubcategoryID = nil
     local draggingView = nil
     local dragTargetID = nil
+    local dragTargetKind = nil
     local dragTargetSection = nil
     local dragIntent = nil
-    local dragSide = nil
     local lastDragStop = 0
 
     G.pfUIBagTweaksDB = G.pfUIBagTweaksDB or {}
     local db = G.pfUIBagTweaksDB
 
     -- Current schema:
-    --   categories: category definitions
-    --   accountCategories[itemID] = categoryID
-    --   characterCategories[characterKey][itemID] = categoryID
-    -- Migrate the pre-0.1.26 "group"/"assignment" field names once.
-    if db.categories == nil then db.categories = db.groups or {} end
-    if db.groups ~= nil then db.groups = nil end
+    --   categories: full-width organisational containers
+    --   subcategories: item classification/sort definitions
+    --   accountSubcategories[itemID] = subcategoryID
+    --   characterSubcategories[characterKey][itemID] = subcategoryID
+    -- Schema 2 migrates the old category rows into one parent Category while
+    -- preserving subcategory IDs, assignments, scope, sort, Quest state, and order.
+    local legacySchema = db.subcategories == nil
+    local legacyRows = legacySchema and db.rows or nil
+    local legacyDefinitions = legacySchema and (db.categories or db.groups or {}) or nil
+    local legacyNextSubcategoryID = legacySchema and (db.nextCategoryID or db.nextGroupID) or nil
 
-    local nextID = tonumber(db.nextCategoryID or db.nextGroupID)
-    if not nextID or nextID < 1 then nextID = 1 end
-    if db.nextCategoryID ~= nextID then db.nextCategoryID = nextID end
-    if db.nextGroupID ~= nil then db.nextGroupID = nil end
+    if legacySchema then
+      db.subcategories = legacyDefinitions or {}
+      db.categories = {}
+    else
+      db.subcategories = db.subcategories or {}
+      db.categories = db.categories or {}
+    end
+
+    db.groups = nil
+    db.rows = nil
+
+    local nextSubcategoryID = tonumber(db.nextSubcategoryID or legacyNextSubcategoryID)
+    if not nextSubcategoryID or nextSubcategoryID < 1 then nextSubcategoryID = 1 end
+    db.nextSubcategoryID = nextSubcategoryID
+    db.nextGroupID = nil
+
+    local nextCategoryID = tonumber(db.nextCategoryID)
+    if legacySchema or not nextCategoryID or nextCategoryID < 1 then nextCategoryID = 1 end
+    db.nextCategoryID = nextCategoryID
 
     if db.generalSort == nil then db.generalSort = "bag" end
     if db.generalReverse == nil then db.generalReverse = false end
 
-    if db.accountCategories == nil then
-      db.accountCategories = db.accountAssignments or db.assignments or {}
+    if db.accountSubcategories == nil then
+      db.accountSubcategories = db.accountCategories or db.accountAssignments or db.assignments or {}
     end
-    if db.accountAssignments ~= nil then db.accountAssignments = nil end
-    if db.assignments ~= nil then db.assignments = nil end
+    db.accountCategories = nil
+    db.accountAssignments = nil
+    db.assignments = nil
 
-    if db.characterCategories == nil then
-      db.characterCategories = db.charAssignments or {}
+    if db.characterSubcategories == nil then
+      db.characterSubcategories = db.characterCategories or db.charAssignments or {}
     end
-    if db.charAssignments ~= nil then db.charAssignments = nil end
+    db.characterCategories = nil
+    db.charAssignments = nil
 
-    if db.rows == nil then db.rows = {} end
     if db.showEmptyCategories == nil then db.showEmptyCategories = true end
 
     local legacyQuestEnabled = db.questCategoryID ~= nil or db.questGroupID ~= nil
@@ -138,27 +160,27 @@ local function Initialize()
     end
 
     local characterKey = CharacterKey()
-    local currentCharacterCategories = db.characterCategories[characterKey]
+    local currentCharacterSubcategories = db.characterSubcategories[characterKey]
 
-    local function CharacterCategories(create)
-      if not currentCharacterCategories and create then
-        currentCharacterCategories = {}
-        db.characterCategories[characterKey] = currentCharacterCategories
+    local function CharacterSubcategories(create)
+      if not currentCharacterSubcategories and create then
+        currentCharacterSubcategories = {}
+        db.characterSubcategories[characterKey] = currentCharacterSubcategories
       end
-      return currentCharacterCategories
+      return currentCharacterSubcategories
     end
 
-    local function PruneCurrentCharacterCategories()
-      if currentCharacterCategories and not next(currentCharacterCategories) then
-        db.characterCategories[characterKey] = nil
-        currentCharacterCategories = nil
+    local function PruneCurrentCharacterSubcategories()
+      if currentCharacterSubcategories and not next(currentCharacterSubcategories) then
+        db.characterSubcategories[characterKey] = nil
+        currentCharacterSubcategories = nil
       end
     end
 
-    local function Trim(s)
-      s = tostring(s or "")
-      s = string.gsub(s, "^%s+", "")
-      return string.gsub(s, "%s+$", "")
+    local function Trim(value)
+      value = tostring(value or "")
+      value = string.gsub(value, "^%s+", "")
+      return string.gsub(value, "%s+$", "")
     end
 
     local function ViewFrame(view)
@@ -184,110 +206,69 @@ local function Initialize()
       return columns
     end
 
-    local function FindCategory(id)
+    local function FindSubcategory(id)
+      for i = 1, table.getn(db.subcategories) do
+        if db.subcategories[i].id == id then return db.subcategories[i], i end
+      end
+    end
+
+    local function SubcategoryExists(id)
+      return FindSubcategory(id) ~= nil
+    end
+
+    local function FindParentCategory(id)
       for i = 1, table.getn(db.categories) do
         if db.categories[i].id == id then return db.categories[i], i end
       end
     end
 
-    local function CategoryExists(id)
-      return FindCategory(id) ~= nil
+    local function ParentCategoryExists(id)
+      return FindParentCategory(id) ~= nil
     end
 
-    local function IsCategoryActive(category)
-      if not category then return false end
-      if category.system == "quest" then return db.questEnabled and true or false end
-      if category.scope ~= "char" then return true end
-      return category.owner == characterKey
-    end
-
-    local function RowsEqual(a, b)
-      if table.getn(a) ~= table.getn(b) then return false end
-
-      for r = 1, table.getn(a) do
-        local ar = a[r]
-        local br = b[r]
-        if not br or table.getn(ar) ~= table.getn(br) then return false end
-
-        for c = 1, table.getn(ar) do
-          if ar[c] ~= br[c] then return false end
-        end
-      end
-
-      return true
-    end
-
-    local function NormalizeRows()
-      local clean = {}
-      local seen = {}
-
-      for r = 1, table.getn(db.rows) do
-        local source = db.rows[r]
-        local row = {}
-
-        for c = 1, table.getn(source) do
-          local id = tonumber(source[c])
-          if id and CategoryExists(id) and not seen[id] then
-            table.insert(row, id)
-            seen[id] = true
-            if table.getn(row) == 2 then break end
-          end
-        end
-
-        if table.getn(row) > 0 then table.insert(clean, row) end
-      end
-
-      for i = 1, table.getn(db.categories) do
-        local id = db.categories[i].id
-        if not seen[id] then
-          table.insert(clean, { id })
-          seen[id] = true
-        end
-      end
-
-      if not RowsEqual(db.rows, clean) then
-        db.rows = clean
-      end
+    local function IsSubcategoryActive(subcategory)
+      if not subcategory then return false end
+      if subcategory.system == "quest" then return db.questEnabled and true or false end
+      if subcategory.scope ~= "char" then return true end
+      return subcategory.owner == characterKey
     end
 
     local questSystem = nil
-    for i = 1, table.getn(db.categories) do
-      local category = db.categories[i]
+    for i = 1, table.getn(db.subcategories) do
+      local subcategory = db.subcategories[i]
 
-      local id = tonumber(category.id)
+      local id = tonumber(subcategory.id)
       if not id then
-        id = db.nextCategoryID
-        category.id = id
-        db.nextCategoryID = id + 1
+        id = db.nextSubcategoryID
+        subcategory.id = id
+        db.nextSubcategoryID = id + 1
       else
-        if category.id ~= id then category.id = id end
-        if id >= db.nextCategoryID then db.nextCategoryID = id + 1 end
+        subcategory.id = id
+        if id >= db.nextSubcategoryID then db.nextSubcategoryID = id + 1 end
       end
 
-      if category.system ~= "quest" and category.name == nil then
-        category.name = string.format(L.DEFAULT_CATEGORY, category.id)
+      if subcategory.system ~= "quest" and subcategory.name == nil then
+        subcategory.name = string.format(L.DEFAULT_SUBCATEGORY, subcategory.id)
       end
-      if category.sort == nil then category.sort = "bag" end
-      if category.reverse == nil then category.reverse = false end
+      if subcategory.sort == nil then subcategory.sort = "bag" end
+      if subcategory.reverse == nil then subcategory.reverse = false end
 
-      if category.scope == "character" then
-        category.scope = "char"
-      elseif category.scope ~= "char" and category.scope ~= "account" then
-        category.scope = "account"
+      if subcategory.scope == "character" then
+        subcategory.scope = "char"
+      elseif subcategory.scope ~= "char" and subcategory.scope ~= "account" then
+        subcategory.scope = "account"
       end
 
-      if category.scope == "char" and not category.owner then category.owner = characterKey end
+      if subcategory.scope == "char" and not subcategory.owner then subcategory.owner = characterKey end
 
-      if category.quest then legacyQuestEnabled = true end
-      if category.quest ~= nil then category.quest = nil end
+      if subcategory.quest then legacyQuestEnabled = true end
+      subcategory.quest = nil
 
-      if category.system == "quest" and not questSystem then
-        questSystem = category
-      end
+      if subcategory.system == "quest" and not questSystem then questSystem = subcategory end
     end
 
-    if db.questCategoryID ~= nil then db.questCategoryID = nil end
-    if db.questGroupID ~= nil then db.questGroupID = nil end
+    db.questCategoryID = nil
+    db.questGroupID = nil
     if db.questEnabled == nil then
       db.questEnabled = legacyQuestEnabled
     elseif db.questEnabled ~= true and db.questEnabled ~= false then
@@ -296,103 +277,224 @@ local function Initialize()
 
     if not questSystem then
       questSystem = {
-        id=db.nextCategoryID,
+        id=db.nextSubcategoryID,
         sort="bag",
         reverse=false,
         scope="account",
         system="quest",
       }
-      db.nextCategoryID = db.nextCategoryID + 1
-      table.insert(db.categories, questSystem)
+      db.nextSubcategoryID = db.nextSubcategoryID + 1
+      table.insert(db.subcategories, questSystem)
     else
-      if questSystem.scope ~= "account" then questSystem.scope = "account" end
-      if questSystem.owner ~= nil then questSystem.owner = nil end
-      if questSystem.system ~= "quest" then questSystem.system = "quest" end
+      questSystem.scope = "account"
+      questSystem.owner = nil
+      questSystem.system = "quest"
     end
 
-    NormalizeRows()
+    if legacySchema then
+      local ordered = {}
+      local seen = {}
 
-    local function ActiveRows(categorized)
-      local result = {}
+      for r = 1, table.getn(legacyRows or {}) do
+        local row = legacyRows[r]
+        for c = 1, table.getn(row or {}) do
+          local id = tonumber(row[c])
+          if id and SubcategoryExists(id) and not seen[id] then
+            table.insert(ordered, id)
+            seen[id] = true
+          end
+        end
+      end
 
-      for r = 1, table.getn(db.rows) do
-        local source = db.rows[r]
-        local row = {}
+      for i = 1, table.getn(db.subcategories) do
+        local id = db.subcategories[i].id
+        if not seen[id] then
+          table.insert(ordered, id)
+          seen[id] = true
+        end
+      end
 
-        for c = 1, table.getn(source) do
-          local category = FindCategory(source[c])
-          if category and IsCategoryActive(category) then
-            local visible = db.showEmptyCategories ~= false
-            if not visible then
-              local items = categorized and categorized[category.id]
-              visible = items and table.getn(items) > 0
-            end
-            if visible then table.insert(row, category.id) end
+      table.insert(db.categories, {
+        id=db.nextCategoryID,
+        name=L.MIGRATED_CATEGORY,
+        subcategories=ordered,
+      })
+      db.nextCategoryID = db.nextCategoryID + 1
+      db.schemaVersion = 2
+    end
+
+    local function NormalizeCategories()
+      local seenCategoryIDs = {}
+      local seenSubcategories = {}
+
+      for i = 1, table.getn(db.categories) do
+        local category = db.categories[i]
+        local id = tonumber(category.id)
+
+        if not id or seenCategoryIDs[id] then
+          id = db.nextCategoryID
+          db.nextCategoryID = id + 1
+        elseif id >= db.nextCategoryID then
+          db.nextCategoryID = id + 1
+        end
+
+        category.id = id
+        seenCategoryIDs[id] = true
+        if not category.name or Trim(category.name) == "" then
+          category.name = string.format(L.DEFAULT_CATEGORY, id)
+        end
+        category.subcategories = category.subcategories or {}
+      end
+
+      if table.getn(db.categories) == 0 then
+        local id = db.nextCategoryID
+        db.nextCategoryID = id + 1
+        table.insert(db.categories, {
+          id=id,
+          name=string.format(L.DEFAULT_CATEGORY, id),
+          subcategories={},
+        })
+      end
+
+      for i = 1, table.getn(db.categories) do
+        local category = db.categories[i]
+        local clean = {}
+
+        for n = 1, table.getn(category.subcategories) do
+          local id = tonumber(category.subcategories[n])
+          if id and SubcategoryExists(id) and not seenSubcategories[id] then
+            table.insert(clean, id)
+            seenSubcategories[id] = true
           end
         end
 
-        if table.getn(row) > 0 then table.insert(result, row) end
+        category.subcategories = clean
+      end
+
+      local fallback = db.categories[1]
+      for i = 1, table.getn(db.subcategories) do
+        local id = db.subcategories[i].id
+        if not seenSubcategories[id] then
+          table.insert(fallback.subcategories, id)
+          seenSubcategories[id] = true
+        end
+      end
+
+      db.schemaVersion = 2
+    end
+
+    local function ActiveCategories(categorized)
+      local result = {}
+
+      for i = 1, table.getn(db.categories) do
+        local category = db.categories[i]
+        local ids = {}
+        local activeCount = 0
+
+        for n = 1, table.getn(category.subcategories or {}) do
+          local id = category.subcategories[n]
+          local subcategory = FindSubcategory(id)
+
+          if subcategory and IsSubcategoryActive(subcategory) then
+            activeCount = activeCount + 1
+            local visible = db.showEmptyCategories ~= false
+            if not visible then
+              local items = categorized and categorized[id]
+              visible = items and table.getn(items) > 0
+            end
+            if visible then table.insert(ids, id) end
+          end
+        end
+
+        if table.getn(ids) > 0 or activeCount == 0 then
+          table.insert(result, { category=category, subcategories=ids })
+        end
       end
 
       return result
     end
 
-    local function CleanCategoryMap(categoryMap)
-      for itemID, categoryID in pairs(categoryMap) do
-        local normalized = tonumber(categoryID)
+    local function CleanSubcategoryMap(subcategoryMap)
+      for itemID, subcategoryID in pairs(subcategoryMap) do
+        local normalized = tonumber(subcategoryID)
         if normalized == nil then normalized = GENERAL_OVERRIDE end
-        if normalized ~= GENERAL_OVERRIDE and not CategoryExists(normalized) then
+        if normalized ~= GENERAL_OVERRIDE and not SubcategoryExists(normalized) then
           normalized = GENERAL_OVERRIDE
         end
-        if normalized ~= categoryID then categoryMap[itemID] = normalized end
+        if normalized ~= subcategoryID then subcategoryMap[itemID] = normalized end
       end
     end
 
     local function CleanState()
-      NormalizeRows()
-      CleanCategoryMap(db.accountCategories)
+      NormalizeCategories()
+      CleanSubcategoryMap(db.accountSubcategories)
 
-      for key, categoryMap in pairs(db.characterCategories) do
-        CleanCategoryMap(categoryMap)
-        if not next(categoryMap) then
-          db.characterCategories[key] = nil
-          if key == characterKey then currentCharacterCategories = nil end
+      for key, subcategoryMap in pairs(db.characterSubcategories) do
+        CleanSubcategoryMap(subcategoryMap)
+        if not next(subcategoryMap) then
+          db.characterSubcategories[key] = nil
+          if key == characterKey then currentCharacterSubcategories = nil end
         end
       end
     end
 
-    local function RemoveCategoryFromRows(id)
-      for r = table.getn(db.rows), 1, -1 do
-        local row = db.rows[r]
-
-        for c = table.getn(row), 1, -1 do
-          if row[c] == id then table.remove(row, c) end
-        end
-
-        if table.getn(row) == 0 then table.remove(db.rows, r) end
-      end
-    end
-
-    local function FindRowIndex(id)
-      for r = 1, table.getn(db.rows) do
-        local row = db.rows[r]
-        for c = 1, table.getn(row) do
-          if row[c] == id then return r, c end
+    local function RemoveSubcategoryFromCategories(id)
+      for i = 1, table.getn(db.categories) do
+        local list = db.categories[i].subcategories or {}
+        for n = table.getn(list), 1, -1 do
+          if list[n] == id then table.remove(list, n) end
         end
       end
     end
 
-    local function ToggleScope(id, scope)
-      local category = FindCategory(id)
+    local function FindSubcategoryLocation(id)
+      for i = 1, table.getn(db.categories) do
+        local list = db.categories[i].subcategories or {}
+        for n = 1, table.getn(list) do
+          if list[n] == id then return i, n, db.categories[i] end
+        end
+      end
+    end
+
+    local function DefaultParentCategoryID()
+      NormalizeCategories()
+      return db.categories[1] and db.categories[1].id or nil
+    end
+
+    local function MoveParentCategory(id, delta)
+      local _, index = FindParentCategory(id)
+      if not index then return end
+      local target = index + delta
+      if target < 1 or target > table.getn(db.categories) then return end
+      db.categories[index], db.categories[target] = db.categories[target], db.categories[index]
+      Relayout()
+    end
+
+    local function DeleteParentCategory(id)
+      local category, index = FindParentCategory(id)
+      if not category or not index or table.getn(db.categories) <= 1 then return end
+
+      local target = index == 1 and db.categories[2] or db.categories[1]
+      for n = 1, table.getn(category.subcategories or {}) do
+        table.insert(target.subcategories, category.subcategories[n])
+      end
+
+      table.remove(db.categories, index)
+      NormalizeCategories()
+      Relayout()
+    end
+
+    local function ToggleScope    local function ToggleScope(id, scope)
+      local category = FindSubcategory(id)
       if not category or category.system then return end
 
-      local characterMap = CharacterCategories(false)
+      local characterMap = CharacterSubcategories(false)
 
       if scope == "account" and category.scope == "char" then
         if characterMap then
           for itemID, categoryID in pairs(characterMap) do
             if categoryID == id then
-              db.accountCategories[itemID] = id
+              db.accountSubcategories[itemID] = id
               characterMap[itemID] = nil
             end
           end
@@ -400,13 +502,13 @@ local function Initialize()
 
         category.scope = "account"
         category.owner = nil
-        PruneCurrentCharacterCategories()
+        PruneCurrentCharacterSubcategories()
       elseif scope == "char" and category.scope ~= "char" then
-        for itemID, categoryID in pairs(db.accountCategories) do
+        for itemID, categoryID in pairs(db.accountSubcategories) do
           if categoryID == id then
-            if not characterMap then characterMap = CharacterCategories(true) end
+            if not characterMap then characterMap = CharacterSubcategories(true) end
             if characterMap[itemID] == nil then characterMap[itemID] = id end
-            db.accountCategories[itemID] = nil
+            db.accountSubcategories[itemID] = nil
           end
         end
 
@@ -421,7 +523,7 @@ local function Initialize()
       if id == nil then
         db.generalSort = mode
       else
-        local category = FindCategory(id)
+        local category = FindSubcategory(id)
         if not category then return end
         category.sort = mode
       end
@@ -432,7 +534,7 @@ local function Initialize()
       if id == nil then
         db.generalReverse = not db.generalReverse
       else
-        local category = FindCategory(id)
+        local category = FindSubcategory(id)
         if not category then return end
         category.reverse = not category.reverse
       end
@@ -441,7 +543,7 @@ local function Initialize()
 
     local function GetSort(id)
       if id == nil then return db.generalSort or "bag", db.generalReverse end
-      local category = FindCategory(id)
+      local category = FindSubcategory(id)
       return category and (category.sort or "bag") or "bag", category and category.reverse or false
     end
 
@@ -787,6 +889,10 @@ local function Initialize()
         menu:Hide()
         menu.anchor = nil
       end
+      if parentMenu then
+        parentMenu:Hide()
+        parentMenu.anchor = nil
+      end
       if sortMenu then sortMenu:Hide() end
     end
 
@@ -798,7 +904,7 @@ local function Initialize()
     end
 
     local function ShowItemHighlight(section)
-      if not section or draggingCategoryID then return end
+      if not section or draggingSubcategoryID then return end
       if not selectedItemID then return end
       if type(CursorHasItem) == "function" and not CursorHasItem() then return end
 
@@ -850,14 +956,14 @@ local function Initialize()
       return preview, insertLine
     end
 
-    local function ShowNameDialog(categoryID)
-      if categoryID then
-        local category = FindCategory(categoryID)
-        if category and category.system then return end
+    local function ShowNameEditor(kind, id, parentCategoryID)
+      if kind == "subcategory" and id then
+        local subcategory = FindSubcategory(id)
+        if subcategory and subcategory.system then return end
       end
 
       if not nameDialog then
-        local f = CreateFrame("Frame", "pfBagTweaksCategoryEditor", UIParent)
+        local f = CreateFrame("Frame", "pfBagTweaksNameEditor", UIParent)
         f:SetWidth(250)
         f:SetHeight(86)
         f:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
@@ -868,7 +974,7 @@ local function Initialize()
         f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -10)
 
-        f.edit = CreateFrame("EditBox", "pfBagTweaksCategoryNameEdit", f, "InputBoxTemplate")
+        f.edit = CreateFrame("EditBox", "pfBagTweaksNameEdit", f, "InputBoxTemplate")
         f.edit:SetWidth(226)
         f.edit:SetHeight(20)
         f.edit:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -30)
@@ -890,23 +996,45 @@ local function Initialize()
           local name = Trim(f.edit:GetText())
           if name == "" then return end
 
-          if f.categoryID then
-            local category = FindCategory(f.categoryID)
-            if category and not category.system then category.name = name end
+          if f.editKind == "category" then
+            if f.editID then
+              local category = FindParentCategory(f.editID)
+              if category then category.name = name end
+            else
+              local categoryID = db.nextCategoryID
+              db.nextCategoryID = categoryID + 1
+              table.insert(db.categories, {
+                id=categoryID,
+                name=name,
+                subcategories={},
+              })
+            end
           else
-            local id = db.nextCategoryID
-            table.insert(db.categories, {
-              id=id,
-              name=name,
-              sort="bag",
-              reverse=false,
-              scope="account",
-            })
-            table.insert(db.rows, { id })
-            db.nextCategoryID = id + 1
+            if f.editID then
+              local subcategory = FindSubcategory(f.editID)
+              if subcategory and not subcategory.system then subcategory.name = name end
+            else
+              local subcategoryID = db.nextSubcategoryID
+              db.nextSubcategoryID = subcategoryID + 1
+              table.insert(db.subcategories, {
+                id=subcategoryID,
+                name=name,
+                sort="bag",
+                reverse=false,
+                scope="account",
+              })
+
+              local parent = FindParentCategory(f.parentCategoryID or DefaultParentCategoryID())
+              if not parent then
+                NormalizeCategories()
+                parent = db.categories[1]
+              end
+              if parent then table.insert(parent.subcategories, subcategoryID) end
+            end
           end
 
           f:Hide()
+          NormalizeCategories()
           Relayout()
         end
 
@@ -918,16 +1046,20 @@ local function Initialize()
         nameDialog = f
       end
 
-      nameDialog.categoryID = categoryID
+      nameDialog.editKind = kind
+      nameDialog.editID = id
+      nameDialog.parentCategoryID = parentCategoryID
 
-      if categoryID then
-        local category = FindCategory(categoryID)
-        if not category then return end
-        nameDialog.title:SetText(L.RENAME_CATEGORY)
-        nameDialog.edit:SetText(category.name)
+      if kind == "category" then
+        local category = id and FindParentCategory(id) or nil
+        if id and not category then return end
+        nameDialog.title:SetText(id and L.RENAME_CATEGORY or L.NEW_CATEGORY)
+        nameDialog.edit:SetText(category and category.name or "")
       else
-        nameDialog.title:SetText(L.NEW_CATEGORY)
-        nameDialog.edit:SetText("")
+        local subcategory = id and FindSubcategory(id) or nil
+        if id and not subcategory then return end
+        nameDialog.title:SetText(id and L.RENAME_SUBCATEGORY or L.NEW_SUBCATEGORY)
+        nameDialog.edit:SetText(subcategory and subcategory.name or "")
       end
 
       nameDialog:Show()
@@ -935,33 +1067,49 @@ local function Initialize()
       nameDialog.edit:HighlightText()
     end
 
-    local function DeleteCategory(categoryID)
-      local category, index = FindCategory(categoryID)
-      if not category or not index or category.system then return end
+    local function ShowSubcategoryNameDialog(id, parentCategoryID)
+      ShowNameEditor("subcategory", id, parentCategoryID)
+    end
 
-      for itemID, assignedCategoryID in pairs(db.accountCategories) do
-        if assignedCategoryID == categoryID then db.accountCategories[itemID] = GENERAL_OVERRIDE end
-      end
+    local function ShowParentCategoryNameDialog(id)
+      ShowNameEditor("category", id, nil)
+    end
 
-      for _, categoryMap in pairs(db.characterCategories) do
-        for itemID, assignedCategoryID in pairs(categoryMap) do
-          if assignedCategoryID == categoryID then categoryMap[itemID] = GENERAL_OVERRIDE end
+    local function DeleteSubcategory(subcategoryID)
+      local subcategory, index = FindSubcategory(subcategoryID)
+      if not subcategory or not index or subcategory.system then return end
+
+      for itemID, assignedSubcategoryID in pairs(db.accountSubcategories) do
+        if assignedSubcategoryID == subcategoryID then
+          db.accountSubcategories[itemID] = GENERAL_OVERRIDE
         end
       end
 
-      RemoveCategoryFromRows(categoryID)
-      table.remove(db.categories, index)
-      NormalizeRows()
+      for _, subcategoryMap in pairs(db.characterSubcategories) do
+        for itemID, assignedSubcategoryID in pairs(subcategoryMap) do
+          if assignedSubcategoryID == subcategoryID then
+            subcategoryMap[itemID] = GENERAL_OVERRIDE
+          end
+        end
+      end
+
+      RemoveSubcategoryFromCategories(subcategoryID)
+      table.remove(db.subcategories, index)
+      NormalizeCategories()
       Relayout()
     end
 
-    local function ShowDeleteDialog(categoryID)
-      local category = FindCategory(categoryID)
-      if not category or category.system then return end
+    local function ShowDeleteConfirm(kind, id)
+      local object
+      if kind == "category" then object = FindParentCategory(id)
+      else object = FindSubcategory(id) end
+      if not object then return end
+      if kind == "subcategory" and object.system then return end
+      if kind == "category" and table.getn(db.categories) <= 1 then return end
 
       if not deleteDialog then
         local f = CreateFrame("Frame", "pfBagTweaksDeleteConfirm", UIParent)
-        f:SetWidth(270)
+        f:SetWidth(290)
         f:SetHeight(86)
         f:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
         f:SetFrameStrata("DIALOG")
@@ -970,7 +1118,7 @@ local function Initialize()
 
         f.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         f.text:SetPoint("TOP", f, "TOP", 0, -16)
-        f.text:SetWidth(246)
+        f.text:SetWidth(266)
         f.text:SetJustifyH("CENTER")
 
         f.ok = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
@@ -986,9 +1134,10 @@ local function Initialize()
         f.cancel:SetText(L.CANCEL)
 
         f.ok:SetScript("OnClick", function()
-          local id = f.categoryID
+          local deleteKind, deleteID = f.deleteKind, f.deleteID
           f:Hide()
-          DeleteCategory(id)
+          if deleteKind == "category" then DeleteParentCategory(deleteID)
+          else DeleteSubcategory(deleteID) end
         end)
 
         f.cancel:SetScript("OnClick", function() f:Hide() end)
@@ -996,12 +1145,25 @@ local function Initialize()
         deleteDialog = f
       end
 
-      deleteDialog.categoryID = categoryID
-      deleteDialog.text:SetText(string.format(L.DELETE_PROMPT, tostring(category.name)))
+      deleteDialog.deleteKind = kind
+      deleteDialog.deleteID = id
+      if kind == "category" then
+        deleteDialog.text:SetText(string.format(L.DELETE_CATEGORY_PROMPT, tostring(object.name)))
+      else
+        deleteDialog.text:SetText(string.format(L.DELETE_SUBCATEGORY_PROMPT, tostring(object.name)))
+      end
       deleteDialog:Show()
     end
 
-    local function CursorStillHasItem()
+    local function ShowSubcategoryDeleteDialog(id)
+      ShowDeleteConfirm("subcategory", id)
+    end
+
+    local function ShowParentCategoryDeleteDialog(id)
+      ShowDeleteConfirm("category", id)
+    end
+
+    local function CursorStillHasItem    local function CursorStillHasItem()
       if type(CursorHasItem) ~= "function" then return true end
       return CursorHasItem() and true or false
     end
@@ -1016,31 +1178,31 @@ local function Initialize()
       end
 
       local itemKey = tostring(selectedItemID)
-      local characterMap = CharacterCategories(false)
+      local characterMap = CharacterSubcategories(false)
 
       if categoryID == nil then
         if characterMap and characterMap[itemKey] ~= nil then
           characterMap[itemKey] = GENERAL_OVERRIDE
-        elseif db.accountCategories[itemKey] ~= nil then
-          db.accountCategories[itemKey] = GENERAL_OVERRIDE
+        elseif db.accountSubcategories[itemKey] ~= nil then
+          db.accountSubcategories[itemKey] = GENERAL_OVERRIDE
         else
-          characterMap = characterMap or CharacterCategories(true)
+          characterMap = characterMap or CharacterSubcategories(true)
           characterMap[itemKey] = GENERAL_OVERRIDE
         end
       else
-        local category = FindCategory(categoryID)
-        if not category or not IsCategoryActive(category) then return false end
+        local category = FindSubcategory(categoryID)
+        if not category or not IsSubcategoryActive(category) then return false end
 
         if category.scope == "char" then
-          characterMap = characterMap or CharacterCategories(true)
+          characterMap = characterMap or CharacterSubcategories(true)
           characterMap[itemKey] = categoryID
         else
-          db.accountCategories[itemKey] = categoryID
+          db.accountSubcategories[itemKey] = categoryID
           if characterMap then characterMap[itemKey] = nil end
         end
       end
 
-      PruneCurrentCharacterCategories()
+      PruneCurrentCharacterSubcategories()
 
       if type(ClearCursor) == "function" then ClearCursor() end
       selectedItemID = nil
@@ -1113,95 +1275,95 @@ local function Initialize()
       sortMenu:Show()
     end
 
-    local function ShowCategoryMenu(anchor, categoryID)
+    local function ShowSubcategoryMenu(anchor, subcategoryID)
       if not menu then
-        menu = CreateFrame("Frame", "pfBagTweaksCategoryMenu", UIParent)
+        menu = CreateFrame("Frame", "pfBagTweaksSubcategoryMenu", UIParent)
         menu:Hide()
       end
 
-      menu.categoryID = categoryID
+      menu.subcategoryID = subcategoryID
       menu.anchor = anchor
       menu:ClearAllPoints()
       menu:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -2, 0)
 
-      if categoryID == nil then
-        ConfigureMenuFrame(menu, 2)
+      if subcategoryID == nil then
+        ConfigureMenuFrame(menu, 3)
 
-        local add = MenuButton(menu, 1)
-        add:SetText(L.NEW_CATEGORY)
-        add:SetScript("OnClick", function()
+        local addCategory = MenuButton(menu, 1)
+        addCategory:SetText(L.NEW_CATEGORY)
+        addCategory:SetScript("OnClick", function()
           HideMenus()
-          ShowNameDialog(nil)
+          ShowParentCategoryNameDialog(nil)
         end)
-        add:Show()
+        addCategory:Show()
 
-        local sorting = MenuButton(menu, 2)
+        local addSubcategory = MenuButton(menu, 2)
+        addSubcategory:SetText(L.NEW_SUBCATEGORY)
+        addSubcategory:SetScript("OnClick", function()
+          HideMenus()
+          ShowSubcategoryNameDialog(nil, DefaultParentCategoryID())
+        end)
+        addSubcategory:Show()
+
+        local sorting = MenuButton(menu, 3)
         local mode = GetSort(nil)
         sorting:SetText(string.format(L.SORTING, SORT_LABEL[mode]))
-        sorting:SetScript("OnClick", function()
-          ShowSortMenu(menu, nil)
-        end)
+        sorting:SetScript("OnClick", function() ShowSortMenu(menu, nil) end)
         sorting:Show()
 
-        for i = 3, table.getn(menu.buttons or {}) do menu.buttons[i]:Hide() end
+        for i = 4, table.getn(menu.buttons or {}) do menu.buttons[i]:Hide() end
       else
-        local category = FindCategory(categoryID)
-        if not category then return end
+        local subcategory = FindSubcategory(subcategoryID)
+        if not subcategory then return end
 
-        if category.system == "quest" then
+        if subcategory.system == "quest" then
           ConfigureMenuFrame(menu, 1)
-
           local sorting = MenuButton(menu, 1)
-          sorting:SetText(string.format(L.SORTING, SORT_LABEL[category.sort or "bag"]))
-          sorting:SetScript("OnClick", function()
-            ShowSortMenu(menu, menu.categoryID)
-          end)
+          sorting:SetText(string.format(L.SORTING, SORT_LABEL[subcategory.sort or "bag"]))
+          sorting:SetScript("OnClick", function() ShowSortMenu(menu, menu.subcategoryID) end)
           sorting:Show()
-
           for i = 2, table.getn(menu.buttons or {}) do menu.buttons[i]:Hide() end
         else
           ConfigureMenuFrame(menu, 5)
 
           local rename = MenuButton(menu, 1)
-          rename:SetText(L.RENAME_CATEGORY)
+          rename:SetText(L.RENAME_SUBCATEGORY)
           rename:SetScript("OnClick", function()
-            local id = menu.categoryID
+            local id = menu.subcategoryID
             HideMenus()
-            ShowNameDialog(id)
+            ShowSubcategoryNameDialog(id)
           end)
           rename:Show()
 
           local account = MenuButton(menu, 2)
-          account:SetText((category.scope ~= "char" and "[x] " or "[ ] ") .. L.ACCOUNT_WIDE)
+          account:SetText((subcategory.scope ~= "char" and "[x] " or "[ ] ") .. L.ACCOUNT_WIDE)
           account:SetScript("OnClick", function()
-            local id = menu.categoryID
+            local id = menu.subcategoryID
             HideMenus()
             ToggleScope(id, "account")
           end)
           account:Show()
 
           local character = MenuButton(menu, 3)
-          character:SetText((category.scope == "char" and "[x] " or "[ ] ") .. L.PER_CHARACTER)
+          character:SetText((subcategory.scope == "char" and "[x] " or "[ ] ") .. L.PER_CHARACTER)
           character:SetScript("OnClick", function()
-            local id = menu.categoryID
+            local id = menu.subcategoryID
             HideMenus()
             ToggleScope(id, "char")
           end)
           character:Show()
 
           local sorting = MenuButton(menu, 4)
-          sorting:SetText(string.format(L.SORTING, SORT_LABEL[category.sort or "bag"]))
-          sorting:SetScript("OnClick", function()
-            ShowSortMenu(menu, menu.categoryID)
-          end)
+          sorting:SetText(string.format(L.SORTING, SORT_LABEL[subcategory.sort or "bag"]))
+          sorting:SetScript("OnClick", function() ShowSortMenu(menu, menu.subcategoryID) end)
           sorting:Show()
 
           local delete = MenuButton(menu, 5)
-          delete:SetText("|cffff6666" .. L.DELETE_CATEGORY .. "|r")
+          delete:SetText("|cffff6666" .. L.DELETE_SUBCATEGORY .. "|r")
           delete:SetScript("OnClick", function()
-            local id = menu.categoryID
+            local id = menu.subcategoryID
             HideMenus()
-            ShowDeleteDialog(id)
+            ShowSubcategoryDeleteDialog(id)
           end)
           delete:Show()
 
@@ -1210,7 +1372,73 @@ local function Initialize()
       end
 
       if sortMenu then sortMenu:Hide() end
+      if parentMenu then parentMenu:Hide() end
       menu:Show()
+    end
+
+    local function ShowParentCategoryMenu(anchor, categoryID)
+      local category = FindParentCategory(categoryID)
+      if not category then return end
+
+      if not parentMenu then
+        parentMenu = CreateFrame("Frame", "pfBagTweaksParentCategoryMenu", UIParent)
+        parentMenu:Hide()
+      end
+
+      parentMenu.categoryID = categoryID
+      parentMenu.anchor = anchor
+      parentMenu:ClearAllPoints()
+      parentMenu:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -2, 0)
+      ConfigureMenuFrame(parentMenu, 5)
+
+      local add = MenuButton(parentMenu, 1)
+      add:SetText(L.NEW_SUBCATEGORY)
+      add:SetScript("OnClick", function()
+        local id = parentMenu.categoryID
+        HideMenus()
+        ShowSubcategoryNameDialog(nil, id)
+      end)
+      add:Show()
+
+      local rename = MenuButton(parentMenu, 2)
+      rename:SetText(L.RENAME_CATEGORY)
+      rename:SetScript("OnClick", function()
+        local id = parentMenu.categoryID
+        HideMenus()
+        ShowParentCategoryNameDialog(id)
+      end)
+      rename:Show()
+
+      local up = MenuButton(parentMenu, 3)
+      up:SetText(L.MOVE_UP)
+      up:SetScript("OnClick", function()
+        local id = parentMenu.categoryID
+        HideMenus()
+        MoveParentCategory(id, -1)
+      end)
+      up:Show()
+
+      local down = MenuButton(parentMenu, 4)
+      down:SetText(L.MOVE_DOWN)
+      down:SetScript("OnClick", function()
+        local id = parentMenu.categoryID
+        HideMenus()
+        MoveParentCategory(id, 1)
+      end)
+      down:Show()
+
+      local delete = MenuButton(parentMenu, 5)
+      delete:SetText("|cffff6666" .. L.DELETE_CATEGORY .. "|r")
+      delete:SetScript("OnClick", function()
+        local id = parentMenu.categoryID
+        HideMenus()
+        ShowParentCategoryDeleteDialog(id)
+      end)
+      if table.getn(db.categories) > 1 then delete:Show() else delete:Hide() end
+
+      if menu then menu:Hide() end
+      if sortMenu then sortMenu:Hide() end
+      parentMenu:Show()
     end
 
     local function CursorPositionFor(frame)
@@ -1240,205 +1468,116 @@ local function Initialize()
 
     local function FindDragTargetUnderCursor()
       local viewSections = sections[draggingView] or {}
-      for _, s in pairs(viewSections) do
-        if s:IsShown() then
-          local rx, ry = CursorPositionFor(s)
-          if rx and ry then
-            local id = s.categoryID or "general"
-            if id ~= draggingCategoryID then return id, s, rx, ry end
-          end
+      local sourceSection = viewSections[draggingSubcategoryID]
+
+      if sourceSection and sourceSection:IsShown() then
+        local sx, sy = CursorPositionFor(sourceSection)
+        if sx and sy then return nil, nil, nil, nil, nil end
+      end
+
+      for _, section in pairs(viewSections) do
+        if section:IsShown() and section.categoryID and section.categoryID ~= draggingSubcategoryID then
+          local rx, ry = CursorPositionFor(section)
+          if rx and ry then return "subcategory", section.categoryID, section, rx, ry end
         end
       end
-      return nil, nil, nil, nil
+
+      local viewCategoryFrames = categoryFrames[draggingView] or {}
+      for id, frame in pairs(viewCategoryFrames) do
+        if frame:IsShown() then
+          local rx, ry = CursorPositionFor(frame)
+          if rx and ry then return "category", id, frame, rx, ry end
+        end
+      end
+
+      return nil, nil, nil, nil, nil
     end
 
-    local function RowForSection(section)
-      if not section then return nil end
-      return section.bagtweaks_rowFrame or section
-    end
-
-    local function ShowInsertLine(section, before)
+    local function ShowDropPreview(kind, frame, intent)
       local preview, insertLine = EnsureDragVisuals(draggingView)
-      if not preview or not insertLine then return end
-      preview:Hide()
+      if not preview or not insertLine or not frame then return end
 
-      local row = RowForSection(section)
-      if not row then
-        insertLine:Hide()
+      preview:Hide()
+      insertLine:Hide()
+
+      if kind == "category" then
+        preview:ClearAllPoints()
+        preview:SetAllPoints(frame)
+        preview:Show()
         return
       end
 
       insertLine:ClearAllPoints()
-      if before then
-        insertLine:SetPoint("BOTTOMLEFT", row, "TOPLEFT", 0, 0)
-        insertLine:SetPoint("BOTTOMRIGHT", row, "TOPRIGHT", 0, 0)
+      insertLine:SetWidth(INSERT_LINE_HEIGHT)
+      insertLine:SetHeight(frame:GetHeight())
+
+      if intent == "before" then
+        insertLine:SetPoint("TOPRIGHT", frame, "TOPLEFT", 0, 0)
       else
-        insertLine:SetPoint("TOPLEFT", row, "BOTTOMLEFT", 0, 0)
-        insertLine:SetPoint("TOPRIGHT", row, "BOTTOMRIGHT", 0, 0)
+        insertLine:SetPoint("TOPLEFT", frame, "TOPRIGHT", 0, 0)
       end
       insertLine:Show()
     end
 
-    local function ShowPairPreview(section, side)
-      local preview, insertLine = EnsureDragVisuals(draggingView)
-      if not preview or not insertLine then return end
-      insertLine:Hide()
-
-      local row = RowForSection(section)
-      if not row then
-        preview:Hide()
-        return
-      end
-
-      preview:ClearAllPoints()
-      if side == "left" then
-        preview:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
-        preview:SetPoint("BOTTOMRIGHT", row, "BOTTOM", -1, 0)
-      else
-        preview:SetPoint("TOPLEFT", row, "TOP", 1, 0)
-        preview:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
-      end
-      preview:Show()
-    end
-
-    local function DetermineDragIntent(targetID, section, rx, ry)
-      if not targetID or not section then return nil, nil end
-      if targetID == "general" then return "before", nil end
-
-      local targetRow = FindRowIndex(targetID)
-      if not targetRow then return nil, nil end
-
-      local sourceRow = FindRowIndex(draggingCategoryID)
-      local sameRow = sourceRow and sourceRow == targetRow
-      local row = db.rows[targetRow]
-      local rowCount = table.getn(row)
-
-      if rowCount == 1 then
-        if ry > .75 then return "before", nil end
-        if ry < .25 then return "after", nil end
-        if rx < .5 then return "pair", "left" end
-        return "pair", "right"
-      end
-
-      if sameRow then
-        if ry > .75 then return "before", nil end
-        if ry < .25 then return "after", nil end
-        if rx < .5 then return "pair", "left" end
-        return "pair", "right"
-      end
-
-      if ry >= .5 then return "before", nil end
-      return "after", nil
-    end
-
     local function UpdateDragVisual()
-      if not draggingCategoryID then
+      if not draggingSubcategoryID then
         dragTargetID = nil
+        dragTargetKind = nil
         dragTargetSection = nil
         dragIntent = nil
-        dragSide = nil
         HideDragVisuals()
         return
       end
 
-      local targetID, section, rx, ry = FindDragTargetUnderCursor()
-      if not targetID then
+      local kind, targetID, frame, rx = FindDragTargetUnderCursor()
+      if not kind then
         dragTargetID = nil
+        dragTargetKind = nil
         dragTargetSection = nil
         dragIntent = nil
-        dragSide = nil
         HideDragVisuals()
         return
       end
 
-      local intent, side = DetermineDragIntent(targetID, section, rx, ry)
+      local intent = kind == "category" and "append" or (rx < .5 and "before" or "after")
       dragTargetID = targetID
-      dragTargetSection = section
+      dragTargetKind = kind
+      dragTargetSection = frame
       dragIntent = intent
-      dragSide = side
-
-      if intent == "pair" then
-        ShowPairPreview(section, side)
-      elseif intent == "before" then
-        ShowInsertLine(section, true)
-      elseif intent == "after" then
-        ShowInsertLine(section, false)
-      else
-        HideDragVisuals()
-      end
+      ShowDropPreview(kind, frame, intent)
     end
 
-    local function PlaceDraggedCategory(sourceID, targetID, intent, side)
-      if not sourceID or not targetID or not intent then return end
+    local function PlaceDraggedSubcategory(sourceID, targetKind, targetID, intent)
+      if not sourceID or not targetKind or not targetID or not intent then return end
+      if targetKind == "subcategory" and sourceID == targetID then return end
 
-      if targetID == "general" then
-        RemoveCategoryFromRows(sourceID)
-        table.insert(db.rows, { sourceID })
-        NormalizeRows()
-        Relayout()
-        return
-      end
+      RemoveSubcategoryFromCategories(sourceID)
 
-      if sourceID == targetID or not CategoryExists(targetID) then return end
-
-      local sourceRowBefore = FindRowIndex(sourceID)
-      local targetRowBefore = FindRowIndex(targetID)
-      if not targetRowBefore then return end
-
-      if intent == "pair" and sourceRowBefore and sourceRowBefore == targetRowBefore then
-        local row = db.rows[targetRowBefore]
-        if table.getn(row) == 2 then
-          local otherID = row[1] == sourceID and row[2] or row[1]
-          if side == "left" then
-            row[1], row[2] = sourceID, otherID
-          else
-            row[1], row[2] = otherID, sourceID
-          end
-          NormalizeRows()
-          Relayout()
-          return
+      if targetKind == "category" then
+        local category = FindParentCategory(targetID)
+        if category then table.insert(category.subcategories, sourceID) end
+      else
+        local _, targetIndex, category = FindSubcategoryLocation(targetID)
+        if category and targetIndex then
+          if intent == "after" then targetIndex = targetIndex + 1 end
+          table.insert(category.subcategories, targetIndex, sourceID)
         end
       end
 
-      RemoveCategoryFromRows(sourceID)
-
-      local targetRow = FindRowIndex(targetID)
-      if not targetRow then
-        table.insert(db.rows, { sourceID })
-        NormalizeRows()
-        Relayout()
-        return
-      end
-
-      if intent == "before" then
-        table.insert(db.rows, targetRow, { sourceID })
-      elseif intent == "after" then
-        table.insert(db.rows, targetRow + 1, { sourceID })
-      elseif intent == "pair" then
-        local row = db.rows[targetRow]
-        if table.getn(row) == 1 then
-          if side == "left" then table.insert(row, 1, sourceID)
-          else table.insert(row, sourceID) end
-        else
-          if side == "left" then table.insert(db.rows, targetRow, { sourceID })
-          else table.insert(db.rows, targetRow + 1, { sourceID }) end
-        end
-      end
-
-      NormalizeRows()
+      NormalizeCategories()
       Relayout()
     end
 
-    local function BeginCategoryDrag(id, view)
+    local function BeginSubcategoryDrag(id, view)
       if selectedItemID and CursorStillHasItem() then return end
       if not id or not view then return end
 
-      draggingCategoryID = id
+      draggingSubcategoryID = id
       draggingView = view
       dragTargetID = nil
+      dragTargetKind = nil
       dragTargetSection = nil
       dragIntent = nil
-      dragSide = nil
       HideItemHighlight()
       HideMenus()
       EnsureDragVisuals(view)
@@ -1446,37 +1585,39 @@ local function Initialize()
       if not dragWatcher then
         dragWatcher = CreateFrame("Frame")
         dragWatcher:SetScript("OnUpdate", function()
-          if draggingCategoryID then UpdateDragVisual() end
+          if draggingSubcategoryID then UpdateDragVisual() end
         end)
         dragWatcher:Hide()
       end
       dragWatcher:Show()
     end
 
-    local function EndCategoryDrag()
-      if not draggingCategoryID then return end
+    local function EndSubcategoryDrag()
+      if not draggingSubcategoryID then return end
 
       UpdateDragVisual()
 
-      local source = draggingCategoryID
+      local source = draggingSubcategoryID
       local target = dragTargetID
+      local targetKind = dragTargetKind
       local intent = dragIntent
-      local side = dragSide
 
-      draggingCategoryID = nil
+      draggingSubcategoryID = nil
       draggingView = nil
       dragTargetID = nil
+      dragTargetKind = nil
       dragTargetSection = nil
       dragIntent = nil
-      dragSide = nil
       lastDragStop = GetTime and GetTime() or 0
       HideDragVisuals()
       if dragWatcher then dragWatcher:Hide() end
 
-      if target and intent then PlaceDraggedCategory(source, target, intent, side) end
+      if target and targetKind and intent then
+        PlaceDraggedSubcategory(source, targetKind, target, intent)
+      end
     end
 
-    local function Header(view, key, name, categoryID)
+    local function Header    local function Header(view, key, name, categoryID)
       local viewHeaders = headers[view]
       local h = viewHeaders[key]
       local parent = ViewFrame(view)
@@ -1504,11 +1645,11 @@ local function Initialize()
         h.line:SetPoint("BOTTOMRIGHT", h)
 
         h:SetScript("OnDragStart", function()
-          if h.categoryID then BeginCategoryDrag(h.categoryID, h.bagtweaks_view) end
+          if h.categoryID then BeginSubcategoryDrag(h.categoryID, h.bagtweaks_view) end
         end)
 
         h:SetScript("OnDragStop", function()
-          EndCategoryDrag()
+          EndSubcategoryDrag()
         end)
 
         h:SetScript("OnMouseUp", function()
@@ -1520,15 +1661,15 @@ local function Initialize()
             HideMenus()
             return
           end
-          ShowCategoryMenu(h, h.categoryID)
+          ShowSubcategoryMenu(h, h.categoryID)
         end)
 
         h:SetScript("OnReceiveDrag", function()
-          if not draggingCategoryID then AssignSelected(h.categoryID) end
+          if not draggingSubcategoryID then AssignSelected(h.categoryID) end
         end)
 
         h:SetScript("OnEnter", function()
-          if draggingCategoryID then return end
+          if draggingSubcategoryID then return end
 
           local section = sections[h.bagtweaks_view][SectionKeyForCategoryID(h.categoryID)]
           if selectedItemID and CursorStillHasItem() then
@@ -1537,13 +1678,13 @@ local function Initialize()
           end
 
           if h.categoryID then
-            local category = FindCategory(h.categoryID)
+            local category = FindSubcategory(h.categoryID)
             local mode = category and SORT_LABEL[category.sort or "bag"] or ""
             if category and category.system == "quest" then
               Tooltip(L.QUEST, string.format(L.QUEST_TOOLTIP, mode))
             else
               local scope = category and category.scope == "char" and L.PER_CHARACTER or L.ACCOUNT_WIDE
-              Tooltip(h.text:GetText(), string.format(L.CATEGORY_TOOLTIP, scope, mode))
+              Tooltip(h.text:GetText(), string.format(L.SUBCATEGORY_TOOLTIP, scope, mode))
             end
           else
             Tooltip(L.GENERAL, L.GENERAL_TOOLTIP)
@@ -1583,19 +1724,19 @@ local function Initialize()
         s.itemHighlight:Hide()
 
         s:SetScript("OnReceiveDrag", function()
-          if not draggingCategoryID then AssignSelected(s.categoryID) end
+          if not draggingSubcategoryID then AssignSelected(s.categoryID) end
         end)
 
         s:SetScript("OnMouseUp", function()
-          if arg1 == "LeftButton" and not draggingCategoryID then AssignSelected(s.categoryID) end
+          if arg1 == "LeftButton" and not draggingSubcategoryID then AssignSelected(s.categoryID) end
         end)
 
         s:SetScript("OnEnter", function()
-          if draggingCategoryID then return end
+          if draggingSubcategoryID then return end
           if selectedItemID and CursorStillHasItem() then
             ShowItemHighlight(s)
             if s.categoryID then
-              Tooltip(L.ADD_TO_CATEGORY, L.ADD_TO_CATEGORY_TOOLTIP)
+              Tooltip(L.ADD_TO_SUBCATEGORY, L.ADD_TO_SUBCATEGORY_TOOLTIP)
             else
               Tooltip(L.MOVE_TO_GENERAL, L.MOVE_TO_GENERAL_TOOLTIP)
             end
@@ -1630,23 +1771,23 @@ local function Initialize()
       value=nil,
     }
 
-    local function CategoryDisplayName(category)
-      if not category then return L.CATEGORY end
+    local function SubcategoryDisplayName(category)
+      if not category then return L.SUBCATEGORY end
       if category.system == "quest" then return L.QUEST end
-      return category.name or L.CATEGORY
+      return category.name or L.SUBCATEGORY
     end
 
     local function Collect(view)
       local general = {}
       local categorized = {}
       local questCategoryID = ActiveQuestCategoryID()
-      local characterMap = CharacterCategories(false)
+      local characterMap = CharacterSubcategories(false)
       local ordinal = 0
       local bags = ViewBags(view) or {}
 
-      for i = 1, table.getn(db.categories) do
-        local category = db.categories[i]
-        if IsCategoryActive(category) then categorized[category.id] = {} end
+      for i = 1, table.getn(db.subcategories) do
+        local category = db.subcategories[i]
+        if IsSubcategoryActive(category) then categorized[category.id] = {} end
       end
 
       for i = 1, table.getn(bags) do
@@ -1683,7 +1824,7 @@ local function Initialize()
             if id then
               local itemKey = tostring(id)
               local manualCategoryID = characterMap and characterMap[itemKey]
-              if manualCategoryID == nil then manualCategoryID = db.accountCategories[itemKey] end
+              if manualCategoryID == nil then manualCategoryID = db.accountSubcategories[itemKey] end
 
               if manualCategoryID ~= nil then
                 if manualCategoryID ~= GENERAL_OVERRIDE and categorized[manualCategoryID] then categoryID = manualCategoryID end
@@ -1740,41 +1881,140 @@ local function Initialize()
       return math.floor((n - 1) / columns) + 1
     end
 
-    local function LayoutSection(view, key, name, categoryID, list, columns, size, border)
+    local function PreferredSubcategoryColumns(itemCount, maxColumns)
+      if maxColumns <= 1 then return 1 end
+      if itemCount <= 0 then return math.min(2, maxColumns) end
+
+      local columns = math.ceil(math.sqrt(itemCount * 1.5))
+      if columns < 2 then columns = 2 end
+      if columns > maxColumns then columns = maxColumns end
+      return columns
+    end
+
+    local function ExpandPackedRow(row, maxColumns)
+      local spare = maxColumns - row.used
+      if spare <= 0 then return end
+
+      while spare > 0 do
+        local best, bestCost, bestGain
+
+        for i = 1, table.getn(row.entries) do
+          local entry = row.entries[i]
+          local currentRows = RowsFor(entry.list, entry.columns)
+
+          for columns = entry.columns + 1, entry.columns + spare do
+            local rows = RowsFor(entry.list, columns)
+            if rows < currentRows then
+              local cost = columns - entry.columns
+              local gain = currentRows - rows
+
+              if not best or gain * bestCost > bestGain * cost then
+                best = entry
+                bestCost = cost
+                bestGain = gain
+              end
+              break
+            end
+          end
+        end
+
+        if not best then break end
+        best.columns = best.columns + bestCost
+        row.used = row.used + bestCost
+        spare = spare - bestCost
+      end
+    end
+
+    local function BuildCategoryPlan(categoryInfo, categorized, fullColumns, size, border)
+      local spacing = border * 3
+      local pitch = size + spacing
+      local rows = {}
+      local row = { entries={}, used=0, height=0 }
+
+      local function FinishRow()
+        if table.getn(row.entries) == 0 then return end
+        ExpandPackedRow(row, fullColumns)
+
+        row.height = 0
+        for i = 1, table.getn(row.entries) do
+          local entry = row.entries[i]
+          local itemRows = RowsFor(entry.list, entry.columns)
+          entry.height = HEADER_HEIGHT + border + itemRows * pitch + border
+          if entry.height > row.height then row.height = entry.height end
+        end
+
+        table.insert(rows, row)
+        row = { entries={}, used=0, height=0 }
+      end
+
+      for n = 1, table.getn(categoryInfo.subcategories) do
+        local id = categoryInfo.subcategories[n]
+        local subcategory = FindSubcategory(id)
+        local list = categorized[id] or {}
+
+        if subcategory then
+          SortEntries(list, subcategory.sort or "bag", subcategory.reverse or false)
+
+          local columns = PreferredSubcategoryColumns(table.getn(list), fullColumns)
+          if row.used > 0 and row.used + columns > fullColumns then FinishRow() end
+
+          table.insert(row.entries, {
+            id=id,
+            subcategory=subcategory,
+            list=list,
+            columns=columns,
+          })
+          row.used = row.used + columns
+        end
+      end
+      FinishRow()
+
+      local height = CATEGORY_HEADER_HEIGHT + border * 2
+      for i = 1, table.getn(rows) do
+        height = height + rows[i].height
+        if i < table.getn(rows) then height = height + ROW_GAP end
+      end
+
+      return { category=categoryInfo.category, rows=rows, height=height }
+    end
+
+    local function LayoutSection(view, key, name, subcategoryID, list, columns, size, border)
       if columns < 1 then columns = 1 end
 
       local spacing = border * 3
       local pitch = size + spacing
       local rows = RowsFor(list, columns)
       local wantedHeight = HEADER_HEIGHT + border + rows * pitch + border
-      local s = Section(view, key, categoryID)
-      local h = Header(view, key, name, categoryID)
+      local wantedWidth = columns * pitch - border
+      local section = Section(view, key, subcategoryID)
+      local header = Header(view, key, name, subcategoryID)
       local parent = ViewFrame(view)
-      if not s or not h or not parent then return nil, 0 end
+      if not section or not header or not parent then return nil, 0, 0 end
       local baseLevel = parent:GetFrameLevel() or 0
 
-      s:SetFrameLevel(baseLevel + 1)
-      h:SetFrameLevel(baseLevel + 4)
+      section:SetFrameLevel(baseLevel + 2)
+      header:SetFrameLevel(baseLevel + 5)
+      section:SetWidth(wantedWidth)
+      section:SetHeight(wantedHeight)
 
-      h:ClearAllPoints()
-      h:SetPoint("TOPLEFT", s, "TOPLEFT", border, 0)
-      h:SetPoint("TOPRIGHT", s, "TOPRIGHT", -border, 0)
+      header:ClearAllPoints()
+      header:SetPoint("TOPLEFT", section, "TOPLEFT", border, 0)
+      header:SetPoint("TOPRIGHT", section, "TOPRIGHT", -border, 0)
 
       local row, col = 0, 0
-
       for i = 1, table.getn(list) do
-        local f = list[i].frame
-        f:SetFrameLevel(baseLevel + 3)
-        f:ClearAllPoints()
-        f:SetPoint(
+        local item = list[i].frame
+        item:SetFrameLevel(baseLevel + 4)
+        item:ClearAllPoints()
+        item:SetPoint(
           "TOPLEFT",
-          s,
+          section,
           "TOPLEFT",
           border + col * pitch,
           -(HEADER_HEIGHT + border + row * pitch)
         )
-        f:SetWidth(size)
-        f:SetHeight(size)
+        item:SetWidth(size)
+        item:SetHeight(size)
 
         col = col + 1
         if col >= columns then
@@ -1783,20 +2023,77 @@ local function Initialize()
         end
       end
 
-      return s, wantedHeight
+      return section, wantedHeight, wantedWidth
     end
 
-    local function RowFrame(view, index)
-      local viewRows = rowFrames[view]
+    local function ParentCategoryFrame(view, category)
+      local frames = categoryFrames[view]
       local parent = ViewFrame(view)
       if not parent then return nil end
+      local baseLevel = parent:GetFrameLevel() or 0
 
-      if not viewRows[index] then viewRows[index] = CreateFrame("Frame", nil, parent) end
-      viewRows[index]:Show()
-      return viewRows[index]
+      local frame = frames[category.id]
+      if not frame then
+        frame = CreateFrame("Frame", nil, parent)
+        frame:EnableMouse(1)
+        frames[category.id] = frame
+      end
+      frame:SetFrameLevel(baseLevel + 1)
+
+      local viewHeaders = categoryHeaders[view]
+      local header = viewHeaders[category.id]
+      if not header then
+        header = CreateFrame("Button", nil, frame)
+        header:SetHeight(CATEGORY_HEADER_HEIGHT)
+        header:EnableMouse(1)
+
+        header.text = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        header.text:SetFont(pfUI.font_default, C.global.font_size, "OUTLINE")
+        header.text:SetPoint("LEFT", header, "LEFT", 2, 0)
+        header.text:SetPoint("RIGHT", header, "RIGHT", -2, 0)
+        header.text:SetJustifyH("LEFT")
+        header.text:SetTextColor(.2, 1, .8, 1)
+
+        header.line = header:CreateTexture(nil, "ARTWORK")
+        header.line:SetTexture(1, 1, 1, 1)
+        header.line:SetVertexColor(.2, .6, .5, .8)
+        header.line:SetHeight(1)
+        header.line:SetPoint("BOTTOMLEFT", header)
+        header.line:SetPoint("BOTTOMRIGHT", header)
+
+        header:SetScript("OnMouseUp", function()
+          if arg1 ~= "LeftButton" and arg1 ~= "RightButton" then return end
+          if parentMenu and parentMenu:IsShown() and parentMenu.anchor == this then
+            HideMenus()
+            return
+          end
+          ShowParentCategoryMenu(this, this.categoryID)
+        end)
+
+        header:SetScript("OnEnter", function()
+          Tooltip(this.text:GetText(), L.CATEGORY_TOOLTIP)
+        end)
+        header:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+        viewHeaders[category.id] = header
+      end
+      header:SetFrameLevel(baseLevel + 5)
+
+      frame.categoryID = category.id
+      frame:Show()
+
+      header:SetParent(frame)
+      header.categoryID = category.id
+      header.text:SetText(category.name or L.CATEGORY)
+      header:ClearAllPoints()
+      header:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+      header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+      header:Show()
+
+      return frame
     end
 
-    local function StabilizeBottomAnchor(frame)
+    local function StabilizeBottomAnchor    local function StabilizeBottomAnchor(frame)
       if C.appearance.bags.movable == "1" then return end
       if not frame.GetNumPoints or not frame.GetPoint then return end
       if frame:GetNumPoints() < 2 then return end
@@ -1829,10 +2126,9 @@ local function Initialize()
       border = border or 1
 
       local fullColumns = ViewRowLength(view)
-      local halfColumns = math.floor(fullColumns / 2)
-      if halfColumns < 1 then halfColumns = 1 end
-
       local size = frame.button_size
+      local spacing = border * 3
+      local pitch = size + spacing
       local topSpace = frame.close:GetHeight() + border * 2
       local panel = nil
       if pfUI.panel then
@@ -1845,10 +2141,12 @@ local function Initialize()
 
       local general, categorized = Collect(view)
       local active = {}
+      local activeParent = {}
       local totalHeight = 0
-      local viewRows = rowFrames[view]
       local viewHeaders = headers[view]
       local viewSections = sections[view]
+      local viewCategoryFrames = categoryFrames[view]
+      local viewCategoryHeaders = categoryHeaders[view]
 
       SortEntries(general, db.generalSort, db.generalReverse)
 
@@ -1864,99 +2162,87 @@ local function Initialize()
       generalSection:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, bottomSpace)
       generalSection:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, bottomSpace)
       generalSection:SetHeight(generalHeight)
-      generalSection.bagtweaks_rowFrame = generalSection
 
       local below = generalSection
-      local activeRows = ActiveRows(categorized)
-      local visibleRowCount = table.getn(activeRows)
-      local rowFrameIndex = 0
+      local visibleCategories = ActiveCategories(categorized)
 
-      for r = visibleRowCount, 1, -1 do
-        local row = activeRows[r]
-        rowFrameIndex = rowFrameIndex + 1
+      for i = table.getn(visibleCategories), 1, -1 do
+        local info = visibleCategories[i]
+        local plan = BuildCategoryPlan(info, categorized, fullColumns, size, border)
+        local categoryFrame = ParentCategoryFrame(view, info.category)
 
-        local rf = RowFrame(view, rowFrameIndex)
-        local leftID = row[1]
-        local rightID = row[2]
-        local leftCategory = FindCategory(leftID)
-        local rightCategory = rightID and FindCategory(rightID) or nil
+        if categoryFrame then
+          activeParent[info.category.id] = true
 
-        local leftList = categorized[leftID] or {}
-        local rightList = rightID and (categorized[rightID] or {}) or nil
+          categoryFrame:ClearAllPoints()
+          categoryFrame:SetPoint("BOTTOMLEFT", below, "TOPLEFT", 0, ROW_GAP)
+          categoryFrame:SetPoint("BOTTOMRIGHT", below, "TOPRIGHT", 0, ROW_GAP)
+          categoryFrame:SetHeight(plan.height)
 
-        SortEntries(leftList, leftCategory and leftCategory.sort or "bag", leftCategory and leftCategory.reverse or false)
-        if rightCategory then SortEntries(rightList, rightCategory.sort or "bag", rightCategory.reverse) end
+          local yOffset = CATEGORY_HEADER_HEIGHT + border
+          for r = 1, table.getn(plan.rows) do
+            local row = plan.rows[r]
+            local xColumns = 0
 
-        local leftSection, leftHeight = LayoutSection(
-          view,
-          leftID,
-          CategoryDisplayName(leftCategory),
-          leftID,
-          leftList,
-          rightID and halfColumns or fullColumns,
-          size,
-          border
-        )
+            for n = 1, table.getn(row.entries) do
+              local entry = row.entries[n]
+              local section = LayoutSection(
+                view,
+                entry.id,
+                SubcategoryDisplayName(entry.subcategory),
+                entry.id,
+                entry.list,
+                entry.columns,
+                size,
+                border
+              )
 
-        local rightSection, rightHeight
-        if rightID and rightCategory then
-          rightSection, rightHeight = LayoutSection(
-            view,
-            rightID,
-            CategoryDisplayName(rightCategory),
-            rightID,
-            rightList,
-            halfColumns,
-            size,
-            border
-          )
+              if section then
+                active[entry.id] = true
+                section:ClearAllPoints()
+                section:SetPoint(
+                  "TOPLEFT",
+                  categoryFrame,
+                  "TOPLEFT",
+                  xColumns * pitch,
+                  -yOffset
+                )
+                section.bagtweaks_categoryFrame = categoryFrame
+              end
+
+              xColumns = xColumns + entry.columns
+            end
+
+            yOffset = yOffset + row.height
+            if r < table.getn(plan.rows) then yOffset = yOffset + ROW_GAP end
+          end
+
+          totalHeight = totalHeight + plan.height + ROW_GAP
+          below = categoryFrame
         end
-
-        local rowHeight = leftHeight
-        if rightHeight and rightHeight > rowHeight then rowHeight = rightHeight end
-
-        rf:ClearAllPoints()
-        rf:SetPoint("BOTTOMLEFT", below, "TOPLEFT", 0, ROW_GAP)
-        rf:SetPoint("BOTTOMRIGHT", below, "TOPRIGHT", 0, ROW_GAP)
-        rf:SetHeight(rowHeight)
-
-        leftSection:ClearAllPoints()
-        leftSection.bagtweaks_rowFrame = rf
-        if rightSection then
-          leftSection:SetPoint("TOPLEFT", rf, "TOPLEFT", 0, 0)
-          leftSection:SetPoint("BOTTOMLEFT", rf, "BOTTOMLEFT", 0, 0)
-          leftSection:SetPoint("RIGHT", rf, "CENTER", -border, 0)
-
-          rightSection:ClearAllPoints()
-          rightSection:SetPoint("TOPRIGHT", rf, "TOPRIGHT", 0, 0)
-          rightSection:SetPoint("BOTTOMRIGHT", rf, "BOTTOMRIGHT", 0, 0)
-          rightSection:SetPoint("LEFT", rf, "CENTER", border, 0)
-          rightSection.bagtweaks_rowFrame = rf
-
-          active[rightID] = true
-        else
-          leftSection:SetAllPoints(rf)
-        end
-
-        active[leftID] = true
-        totalHeight = totalHeight + rowHeight + ROW_GAP
-        below = rf
       end
 
-      for i = rowFrameIndex + 1, table.getn(viewRows) do viewRows[i]:Hide() end
-      for key, h in pairs(viewHeaders) do if not active[key] then h:Hide() end end
-      for key, s in pairs(viewSections) do
+      for key, header in pairs(viewHeaders) do
+        if not active[key] then header:Hide() end
+      end
+      for key, section in pairs(viewSections) do
         if not active[key] then
-          if itemHighlightSection == s then HideItemHighlight() end
-          s:Hide()
+          if itemHighlightSection == section then HideItemHighlight() end
+          section:Hide()
         end
+      end
+      for id, categoryFrame in pairs(viewCategoryFrames) do
+        if not activeParent[id] then categoryFrame:Hide() end
+      end
+      for id, header in pairs(viewCategoryHeaders) do
+        if not activeParent[id] then header:Hide() end
       end
 
       frame:SetHeight(bottomSpace + totalHeight + topSpace + border * 2)
-      if draggingCategoryID and draggingView == view then UpdateDragVisual() end
+      if draggingSubcategoryID and draggingView == view then UpdateDragVisual() end
     end
 
-    Relayout = function()
+    Relayout = function    Relayout = function()
       RelayoutView("backpack")
       RelayoutView("bank")
     end
@@ -1982,7 +2268,15 @@ local function Initialize()
     end
 
     pfUI.bagtweaks.Relayout = Relayout
-    pfUI.bagtweaks.ShowCategoryEditor = ShowNameDialog
+    pfUI.bagtweaks.ShowCategoryEditor = ShowParentCategoryNameDialog
+    pfUI.bagtweaks.ShowSubcategoryEditor = ShowSubcategoryNameDialog
+    pfUI.bagtweaks.GetCategories = function()
+      local result = {}
+      for i = 1, table.getn(db.categories) do
+        table.insert(result, { id=db.categories[i].id, name=db.categories[i].name })
+      end
+      return result
+    end
     pfUI.bagtweaks.HideMenus = HideMenus
     pfUI.bagtweaks.ToggleQuestCategory = function()
       db.questEnabled = not db.questEnabled
@@ -2024,7 +2318,7 @@ local function Initialize()
         if oldOnHide then oldOnHide() end
         HideMenus()
         HideItemHighlight()
-        if draggingView == "bank" and frame == pfUI.bag.left then EndCategoryDrag() end
+        if draggingView == "bank" and frame == pfUI.bag.left then EndSubcategoryDrag() end
       end)
       frame.bagtweaks_menu_hide_hooked = true
     end
@@ -2294,11 +2588,11 @@ local function ToolbarToggleSearch()
   end
 end
 
-local function ToolbarAddCategory()
+local ToolbarShowAddMenu
+
+local function ToolbarAdd()
   ToolbarHideMenu()
-  if pfUI.bagtweaks and pfUI.bagtweaks.ShowCategoryEditor then
-    pfUI.bagtweaks.ShowCategoryEditor(nil)
-  end
+  if ToolbarShowAddMenu then ToolbarShowAddMenu(this) end
 end
 
 local function ToolbarToggleQuest()
@@ -2505,6 +2799,48 @@ local function ToolbarShowMenu(owner, width, entries)
   end
 
   menu:Show()
+end
+
+ToolbarShowAddMenu = function(owner)
+  if not owner or not pfUI.bagtweaks then return end
+
+  local function AddSubcategory()
+    local categories = pfUI.bagtweaks.GetCategories and pfUI.bagtweaks.GetCategories() or {}
+
+    if table.getn(categories) <= 1 then
+      ToolbarHideMenu()
+      local id = categories[1] and categories[1].id or nil
+      if pfUI.bagtweaks.ShowSubcategoryEditor then
+        pfUI.bagtweaks.ShowSubcategoryEditor(nil, id)
+      end
+      return
+    end
+
+    local entries = {}
+    for i = 1, table.getn(categories) do
+      local categoryID = categories[i].id
+      table.insert(entries, {
+        text=categories[i].name,
+        action=function()
+          ToolbarHideMenu()
+          if pfUI.bagtweaks.ShowSubcategoryEditor then
+            pfUI.bagtweaks.ShowSubcategoryEditor(nil, categoryID)
+          end
+        end,
+      })
+    end
+
+    ToolbarHideMenu()
+    ToolbarShowMenu(owner, 170, entries)
+  end
+
+  ToolbarShowMenu(owner, 170, {
+    { text=L.NEW_CATEGORY, action=function()
+        ToolbarHideMenu()
+        if pfUI.bagtweaks.ShowCategoryEditor then pfUI.bagtweaks.ShowCategoryEditor(nil) end
+      end },
+    { text=L.NEW_SUBCATEGORY, action=AddSubcategory },
+  })
 end
 
 local function ToolbarToggleBagSlots()
@@ -2927,7 +3263,7 @@ local function BankToolbarLayout()
   local height, border, gap, topInset = ToolbarMetrics(bank)
   BankToolbarSuppressNative(bank)
 
-  local add = BankToolbarMakeButton("add", "+", ToolbarAddCategory)
+  local add = BankToolbarMakeButton("add", "+", ToolbarAdd)
   local search = BankToolbarMakeButton("search", L.TOOLBAR_SEARCH, BankToolbarToggleSearch)
   local sort = BankToolbarMakeButton("sort", L.TOOLBAR_SORT, BankToolbarClickSort)
   local view = BankToolbarMakeButton("view", L.TOOLBAR_VIEW, BankToolbarClickView)
@@ -3030,7 +3366,7 @@ local function ToolbarLayout()
   local height, border, gap, topInset = ToolbarMetrics(bag)
   ToolbarSuppressNative(bag)
 
-  local add = ToolbarMakeButton("add", "+", ToolbarAddCategory)
+  local add = ToolbarMakeButton("add", "+", ToolbarAdd)
   local search = ToolbarMakeButton("search", L.TOOLBAR_SEARCH, ToolbarToggleSearch)
   local sort = ToolbarMakeButton("sort", L.TOOLBAR_SORT, ToolbarClickSort)
   local view = ToolbarMakeButton("view", L.TOOLBAR_VIEW, ToolbarClickView)
