@@ -6,11 +6,11 @@ Currently in development.
 
 ## Expected Features
 
-- User-created visual item groups inside the normal pfUI bag window.
+- User-created visual item groups inside the normal pfUI backpack and bank windows.
 - Drag-and-drop item classification between groups.
 - Optional default Quest category, including active item-objective detection, with manual assignments taking priority.
 - Per-group sorting by Default (physical bag order), name, vendor value, and character equipment slot.
-- Header controls for search, pfUI's physical bag sort, view options, profession shortcuts, and addon options.
+- Matching backpack/bank header controls for search, pfUI's physical sorting, view options, Quest, and addon options; profession shortcuts remain backpack-only.
 - Visual grouping never moves physical inventory; only the explicit Sort control uses pfUI's normal inventory sorter.
 
 ## Development
