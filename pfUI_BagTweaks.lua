@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.24-dev
+-- pfUI_BagTweaks 0.1.25-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, with an optional default Quest category,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -80,6 +80,10 @@ local function Initialize()
     local itemMetaCache = {}
     local questObjectiveItemIDs = {}
     local questObjectiveItemNames = {}
+    local questLogStructureSignature = nil
+    local questObjectiveScanIncomplete = false
+    local questScanBusy = false
+    local questScanIgnoreUntil = 0
     local Relayout
 
     local draggingGroupID = nil
@@ -525,67 +529,146 @@ local function Initialize()
       return label
     end
 
-    local function RefreshQuestObjectiveItems()
+    local function QuestLogStructureSignature()
+      if type(GetNumQuestLogEntries) ~= "function" or type(GetQuestLogTitle) ~= "function" then
+        return ""
+      end
+
+      local entries, quests = GetNumQuestLogEntries()
+      entries = entries or 0
+
+      local parts = { tostring(entries), tostring(quests or 0) }
+      for index = 1, entries do
+        local title, _, _, isHeader, isCollapsed = GetQuestLogTitle(index)
+        if title then
+          table.insert(parts,
+            (isHeader and "H" or "Q") ..
+            (isCollapsed and "1" or "0") ..
+            ":" .. tostring(title))
+        end
+      end
+
+      return table.concat(parts, "\031")
+    end
+
+    local function QuestHeaderKey(title, occurrence)
+      return tostring(title or "") .. "\031" .. tostring(occurrence or 1)
+    end
+
+    local function CaptureCollapsedQuestHeaders()
+      local collapsed = {}
+      local occurrences = {}
+      local anyCollapsed = false
+      local entries = GetNumQuestLogEntries() or 0
+
+      for index = 1, entries do
+        local title, _, _, isHeader, isCollapsed = GetQuestLogTitle(index)
+        if title and isHeader then
+          local count = (occurrences[title] or 0) + 1
+          occurrences[title] = count
+
+          if isCollapsed then
+            collapsed[QuestHeaderKey(title, count)] = true
+            anyCollapsed = true
+          end
+        end
+      end
+
+      return collapsed, anyCollapsed
+    end
+
+    local function ScanQuestObjectiveItems(collapsedHeaders)
       local scannedIDs = {}
       local scannedNames = {}
-      local hasCollapsedHeaders = false
+      local restore = {}
+      local occurrences = {}
+      local incomplete = false
+      local entries = GetNumQuestLogEntries() or 0
 
-      if db.questEnabled and type(GetNumQuestLogEntries) == "function" and
-         type(GetQuestLogTitle) == "function" and
-         type(GetNumQuestLeaderBoards) == "function" and
-         type(GetQuestLogLeaderBoard) == "function" then
-        local entries = GetNumQuestLogEntries() or 0
+      for questIndex = 1, entries do
+        local title, _, _, isHeader = GetQuestLogTitle(questIndex)
 
-        for questIndex = 1, entries do
-          local title, _, _, isHeader, isCollapsed = GetQuestLogTitle(questIndex)
+        if title and isHeader then
+          local count = (occurrences[title] or 0) + 1
+          occurrences[title] = count
 
-          if title and isHeader then
-            if isCollapsed then hasCollapsedHeaders = true end
-          elseif title then
-            local objectives = GetNumQuestLeaderBoards(questIndex) or 0
+          if collapsedHeaders and collapsedHeaders[QuestHeaderKey(title, count)] then
+            table.insert(restore, questIndex)
+          end
+        elseif title then
+          local objectives = GetNumQuestLeaderBoards(questIndex) or 0
 
-            for objectiveIndex = 1, objectives do
-              local text, objectiveType = GetQuestLogLeaderBoard(objectiveIndex, questIndex)
+          for objectiveIndex = 1, objectives do
+            local text, objectiveType = GetQuestLogLeaderBoard(objectiveIndex, questIndex)
 
-              if objectiveType == "item" then
-                local name = QuestObjectiveItemName(text)
-                if name then scannedNames[name] = true end
+            if objectiveType == "item" then
+              local name = QuestObjectiveItemName(text)
+              if name then
+                scannedNames[name] = true
+              else
+                incomplete = true
+              end
 
-                -- ClassicAPI exposes the objective's real item ID. It is only an
-                -- optional precision upgrade; the Vanilla name path above is the
-                -- normal fallback and keeps BagTweaks dependency-free.
-                if type(G.GetQuestLogLeaderBoardID) == "function" then
-                  local ok, id, kind = pcall(G.GetQuestLogLeaderBoardID, objectiveIndex, questIndex)
-                  id = ok and tonumber(id) or nil
-                  if id and (kind == nil or kind == "item") then scannedIDs[id] = true end
-                end
+              -- ClassicAPI is optional. Vanilla name matching above remains the
+              -- dependency-free path; this only adds exact IDs when available.
+              if type(G.GetQuestLogLeaderBoardID) == "function" then
+                local ok, id, kind = pcall(G.GetQuestLogLeaderBoardID, objectiveIndex, questIndex)
+                id = ok and tonumber(id) or nil
+                if id and (kind == nil or kind == "item") then scannedIDs[id] = true end
               end
             end
           end
         end
       end
 
-      local nextIDs = scannedIDs
-      local nextNames = scannedNames
+      return scannedIDs, scannedNames, restore, incomplete
+    end
 
-      -- Vanilla hides child quest rows when a quest-log header is collapsed.
-      -- Never discard previously seen objectives just because the user collapsed
-      -- a header. Once all headers are visible, the scan is authoritative again.
-      if db.questEnabled and hasCollapsedHeaders then
-        nextIDs = {}
-        nextNames = {}
+    local function RefreshQuestObjectiveItems()
+      if questScanBusy then return false end
+      questScanBusy = true
 
-        for id in pairs(questObjectiveItemIDs) do nextIDs[id] = true end
-        for name in pairs(questObjectiveItemNames) do nextNames[name] = true end
-        for id in pairs(scannedIDs) do nextIDs[id] = true end
-        for name in pairs(scannedNames) do nextNames[name] = true end
+      local scannedIDs = {}
+      local scannedNames = {}
+      local incomplete = false
+
+      if db.questEnabled and type(GetNumQuestLogEntries) == "function" and
+         type(GetQuestLogTitle) == "function" and
+         type(GetNumQuestLeaderBoards) == "function" and
+         type(GetQuestLogLeaderBoard) == "function" then
+        local collapsedHeaders, anyCollapsed = CaptureCollapsedQuestHeaders()
+        local canRestore = type(ExpandQuestHeader) == "function" and
+          type(CollapseQuestHeader) == "function"
+
+        if anyCollapsed and canRestore then
+          -- Vanilla removes child quest rows from the visible log while a
+          -- header is collapsed. Expand all only for the duration of this scan,
+          -- then restore the user's exact collapsed headers bottom-to-top.
+          questScanIgnoreUntil = (GetTime and GetTime() or 0) + .10
+          pcall(ExpandQuestHeader, 0)
+
+          local restore
+          scannedIDs, scannedNames, restore, incomplete =
+            ScanQuestObjectiveItems(collapsedHeaders)
+
+          for i = table.getn(restore), 1, -1 do
+            pcall(CollapseQuestHeader, restore[i])
+          end
+
+          questScanIgnoreUntil = (GetTime and GetTime() or 0) + .10
+        else
+          scannedIDs, scannedNames, _, incomplete = ScanQuestObjectiveItems(nil)
+        end
       end
 
-      local changed = not SetEquals(questObjectiveItemIDs, nextIDs) or
-        not SetEquals(questObjectiveItemNames, nextNames)
+      local changed = not SetEquals(questObjectiveItemIDs, scannedIDs) or
+        not SetEquals(questObjectiveItemNames, scannedNames)
 
-      questObjectiveItemIDs = nextIDs
-      questObjectiveItemNames = nextNames
+      questObjectiveItemIDs = scannedIDs
+      questObjectiveItemNames = scannedNames
+      questObjectiveScanIncomplete = incomplete
+      questLogStructureSignature = QuestLogStructureSignature()
+      questScanBusy = false
       return changed
     end
 
@@ -1866,6 +1949,16 @@ local function Initialize()
     local questLogWatcher = CreateFrame("Frame")
     questLogWatcher:RegisterEvent("QUEST_LOG_UPDATE")
     questLogWatcher:SetScript("OnEvent", function()
+      if questScanBusy then return end
+
+      local now = GetTime and GetTime() or 0
+      if now < questScanIgnoreUntil then return end
+
+      local signature = QuestLogStructureSignature()
+      if signature == questLogStructureSignature and not questObjectiveScanIncomplete then
+        return
+      end
+
       if RefreshQuestObjectiveItems() then RequestRelayout() end
     end)
     pfUI.bagtweaks.questLogWatcher = questLogWatcher
