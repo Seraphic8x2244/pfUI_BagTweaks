@@ -1,219 +1,99 @@
 # pfUI_BagTweaks Development Handoff
 
-## Target
+## Goals
 
 - Vanilla WoW 1.12.1.
-- Primary tested target: brues-code pfUI.
-- Shagu pfUI compatibility is maintained where practical, but is not currently user-tested.
-- ClassicAPI may be present. Feature-detect newer APIs.
-- Keep implementation in one main Lua file unless there is a clear technical reason to split it. Locale strings live separately in `locales.lua`.
+- Primary target: brues-code pfUI.
+- Shagu pfUI compatibility is best-effort unless a tester is available.
+- ClassicAPI is optional; feature-detect it.
+- Keep the addon simple, visual, fast, and dependency-free.
+- Backpack and bank use the same category model.
+- Visual category sorting never moves physical inventory.
+- Only explicit Sort delegates to pfUI's physical inventory sorter.
 
-## Core Behaviour
+## Project Rules
 
-- pfUI remains responsible for the actual bag frames and physical inventory.
-- BagTweaks adds the same visual category system to both the unified pfUI backpack and bank.
-- Categories, item assignments, row order, scope, visual sort settings, Quest state, and Empty Categories state are shared between backpack and bank.
-- Visual category sorting never moves physical items.
-- The toolbar Sort control delegates to pfUI's native physical bag sorter when one exists.
-- General is always the bottom visual category.
-- User categories are ordered with `db.rows`, with a maximum of two categories per visual row.
-- Empty category visibility is controlled by `db.showEmptyCategories`.
-- Item assignments are stored by item ID, so all copies of an item follow the same manual assignment.
+- Use **Category** terminology throughout code, UI, docs, and SavedVariables. Do not reintroduce Group terminology except legacy migration keys.
+- Keep implementation in `pfUI_BagTweaks.lua` unless a split is technically necessary. `locales.lua` remains separate.
+- All user-facing strings belong in `locales.lua`.
+- Persist through `_G.pfUIBagTweaksDB`; pfUI module environments must not own SavedVariables.
+- General is fixed and always bottom.
+- Category rows allow one or two categories only.
+- Empty physical slots belong only to General.
+- Manual categorization wins over automatic Quest categorization.
+- Account/character categorization is item-ID based, so all copies follow the same category.
+- Backpack and bank share category definitions, row order, categorization, scope, visual sort, Quest state, and Empty Categories state.
+- Do not physically move items for category layout or visual sorting.
+- Prefer pfUI native handlers for physical Sort, Disenchant, Pick Lock, Open, and fork-specific spell behaviour.
+- Preserve wrapped scripts and third-party addon chains.
+- Avoid polling, repeated SavedVariable writes, and cleanup in relayout hot paths.
+- Coalesce bag/item-data relayouts.
+- Do not auto-expand/collapse the player's quest log except for the guarded temporary scan that restores the exact prior state.
 
 ## SavedVariables
 
-Global table:
+Current schema:
 
-`pfUIBagTweaksDB`
+- `categories`: category definitions.
+- `nextCategoryID`: next stable category ID.
+- `rows`: visual category row layout.
+- `accountCategories[itemID] = categoryID`.
+- `characterCategories[characterKey][itemID] = categoryID`.
+- `generalSort`, `generalReverse`.
+- `showEmptyCategories`.
+- `questEnabled`.
 
-Current important fields:
+General override is category ID `0`.
 
-- `groups`: category records.
-- `nextGroupID`: next stable numeric category ID.
-- `rows`: visual row layout; each row contains one or two group IDs.
-- `accountAssignments`: account-wide manual item assignments.
-- `charAssignments`: character-specific manual assignments keyed by realm + character.
-- `generalSort`, `generalReverse`: General category visual sorting.
-- `showEmptyCategories`: whether empty categories are shown.
-- `questEnabled`: whether the built-in Quest category is active.
+Legacy `groups`, `nextGroupID`, `accountAssignments`, `charAssignments`, `assignments`, and `questGroupID` are migration-only names.
 
-Manual General assignment is stored as group ID `0`.
+## Behaviour Invariants
 
-Initialization may normalize genuinely old/invalid data, but normal login/relayout code should not reconstruct or rewrite valid SavedVariables unnecessarily.
-
-## Category Records
-
-Normal category:
-
-```lua
-{
-  id = 1,
-  name = "Consumables",
-  sort = "bag",
-  reverse = false,
-  scope = "account", -- or "char"
-  owner = nil,       -- realm/character key when scope == "char"
-}
-```
-
-Built-in Quest category:
-
-```lua
-{
-  id = 2,
-  sort = "bag",
-  reverse = false,
-  scope = "account",
-  system = "quest",
-}
-```
-
-The Quest display name comes from the locale table rather than SavedVariables.
-
-## Assignment Precedence
-
-1. Character assignment.
-2. Account assignment.
-3. Automatic Quest category, if enabled and either:
-   - the item is a real quest-class item; or
-   - the item matches an active quest-log item objective.
-4. General.
-
-Manual assignments always override Quest automation.
-
-### Temporary Quest Objective Items
-
-BagTweaks scans active quest objectives at runtime when the Quest category is enabled.
-
-- Vanilla 1.12 path: `GetQuestLogLeaderBoard()` identifies objectives with type `"item"`; the localized objective label is matched against the localized bag item name.
-- Optional ClassicAPI enhancement: if `GetQuestLogLeaderBoardID()` exists, its exact objective item ID is cached as an additional match.
-- ClassicAPI is not required.
-- The cache is runtime-only and must never be stored in SavedVariables.
-- `QUEST_LOG_UPDATE` refreshes the cache only when the quest-log structure changes (or a previous scan had incomplete item text); relayout only occurs when the objective item set changes.
-- Completed objectives remain classified as Quest while the quest remains in the log.
-- Vanilla hides child quest rows under collapsed headers. BagTweaks records the user's collapsed headers, calls native `ExpandQuestHeader(0)` for the scan, then restores the exact collapsed headers bottom-to-top with `CollapseQuestHeader(index)`.
-- The temporary expand/restore path is guarded so BagTweaks does not recursively respond to the `QUEST_LOG_UPDATE` events generated by its own header manipulation.
-- This collapsed-header scan is pure Vanilla API and does not require ClassicAPI.
-
-## Visual Sort Modes
-
-Internal values remain stable:
-
-- `bag`: displayed as **Default**; follows physical/pfUI traversal order.
-- `name`: item name.
-- `value`: vendor value.
-- `slot`: character equipment slot order.
-
-Changing visual sort order must not move inventory.
+- Category scope is account-wide or per-character.
+- Quest is a built-in system category with fixed display name and account scope.
+- Quest automatic precedence: manual category -> real Quest-class item / active item objective -> General.
+- Active quest-objective matching is runtime-only.
+- Default visual sort means current physical traversal order.
+- Other visual sorts: Name, Vendor Value, Character Slot; each supports Reverse.
+- Bank Default uses bank physical traversal order.
+- Bank DE/Pick/Open controls are intentionally absent.
+- Backpack DE does not consume bank-item right-clicks.
 
 ## Toolbar
 
-Backpack intended order:
+Backpack:
 
-`[+] [Search] [Sort] [View] [Quest] [DE?] [Pick?] [Open] [Options] [X]`
+`[+] [Search] [Sort?] [View] [Quest] [DE?] [Pick?] [Open] [Options] [X]`
 
-Bank intended order:
+Bank:
 
-`[+] [Search] [Sort] [View] [Quest] [Options] [X]`
+`[+] [Search] [Sort?] [View] [Quest] [Options] [X]`
 
-- `+`: new category.
-- Search: backpack toggles pfUI's native search field; bank uses a lightweight BagTweaks name filter because pfUI has no bank search field.
-- Sort: invokes pfUI's native physical sorter for the relevant frame. Hidden if the active pfUI fork has no native sorter.
-- View: backpack offers Bags, Keys, Empty Categories; bank offers Bags and Empty Categories.
-- Quest: toggles the built-in Quest category.
-- DE: visible only when Disenchant is available.
-- Pick: visible only when Pick Lock is available.
-- Open: backpack only; delegates to pfUI's native open-container control.
-- DE/Pick/Open are intentionally omitted from the bank toolbar.
-- Options: opens Thirdparty -> Bag Tweaks in pfUI.
-- X: pfUI's native close button.
+- Backpack View: Bags / Keys / Empty Categories.
+- Bank View: Bags / Empty Categories.
+- Sort is hidden if the pfUI fork has no native sorter.
+- No BagTweaks options are currently exposed.
 
-No BagTweaks options are currently exposed; the former "Show Search Bar" option was retired because Search is now a direct toolbar control.
-
-### Toolbar UI TODO
-
-- Search: replace text with a magnifying-glass icon.
-- Sort: replace text with an icon; brues-code pfUI already exposes `pfUI.media["img:sort"]`.
-- Options: replace text with a cog/gear icon and keep the treatment visually consistent with pfUI.
-- Text controls should continue to truncate safely on narrow bag widths.
-- The `+` control is intentionally narrow and must always display `+`, never `...`.
-
-## Bank Integration
-
-- Bank categories use the same item-ID assignments as the backpack, so a category decision follows an item wherever it is stored.
-- Bank Default sorting follows the bank's physical traversal order and remains visual-only.
-- Bank physical Sort delegates to pfUI's native bank sorter.
-- Bank category headers support the same menu, drag/reorder, assignment, one/two-column layout, and Empty Categories behaviour as the backpack.
-- Bank item drag/click assignment uses the existing item-ID classification path and does not physically move the item.
-- Bank Search filters bank items by localized item name only and is runtime-only.
-- When bank bag-slot controls are visible, the bank search field is moved above them to avoid overlap.
-- Backpack DE mode does not consume bank-item right-clicks.
-
-## Disenchant
-
-DE is a persistent click mode, not an automatic rearm loop.
-
-Intended interaction:
-
-`DE ON -> right-click item -> BagTweaks asks pfUI's native Disenchant button to arm -> target that exact bag slot -> loot -> repeat`
-
-BagTweaks should not maintain a loot-window/timer rearm state machine for DE.
-
-Confirmed in-game on brues-code pfUI: persistent Disenchant works across repeated items using right-click.
-
-UX TODO: make active DE mode more discoverable without sacrificing normal left-click item movement/category interactions. Candidate treatment: targeting-style cursor feedback plus a red-to-transparent hover pulse on disenchantable items.
-
-## Pick Lock
-
-Pick currently uses pfUI's native Pick Lock control and maintains the existing persistent targeting behaviour.
-
-Pending in-game test on a rogue.
-
-## pfUI Integration Rules
-
-- Prefer calling or wrapping pfUI's native behaviour rather than reimplementing fork-specific details.
-- brues-code and Shagu differ in how profession buttons identify/cast spells.
-- Do not assume a numeric profession button ID means the same thing across forks.
-- Preserve pre-existing frame scripts when wrapping them.
-- Avoid broad per-frame work. Current OnUpdate use should be limited to:
-  - category drag tracking while dragging;
-  - one-frame coalesced relayout requests;
-  - lightweight toolbar refresh / Pick state.
-
-## Performance Notes
-
-- Item sort metadata is cached.
-- Repeated bag update relayout requests are coalesced.
-- Database cleanup happens at initialization rather than every relayout.
-- Category drag OnUpdate is active only during a drag.
-- Do not add polling or SavedVariable writes unless necessary.
-
-## Locales
-
-All user-facing BagTweaks strings belong in `locales.lua`.
-
-Do not move API constants, frame names, event names, internal sort keys, texture paths, or SavedVariable keys into locales.
-
-English is currently the fallback/default set.
-
-## Current Test Status
+## Tested
 
 Confirmed on brues-code pfUI:
 
-- Login with no Lua errors.
-- Toolbar present.
-- Options button opens Thirdparty -> Bag Tweaks.
-- Category drag/reorder/scope behaviour appears correct.
-- Visual sort modes and Reverse appear correct.
-- Quest category and manual precedence work.
-- Repeated Disenchant workflow works using the current right-click interaction.
-- Active item-objective detection is implemented; Vanilla name matching is the dependency-free path with optional exact ClassicAPI IDs, but this temporary-objective behaviour is not yet in-game tested.
+- Login/reload without Lua errors.
+- Backpack categories, drag/reorder, one/two-column layout, scope, sorting, Reverse, Quest, Search, View, Options.
+- Bank categories and toolbar; shared categorization/order behaves correctly.
+- Physical backpack/bank Sort delegates to pfUI.
+- Persistent Disenchant works using right-click.
+- Quest class-12 categorization and manual precedence work.
 
-Pending:
+## TODO / Untested
 
 - Rogue Pick Lock workflow.
-- Toolbar icon conversion / custom tiny icon artwork (pinned for later).
-- Bank categories and bank toolbar integration.
-- Temporary quest-objective item behaviour on a quest that uses a normal item class, including a quest hidden under a collapsed quest-log header. This remains untested until a suitable quest is encountered.
+- Temporary active-quest objective detection for ordinary item-class items; implemented but not yet encountered in-game.
+- DE discoverability: targeting-style cursor / candidate-item hover feedback; keep right-click behaviour.
+- Custom tiny toolbar artwork: Search, Sort, Options, DE, Pick, Open. Built-in pfUI art was judged too small/muddy; this is pinned for later.
+- Consider reducing the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
-Shagu pfUI is not part of the user's test setup; compatibility there is best-effort unless another tester is available.
+## Branches
+
+- `main`: stable user branch; no HANDOFF.md.
+- `dev`: active development branch; keep this HANDOFF.md current.
