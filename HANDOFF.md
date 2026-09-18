@@ -17,10 +17,11 @@
 - Version: `0.1.29-dev`.
 - Latest functional commit: `638f2ea` — refine Subcategory spacing/dividers and DE safety.
 - Latest version commit: `d4bb1f7` — bump dev version to 0.1.29-dev.
-- Completed this pass: account-wide parent Category model confirmed; wider horizontal Subcategory separation; grey vertical dividers; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition.
-- Untested this pass: in-game visual feel at the user's current pfUI scale/row width; DE target consumption; all three disarm paths.
-- Deferred: Pick Lock workflow test, active-quest ordinary-item detection, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
-- Exact next step: user reloads/tests 0.1.29-dev, sends a screenshot of the new Category/Subcategory spacing and confirms DE left-click plus disarm behaviour.
+- Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition.
+- User visual correction: the grey accent should be an L-shape on each Subcategory — existing top underline plus a matching grey line down the left edge from the same top-left intersection. The current right-edge divider is not desired.
+- Untested this pass: DE target consumption; all three disarm paths; final L-shaped Subcategory accent.
+- Deferred: packing optimisation unless future inventories show a real problem, Pick Lock workflow test, active-quest ordinary-item detection, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
+- Exact next step: replace the current right divider with the requested top+left L-shaped Subcategory accent, update this handoff, then start a fresh chat for in-game testing.
 
 ## Goals
 
