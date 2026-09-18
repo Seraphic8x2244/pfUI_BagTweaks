@@ -15,13 +15,13 @@
 
 - Branch: `dev`.
 - Version: `0.1.29-dev`.
-- Latest functional commit: `638f2ea` — refine Subcategory spacing/dividers and DE safety.
+- Latest functional commit: `458e4d3` — draw Subcategory accent on top and left.
+- Previous functional commit: `638f2ea` — refine Subcategory spacing/dividers and DE safety.
 - Latest version commit: `d4bb1f7` — bump dev version to 0.1.29-dev.
-- Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition.
-- User visual correction: the grey accent should be an L-shape on each Subcategory — existing top underline plus a matching grey line down the left edge from the same top-left intersection. The current right-edge divider is not desired.
-- Untested this pass: DE target consumption; all three disarm paths; final L-shaped Subcategory accent.
+- Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
+- Untested this pass: final L-shaped Subcategory accent in-game; DE target consumption; DE/Pick disarm on backpack close, bank close, and world/instance transition.
 - Deferred: packing optimisation unless future inventories show a real problem, Pick Lock workflow test, active-quest ordinary-item detection, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
-- Exact next step: replace the current right divider with the requested top+left L-shaped Subcategory accent, update this handoff, then start a fresh chat for in-game testing.
+- Exact next step: start a fresh chat, reload/test 0.1.29-dev, confirm the top+left Subcategory accent/spacing visually, then test DE left-click targeting and the three disarm paths.
 
 ## Goals
 
@@ -86,7 +86,7 @@ Migration from schema 1:
 - Item size comes from pfUI's calculated `button_size`; border/spacing comes from pfUI bag border settings.
 - Subcategories pack left-to-right in stable user order and wrap when the next block will not fit.
 - Horizontal Subcategory gaps are accounted for inside pfUI's existing bag width; BagTweaks does not widen the bag.
-- Subcategory header underlines continue downward as a subtle grey divider between adjacent Subcategories on the same row.
+- Each Subcategory uses a subtle grey L-shaped accent: the existing header underline is the top edge, with a matching grey line descending from its top-left intersection along the left edge. There is no right-edge divider.
 - Item icons sit slightly farther below their Subcategory underline, while wrapped Subcategory rows use a tighter vertical gap.
 - Preferred Subcategory width is count-driven: approximately `ceil(sqrt(itemCount * 1.5))`, clamped to the parent width with a two-slot minimum where possible.
 - Spare columns are only assigned when they reduce a Subcategory's item-row count.
@@ -144,7 +144,7 @@ Previously confirmed on the pre-0.1.28 brues-code pfUI base:
 - Schema-1 migration and reload persistence.
 - Category/Subcategory creation, rename, delete, and ordering.
 - Dynamic packing at different pfUI bag row lengths and icon sizes.
-- Horizontal Subcategory gap, grey vertical divider, and revised vertical spacing.
+- Horizontal Subcategory gap, top+left grey L-shaped accent, and revised vertical spacing.
 - Subcategory drag/reorder/move between Categories.
 - Backpack and bank layout parity.
 - Empty Subcategories toggle.
