@@ -1823,7 +1823,11 @@ local function Initialize()
 
       local size = frame.button_size
       local topSpace = frame.close:GetHeight() + border * 2
-      local panel = pfUI.panel and (view == "bank" and pfUI.panel.left or pfUI.panel.right)
+      local panel = nil
+      if pfUI.panel then
+        if view == "bank" then panel = pfUI.panel.left
+        else panel = pfUI.panel.right end
+      end
       local bottomSpace = panel and panel:IsShown()
         and panel:GetHeight() + border
         or 16 + border
