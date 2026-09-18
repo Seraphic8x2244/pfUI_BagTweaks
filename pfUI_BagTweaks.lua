@@ -1806,36 +1806,41 @@ local function Initialize()
       end
     end
 
-    Relayout = function()
-      local frame = pfUI.bag.right
-      if not frame or not frame.button_size or not frame.close or not pfUI.BACKPACK or not pfUI.bags then return end
+    local function RelayoutView(view)
+      local frame = ViewFrame(view)
+      local bags = ViewBags(view)
+      if not frame or not frame.button_size or not frame.close or not bags or not pfUI.bags then return end
 
-      HookItemSelection()
+      HookItemSelection(view)
       StabilizeBottomAnchor(frame)
 
       local _, border = GetBorderSize("bags")
       border = border or 1
 
-      local fullColumns = tonumber(C.appearance.bags.bagrowlength) or 10
-      if fullColumns < 1 then fullColumns = 1 end
+      local fullColumns = ViewRowLength(view)
       local halfColumns = math.floor(fullColumns / 2)
       if halfColumns < 1 then halfColumns = 1 end
 
       local size = frame.button_size
       local topSpace = frame.close:GetHeight() + border * 2
-      local bottomSpace = pfUI.panel and pfUI.panel.right:IsShown()
-        and pfUI.panel.right:GetHeight() + border
+      local panel = pfUI.panel and (view == "bank" and pfUI.panel.left or pfUI.panel.right)
+      local bottomSpace = panel and panel:IsShown()
+        and panel:GetHeight() + border
         or 16 + border
 
-      local general, grouped = Collect()
+      local general, grouped = Collect(view)
       local active = {}
       local totalHeight = 0
+      local viewRows = rowFrames[view]
+      local viewHeaders = headers[view]
+      local viewSections = sections[view]
 
       SortEntries(general, db.generalSort, db.generalReverse)
 
       local generalSection, generalHeight = LayoutSection(
-        "general", L.GENERAL, nil, general, fullColumns, size, border
+        view, "general", L.GENERAL, nil, general, fullColumns, size, border
       )
+      if not generalSection then return end
 
       active["general"] = true
       totalHeight = totalHeight + generalHeight
@@ -1855,7 +1860,7 @@ local function Initialize()
         local row = activeRows[r]
         rowFrameIndex = rowFrameIndex + 1
 
-        local rf = RowFrame(rowFrameIndex)
+        local rf = RowFrame(view, rowFrameIndex)
         local leftID = row[1]
         local rightID = row[2]
         local leftGroup = FindGroup(leftID)
@@ -1868,6 +1873,7 @@ local function Initialize()
         if rightGroup then SortEntries(rightList, rightGroup.sort or "bag", rightGroup.reverse) end
 
         local leftSection, leftHeight = LayoutSection(
+          view,
           leftID,
           GroupDisplayName(leftGroup),
           leftID,
@@ -1880,6 +1886,7 @@ local function Initialize()
         local rightSection, rightHeight
         if rightID and rightGroup then
           rightSection, rightHeight = LayoutSection(
+            view,
             rightID,
             GroupDisplayName(rightGroup),
             rightID,
@@ -1921,9 +1928,9 @@ local function Initialize()
         below = rf
       end
 
-      for i = rowFrameIndex + 1, table.getn(rowFrames) do rowFrames[i]:Hide() end
-      for key, h in pairs(headers) do if not active[key] then h:Hide() end end
-      for key, s in pairs(sections) do
+      for i = rowFrameIndex + 1, table.getn(viewRows) do viewRows[i]:Hide() end
+      for key, h in pairs(viewHeaders) do if not active[key] then h:Hide() end end
+      for key, s in pairs(viewSections) do
         if not active[key] then
           if itemHighlightSection == s then HideItemHighlight() end
           s:Hide()
@@ -1931,7 +1938,12 @@ local function Initialize()
       end
 
       frame:SetHeight(bottomSpace + totalHeight + topSpace + border * 2)
-      if draggingGroupID then UpdateDragVisual() end
+      if draggingGroupID and draggingView == view then UpdateDragVisual() end
+    end
+
+    Relayout = function()
+      RelayoutView("backpack")
+      RelayoutView("bank")
     end
 
     local relayoutDriver
