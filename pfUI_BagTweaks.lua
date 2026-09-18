@@ -1,9 +1,11 @@
--- pfUI_BagTweaks 0.1.21-dev
+-- pfUI_BagTweaks 0.1.22-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, with an optional default Quest category,
 -- can be arranged as one or two columns, and never move physical inventory slots.
 
 if not pfUI then return end
+
+local L = pfUIBagTweaks_L or {}
 
 local ADDON_NAME = "pfUI_BagTweaks"
 local initialized = false
@@ -38,10 +40,10 @@ local function Initialize()
 
     local SORT_MODES = { "bag", "name", "value", "slot" }
     local SORT_LABEL = {
-      bag = "Bag Order",
-      name = "Name",
-      value = "Vendor Value",
-      slot = "Character Slot",
+      bag = L.SORT_BAG,
+      name = L.SORT_NAME,
+      value = L.SORT_VENDOR_VALUE,
+      slot = L.SORT_CHARACTER_SLOT,
     }
 
     local SLOT_ORDER = {
@@ -85,6 +87,7 @@ local function Initialize()
     local itemHighlightSection = nil
     local nameDialog, deleteDialog, menu, sortMenu
     local dragPreview, dragInsertLine, dragWatcher
+    local itemMetaCache = {}
     local Relayout
 
     local draggingGroupID = nil
@@ -101,12 +104,9 @@ local function Initialize()
     -- Normal logins and relayouts should leave an already-valid DB untouched.
     if db.groups == nil then db.groups = {} end
 
-    if db.nextGroupID == nil then
-      db.nextGroupID = 1
-    else
-      local nextID = tonumber(db.nextGroupID)
-      if nextID and nextID ~= db.nextGroupID then db.nextGroupID = nextID end
-    end
+    local nextID = tonumber(db.nextGroupID)
+    if not nextID or nextID < 1 then nextID = 1 end
+    if db.nextGroupID ~= nextID then db.nextGroupID = nextID end
 
     if db.generalSort == nil then db.generalSort = "bag" end
     if db.generalReverse == nil then db.generalReverse = false end
@@ -128,14 +128,15 @@ local function Initialize()
       return tostring(realm or "") .. "\031" .. tostring(name or "")
     end
 
+    local characterKey = CharacterKey()
+    local currentCharAssignments = db.charAssignments[characterKey]
+
     local function CharAssignments(create)
-      local key = CharacterKey()
-      local tab = db.charAssignments[key]
-      if not tab and create then
-        tab = {}
-        db.charAssignments[key] = tab
+      if not currentCharAssignments and create then
+        currentCharAssignments = {}
+        db.charAssignments[characterKey] = currentCharAssignments
       end
-      return tab
+      return currentCharAssignments
     end
 
     local function Trim(s)
@@ -158,7 +159,7 @@ local function Initialize()
       if not g then return false end
       if g.system == "quest" then return db.questEnabled and true or false end
       if g.scope ~= "char" then return true end
-      return g.owner == CharacterKey()
+      return g.owner == characterKey
     end
 
     local function RowsEqual(a, b)
@@ -214,14 +215,19 @@ local function Initialize()
     for i = 1, table.getn(db.groups) do
       local g = db.groups[i]
 
-      if not g.id then
-        g.id = db.nextGroupID
-        db.nextGroupID = db.nextGroupID + 1
-      elseif g.id >= db.nextGroupID then
-        db.nextGroupID = g.id + 1
+      local id = tonumber(g.id)
+      if not id then
+        id = db.nextGroupID
+        g.id = id
+        db.nextGroupID = id + 1
+      else
+        if g.id ~= id then g.id = id end
+        if id >= db.nextGroupID then db.nextGroupID = id + 1 end
       end
 
-      if g.name == nil then g.name = "Group " .. tostring(g.id) end
+      if g.system ~= "quest" and g.name == nil then
+        g.name = string.format(L.DEFAULT_GROUP, g.id)
+      end
       if g.sort == nil then g.sort = "bag" end
       if g.reverse == nil then g.reverse = false end
 
@@ -231,7 +237,7 @@ local function Initialize()
         g.scope = "account"
       end
 
-      if g.scope == "char" and not g.owner then g.owner = CharacterKey() end
+      if g.scope == "char" and not g.owner then g.owner = characterKey end
 
       if g.quest then legacyQuestEnabled = true end
       if g.quest ~= nil then g.quest = nil end
@@ -251,7 +257,6 @@ local function Initialize()
     if not questSystem then
       questSystem = {
         id=db.nextGroupID,
-        name="Quest",
         sort="bag",
         reverse=false,
         scope="account",
@@ -260,7 +265,6 @@ local function Initialize()
       db.nextGroupID = db.nextGroupID + 1
       table.insert(db.groups, questSystem)
     else
-      if questSystem.name ~= "Quest" then questSystem.name = "Quest" end
       if questSystem.scope ~= "account" then questSystem.scope = "account" end
       if questSystem.owner ~= nil then questSystem.owner = nil end
       if questSystem.system ~= "quest" then questSystem.system = "quest" end
@@ -293,20 +297,26 @@ local function Initialize()
       return result
     end
 
+    local function CleanAssignments(assignments)
+      for itemID, groupID in pairs(assignments) do
+        local normalized = tonumber(groupID)
+        if normalized == nil then normalized = GENERAL_OVERRIDE end
+        if normalized ~= GENERAL_OVERRIDE and not GroupExists(normalized) then
+          normalized = GENERAL_OVERRIDE
+        end
+        if normalized ~= groupID then assignments[itemID] = normalized end
+      end
+    end
+
     local function CleanState()
       NormalizeRows()
+      CleanAssignments(db.accountAssignments)
 
-      for itemID, groupID in pairs(db.accountAssignments) do
-        if groupID ~= GENERAL_OVERRIDE and not GroupExists(groupID) then
-          db.accountAssignments[itemID] = GENERAL_OVERRIDE
-        end
-      end
-
-      for _, assignments in pairs(db.charAssignments) do
-        for itemID, groupID in pairs(assignments) do
-          if groupID ~= GENERAL_OVERRIDE and not GroupExists(groupID) then
-            assignments[itemID] = GENERAL_OVERRIDE
-          end
+      for key, assignments in pairs(db.charAssignments) do
+        CleanAssignments(assignments)
+        if not next(assignments) then
+          db.charAssignments[key] = nil
+          if key == characterKey then currentCharAssignments = nil end
         end
       end
     end
@@ -336,13 +346,15 @@ local function Initialize()
       local g = FindGroup(id)
       if not g or g.system then return end
 
-      local ca = CharAssignments(true)
+      local ca = CharAssignments(false)
 
       if scope == "account" and g.scope == "char" then
-        for itemID, groupID in pairs(ca) do
-          if groupID == id then
-            db.accountAssignments[itemID] = id
-            ca[itemID] = nil
+        if ca then
+          for itemID, groupID in pairs(ca) do
+            if groupID == id then
+              db.accountAssignments[itemID] = id
+              ca[itemID] = nil
+            end
           end
         end
 
@@ -351,13 +363,14 @@ local function Initialize()
       elseif scope == "char" and g.scope ~= "char" then
         for itemID, groupID in pairs(db.accountAssignments) do
           if groupID == id then
+            if not ca then ca = CharAssignments(true) end
             if ca[itemID] == nil then ca[itemID] = id end
             db.accountAssignments[itemID] = nil
           end
         end
 
         g.scope = "char"
-        g.owner = CharacterKey()
+        g.owner = characterKey
       end
 
       Relayout()
@@ -438,6 +451,9 @@ local function Initialize()
 
     local function SortMetadata(bag, slot, id)
       local link = GetContainerItemLink(bag, slot)
+      local cacheKey = link or (id and tostring(id))
+      if cacheKey and itemMetaCache[cacheKey] then return itemMetaCache[cacheKey] end
+
       local name = NameFromLink(link)
       local itemType, equipLoc, classID = InstantInfo(id)
 
@@ -463,7 +479,7 @@ local function Initialize()
         if ok and v ~= nil then value = tonumber(v) end
       end
 
-      return {
+      local meta = {
         name = name or "",
         rank = SLOT_ORDER[equipLoc or ""] or 999,
         equipLoc = equipLoc or "",
@@ -471,6 +487,12 @@ local function Initialize()
         classID = classID,
         value = value,
       }
+
+      if cacheKey and meta.name ~= "" and meta.itemType ~= nil then
+        itemMetaCache[cacheKey] = meta
+      end
+
+      return meta
     end
 
     local function IsQuestMetadata(meta)
@@ -478,7 +500,7 @@ local function Initialize()
       if meta.classID ~= nil then return meta.classID == QUEST_CLASS_ID end
       if G.ITEM_CLASS_QUESTITEM and meta.itemType == G.ITEM_CLASS_QUESTITEM then return true end
       if G.ITEM_CLASS_QUEST and meta.itemType == G.ITEM_CLASS_QUEST then return true end
-      return meta.itemType == "Quest"
+      return meta.itemType == L.QUEST
     end
 
     local function EntryLess(a, b, mode, reverse)
@@ -633,13 +655,13 @@ local function Initialize()
         f.ok:SetWidth(70)
         f.ok:SetHeight(20)
         f.ok:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -4, 8)
-        f.ok:SetText("OK")
+        f.ok:SetText(L.OK)
 
         f.cancel = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
         f.cancel:SetWidth(70)
         f.cancel:SetHeight(20)
         f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOM", 4, 8)
-        f.cancel:SetText("Cancel")
+        f.cancel:SetText(L.CANCEL)
 
         local function Accept()
           local name = Trim(f.edit:GetText())
@@ -678,10 +700,10 @@ local function Initialize()
       if groupID then
         local g = FindGroup(groupID)
         if not g then return end
-        nameDialog.title:SetText("Rename Category")
+        nameDialog.title:SetText(L.RENAME_CATEGORY)
         nameDialog.edit:SetText(g.name)
       else
-        nameDialog.title:SetText("New Category")
+        nameDialog.title:SetText(L.NEW_CATEGORY)
         nameDialog.edit:SetText("")
       end
 
@@ -694,15 +716,8 @@ local function Initialize()
       local g, index = FindGroup(groupID)
       if not g or not index or g.system then return end
 
-      if g.scope == "char" then
-        local ca = CharAssignments(true)
-        for itemID, assigned in pairs(ca) do
-          if assigned == groupID then ca[itemID] = GENERAL_OVERRIDE end
-        end
-      else
-        for itemID, assigned in pairs(db.accountAssignments) do
-          if assigned == groupID then db.accountAssignments[itemID] = GENERAL_OVERRIDE end
-        end
+      for itemID, assigned in pairs(db.accountAssignments) do
+        if assigned == groupID then db.accountAssignments[itemID] = GENERAL_OVERRIDE end
       end
 
       for _, assignments in pairs(db.charAssignments) do
@@ -739,13 +754,13 @@ local function Initialize()
         f.ok:SetWidth(80)
         f.ok:SetHeight(20)
         f.ok:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -4, 8)
-        f.ok:SetText("Delete")
+        f.ok:SetText(L.DELETE)
 
         f.cancel = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
         f.cancel:SetWidth(80)
         f.cancel:SetHeight(20)
         f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOM", 4, 8)
-        f.cancel:SetText("Cancel")
+        f.cancel:SetText(L.CANCEL)
 
         f.ok:SetScript("OnClick", function()
           local id = f.groupID
@@ -759,7 +774,7 @@ local function Initialize()
       end
 
       deleteDialog.groupID = groupID
-      deleteDialog.text:SetText('Delete "' .. tostring(g.name) .. '"? Items return to General.')
+      deleteDialog.text:SetText(string.format(L.DELETE_PROMPT, tostring(g.name)))
       deleteDialog:Show()
     end
 
@@ -778,14 +793,15 @@ local function Initialize()
       end
 
       local itemKey = tostring(selectedItemID)
-      local ca = CharAssignments(true)
+      local ca = CharAssignments(false)
 
       if groupID == nil then
-        if ca[itemKey] ~= nil then
+        if ca and ca[itemKey] ~= nil then
           ca[itemKey] = GENERAL_OVERRIDE
         elseif db.accountAssignments[itemKey] ~= nil then
           db.accountAssignments[itemKey] = GENERAL_OVERRIDE
         else
+          ca = ca or CharAssignments(true)
           ca[itemKey] = GENERAL_OVERRIDE
         end
       else
@@ -793,10 +809,11 @@ local function Initialize()
         if not g or not IsGroupActive(g) then return false end
 
         if g.scope == "char" then
+          ca = ca or CharAssignments(true)
           ca[itemKey] = groupID
         else
           db.accountAssignments[itemKey] = groupID
-          ca[itemKey] = nil
+          if ca then ca[itemKey] = nil end
         end
       end
 
@@ -861,7 +878,7 @@ local function Initialize()
 
       local reverseButton = MenuButton(sortMenu, 5)
       reverseButton.sortMode = nil
-      reverseButton:SetText((reverse and "[x] " or "[ ] ") .. "Reverse")
+      reverseButton:SetText((reverse and "[x] " or "[ ] ") .. L.REVERSE)
       reverseButton:SetScript("OnClick", function()
         ToggleReverse(sortMenu.groupID)
         HideMenus()
@@ -886,7 +903,7 @@ local function Initialize()
         ConfigureMenuFrame(menu, 2)
 
         local add = MenuButton(menu, 1)
-        add:SetText("New Category")
+        add:SetText(L.NEW_CATEGORY)
         add:SetScript("OnClick", function()
           HideMenus()
           ShowNameDialog(nil)
@@ -895,7 +912,7 @@ local function Initialize()
 
         local sorting = MenuButton(menu, 2)
         local mode = GetSort(nil)
-        sorting:SetText("Sorting: " .. SORT_LABEL[mode] .. "  >")
+        sorting:SetText(string.format(L.SORTING, SORT_LABEL[mode]))
         sorting:SetScript("OnClick", function()
           ShowSortMenu(menu, nil)
         end)
@@ -910,7 +927,7 @@ local function Initialize()
           ConfigureMenuFrame(menu, 1)
 
           local sorting = MenuButton(menu, 1)
-          sorting:SetText("Sorting: " .. SORT_LABEL[g.sort or "bag"] .. "  >")
+          sorting:SetText(string.format(L.SORTING, SORT_LABEL[g.sort or "bag"]))
           sorting:SetScript("OnClick", function()
             ShowSortMenu(menu, menu.groupID)
           end)
@@ -921,7 +938,7 @@ local function Initialize()
           ConfigureMenuFrame(menu, 5)
 
           local rename = MenuButton(menu, 1)
-          rename:SetText("Rename Category")
+          rename:SetText(L.RENAME_CATEGORY)
           rename:SetScript("OnClick", function()
             local id = menu.groupID
             HideMenus()
@@ -930,7 +947,7 @@ local function Initialize()
           rename:Show()
 
           local account = MenuButton(menu, 2)
-          account:SetText((g.scope ~= "char" and "[x] " or "[ ] ") .. "Account Wide")
+          account:SetText((g.scope ~= "char" and "[x] " or "[ ] ") .. L.ACCOUNT_WIDE)
           account:SetScript("OnClick", function()
             local id = menu.groupID
             HideMenus()
@@ -939,7 +956,7 @@ local function Initialize()
           account:Show()
 
           local character = MenuButton(menu, 3)
-          character:SetText((g.scope == "char" and "[x] " or "[ ] ") .. "Per Character")
+          character:SetText((g.scope == "char" and "[x] " or "[ ] ") .. L.PER_CHARACTER)
           character:SetScript("OnClick", function()
             local id = menu.groupID
             HideMenus()
@@ -948,14 +965,14 @@ local function Initialize()
           character:Show()
 
           local sorting = MenuButton(menu, 4)
-          sorting:SetText("Sorting: " .. SORT_LABEL[g.sort or "bag"] .. "  >")
+          sorting:SetText(string.format(L.SORTING, SORT_LABEL[g.sort or "bag"]))
           sorting:SetScript("OnClick", function()
             ShowSortMenu(menu, menu.groupID)
           end)
           sorting:Show()
 
           local delete = MenuButton(menu, 5)
-          delete:SetText("|cffff6666Delete Category|r")
+          delete:SetText("|cffff6666" .. L.DELETE_CATEGORY .. "|r")
           delete:SetScript("OnClick", function()
             local id = menu.groupID
             HideMenus()
@@ -1202,7 +1219,9 @@ local function Initialize()
         dragWatcher:SetScript("OnUpdate", function()
           if draggingGroupID then UpdateDragVisual() end
         end)
+        dragWatcher:Hide()
       end
+      dragWatcher:Show()
     end
 
     local function EndGroupDrag()
@@ -1222,6 +1241,7 @@ local function Initialize()
       dragSide = nil
       lastDragStop = GetTime and GetTime() or 0
       HideDragVisuals()
+      if dragWatcher then dragWatcher:Hide() end
 
       if target and intent then PlaceDraggedGroup(source, target, intent, side) end
     end
@@ -1286,13 +1306,13 @@ local function Initialize()
             local g = FindGroup(h.groupID)
             local mode = g and SORT_LABEL[g.sort or "bag"] or ""
             if g and g.system == "quest" then
-              Tooltip("Quest", "Default Quest Items - " .. mode .. " - click menu / drag header")
+              Tooltip(L.QUEST, string.format(L.QUEST_TOOLTIP, mode))
             else
-              local scope = g and g.scope == "char" and "Per Character" or "Account Wide"
-              Tooltip(h.text:GetText(), scope .. " - " .. mode .. " - click menu / drag header")
+              local scope = g and g.scope == "char" and L.PER_CHARACTER or L.ACCOUNT_WIDE
+              Tooltip(h.text:GetText(), string.format(L.CATEGORY_TOOLTIP, scope, mode))
             end
           else
-            Tooltip("General", "Click for category/sorting menu")
+            Tooltip(L.GENERAL, L.GENERAL_TOOLTIP)
           end
         end)
 
@@ -1336,9 +1356,9 @@ local function Initialize()
           if selectedItemID and CursorStillHasItem() then
             ShowItemHighlight(s)
             if s.groupID then
-              Tooltip("Add to Category", "Release/click to classify the selected item here")
+              Tooltip(L.ADD_TO_CATEGORY, L.ADD_TO_CATEGORY_TOOLTIP)
             else
-              Tooltip("Move to General", "Release/click to keep the selected item in General")
+              Tooltip(L.MOVE_TO_GENERAL, L.MOVE_TO_GENERAL_TOOLTIP)
             end
           end
         end)
@@ -1357,24 +1377,30 @@ local function Initialize()
     end
 
     local function ActiveQuestGroupID()
-      if not db.questEnabled then return nil end
-      for i = 1, table.getn(db.groups) do
-        local g = db.groups[i]
-        if g.system == "quest" then return g.id end
-      end
-      return nil
+      if not db.questEnabled or not questSystem then return nil end
+      return questSystem.id
     end
 
-    local function EffectiveManualAssignment(itemKey)
-      local ca = CharAssignments(false)
-      if ca and ca[itemKey] ~= nil then return ca[itemKey] end
-      return db.accountAssignments[itemKey]
+    local EMPTY_META = {
+      name="",
+      rank=999,
+      equipLoc="",
+      itemType=nil,
+      classID=nil,
+      value=nil,
+    }
+
+    local function GroupDisplayName(g)
+      if not g then return L.CATEGORY end
+      if g.system == "quest" then return L.QUEST end
+      return g.name or L.CATEGORY
     end
 
     local function Collect()
       local general = {}
       local grouped = {}
       local questGroupID = ActiveQuestGroupID()
+      local ca = CharAssignments(false)
       local ordinal = 0
 
       for i = 1, table.getn(db.groups) do
@@ -1399,14 +1425,7 @@ local function Initialize()
             if id then
               meta = SortMetadata(bag, slot, id)
             else
-              meta = {
-                name="",
-                rank=999,
-                equipLoc="",
-                itemType=nil,
-                classID=nil,
-                value=nil,
-              }
+              meta = EMPTY_META
             end
 
             local entry = {
@@ -1421,7 +1440,9 @@ local function Initialize()
             local groupID = nil
 
             if id then
-              local manual = EffectiveManualAssignment(tostring(id))
+              local itemKey = tostring(id)
+              local manual = ca and ca[itemKey]
+              if manual == nil then manual = db.accountAssignments[itemKey] end
 
               if manual ~= nil then
                 if manual ~= GENERAL_OVERRIDE and grouped[manual] then groupID = manual end
@@ -1562,7 +1583,6 @@ local function Initialize()
 
       ApplyHeaderOptions()
       HookItemSelection()
-      CleanState()
       StabilizeBottomAnchor(frame)
 
       local _, border = GetBorderSize("bags")
@@ -1586,7 +1606,7 @@ local function Initialize()
       SortEntries(general, db.generalSort, db.generalReverse)
 
       local generalSection, generalHeight = LayoutSection(
-        "general", "General", nil, general, fullColumns, size, border
+        "general", L.GENERAL, nil, general, fullColumns, size, border
       )
 
       active["general"] = true
@@ -1621,7 +1641,7 @@ local function Initialize()
 
         local leftSection, leftHeight = LayoutSection(
           leftID,
-          leftGroup and leftGroup.name or "Category",
+          GroupDisplayName(leftGroup),
           leftID,
           leftList,
           rightID and halfColumns or fullColumns,
@@ -1633,7 +1653,7 @@ local function Initialize()
         if rightID and rightGroup then
           rightSection, rightHeight = LayoutSection(
             rightID,
-            rightGroup.name,
+            GroupDisplayName(rightGroup),
             rightID,
             rightList,
             halfColumns,
@@ -1686,6 +1706,26 @@ local function Initialize()
       if draggingGroupID then UpdateDragVisual() end
     end
 
+    local relayoutDriver
+    local relayoutPending = false
+
+    local function RequestRelayout()
+      if relayoutPending then return end
+      relayoutPending = true
+
+      if not relayoutDriver then
+        relayoutDriver = CreateFrame("Frame")
+        relayoutDriver:SetScript("OnUpdate", function()
+          this:Hide()
+          relayoutPending = false
+          if Relayout then Relayout() end
+        end)
+        relayoutDriver:Hide()
+      end
+
+      relayoutDriver:Show()
+    end
+
     pfUI.bagtweaks.Relayout = Relayout
     pfUI.bagtweaks.ShowGroupEditor = ShowNameDialog
     pfUI.bagtweaks.HideMenus = HideMenus
@@ -1712,7 +1752,7 @@ local function Initialize()
     if oldUpdateBag then
       pfUI.bag.UpdateBag = function(self, bag)
         oldUpdateBag(self, bag)
-        if bag == -2 or (bag >= 0 and bag <= 4) then Relayout() end
+        if bag == -2 or (bag >= 0 and bag <= 4) then RequestRelayout() end
       end
     end
 
@@ -1730,7 +1770,8 @@ local function Initialize()
       local itemDataWatcher = CreateFrame("Frame")
       itemDataWatcher:RegisterEvent("GET_ITEM_INFO_RECEIVED")
       itemDataWatcher:SetScript("OnEvent", function()
-        if Relayout then Relayout() end
+        itemMetaCache = {}
+        RequestRelayout()
       end)
       pfUI.bagtweaks.itemDataWatcher = itemDataWatcher
     end
@@ -1746,13 +1787,13 @@ local function Initialize()
       thirdParty = pfUI.env.T["Thirdparty"]
     end
 
-    pfUI.gui.CreateGUIEntry(thirdParty, "Bag Tweaks", function()
-      pfUI.gui.CreateConfig(nil, "pfUI_BagTweaks", nil, nil, "header")
+    pfUI.gui.CreateGUIEntry(thirdParty, L.PLUGIN_NAME, function()
+      pfUI.gui.CreateConfig(nil, L.PLUGIN_HEADER, nil, nil, "header")
       pfUI.gui.CreateConfig(function()
         if pfUI.bagtweaks and pfUI.bagtweaks.ApplyHeaderOptions then
           pfUI.bagtweaks.ApplyHeaderOptions()
         end
-      end, "Show Search Bar", pfUI_config.bagtweaks, "show_search", "checkbox")
+      end, L.SHOW_SEARCH_BAR, pfUI_config.bagtweaks, "show_search", "checkbox")
     end)
   end
 end
