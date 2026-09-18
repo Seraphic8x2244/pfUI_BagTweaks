@@ -1,5 +1,16 @@
 # pfUI_BagTweaks Development Handoff
 
+## Start Here
+
+- Repository: `Seraphic8x2244/pfUI_BagTweaks`.
+- Work from the `dev` branch. Fetch current files before editing; the user may have changed the repo externally.
+- Current development version: `0.1.27-dev`.
+- Work directly on `dev`; do not open a PR unless asked.
+- `main` is the stable user branch. Do not develop directly on `main`.
+- Keep this handoff updated when behaviour, invariants, test status, or TODOs change.
+- The user drives UX/design decisions; implementation should flag compatibility or performance risks rather than adding unnecessary options.
+- Do not make Shagu pfUI a test/release gate; the user's active test target is brues-code pfUI.
+
 ## Goals
 
 - Vanilla WoW 1.12.1.
