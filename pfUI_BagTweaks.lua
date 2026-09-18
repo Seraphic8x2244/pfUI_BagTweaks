@@ -1987,25 +1987,35 @@ local function Initialize()
 
     pfUI.bag.CreateBags = function(self, object)
       oldCreateBags(self, object)
-      if object ~= "bank" then Relayout() end
+      if object == "bank" then
+        RelayoutView("bank")
+      else
+        RelayoutView("backpack")
+      end
     end
 
     if oldUpdateBag then
       pfUI.bag.UpdateBag = function(self, bag)
         oldUpdateBag(self, bag)
-        if bag == -2 or (bag >= 0 and bag <= 4) then RequestRelayout() end
+        if bag and bag >= -2 and bag <= 11 then RequestRelayout() end
       end
     end
 
-    local bagFrame = pfUI.bag.right
-    if bagFrame and not bagFrame.bagtweaks_menu_hide_hooked then
-      local oldOnHide = bagFrame:GetScript("OnHide")
-      bagFrame:SetScript("OnHide", function()
+    local function HookFrameHide(frame)
+      if not frame or frame.bagtweaks_menu_hide_hooked then return end
+
+      local oldOnHide = frame:GetScript("OnHide")
+      frame:SetScript("OnHide", function()
         if oldOnHide then oldOnHide() end
         HideMenus()
+        HideItemHighlight()
+        if draggingView == "bank" and frame == pfUI.bag.left then EndGroupDrag() end
       end)
-      bagFrame.bagtweaks_menu_hide_hooked = true
+      frame.bagtweaks_menu_hide_hooked = true
     end
+
+    HookFrameHide(pfUI.bag.right)
+    HookFrameHide(pfUI.bag.left)
 
     if G.C_Item and type(G.C_Item.GetItemInfo) == "function" then
       local itemDataWatcher = CreateFrame("Frame")
