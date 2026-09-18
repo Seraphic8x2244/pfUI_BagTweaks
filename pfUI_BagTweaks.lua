@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.25-dev
+-- pfUI_BagTweaks 0.1.26-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, with an optional default Quest category,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -70,13 +70,15 @@ local function Initialize()
     local oldCreateBags = pfUI.bag.CreateBags
     local oldUpdateBag = pfUI.bag.UpdateBag
 
-    local headers = {}
-    local sections = {}
-    local rowFrames = {}
+    local headers = { backpack={}, bank={} }
+    local sections = { backpack={}, bank={} }
+    local rowFrames = { backpack={}, bank={} }
     local selectedItemID = nil
     local itemHighlightSection = nil
     local nameDialog, deleteDialog, menu, sortMenu
-    local dragPreview, dragInsertLine, dragWatcher
+    local dragPreviews = {}
+    local dragInsertLines = {}
+    local dragWatcher
     local itemMetaCache = {}
     local questObjectiveItemIDs = {}
     local questObjectiveItemNames = {}
@@ -87,6 +89,7 @@ local function Initialize()
     local Relayout
 
     local draggingGroupID = nil
+    local draggingView = nil
     local dragTargetID = nil
     local dragTargetSection = nil
     local dragIntent = nil
@@ -146,6 +149,29 @@ local function Initialize()
       s = tostring(s or "")
       s = string.gsub(s, "^%s+", "")
       return string.gsub(s, "%s+$", "")
+    end
+
+    local function ViewFrame(view)
+      if view == "bank" then return pfUI.bag and pfUI.bag.left end
+      return pfUI.bag and pfUI.bag.right
+    end
+
+    local function ViewBags(view)
+      if view == "bank" then return pfUI.BANK end
+      return pfUI.BACKPACK
+    end
+
+    local function ViewRowLength(view)
+      local value
+      if view == "bank" then
+        value = C.appearance.bags.bankrowlength
+      else
+        value = C.appearance.bags.bagrowlength
+      end
+
+      local columns = tonumber(value) or 10
+      if columns < 1 then columns = 1 end
+      return columns
     end
 
     local function FindGroup(id)
