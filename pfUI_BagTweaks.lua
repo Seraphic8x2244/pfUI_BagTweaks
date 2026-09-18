@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.23-dev
+-- pfUI_BagTweaks 0.1.24-dev
 -- User-defined visual groups for pfUI unified bags.
 -- Groups can be account-wide or character-specific, with an optional default Quest category,
 -- can be arranged as one or two columns, and never move physical inventory slots.
@@ -78,6 +78,8 @@ local function Initialize()
     local nameDialog, deleteDialog, menu, sortMenu
     local dragPreview, dragInsertLine, dragWatcher
     local itemMetaCache = {}
+    local questObjectiveItemIDs = {}
+    local questObjectiveItemNames = {}
     local Relayout
 
     local draggingGroupID = nil
@@ -499,6 +501,100 @@ local function Initialize()
       if G.ITEM_CLASS_QUESTITEM and meta.itemType == G.ITEM_CLASS_QUESTITEM then return true end
       if G.ITEM_CLASS_QUEST and meta.itemType == G.ITEM_CLASS_QUEST then return true end
       return meta.itemType == L.ITEM_CLASS_QUEST
+    end
+
+    local function SetEquals(a, b)
+      for key in pairs(a) do
+        if not b[key] then return false end
+      end
+      for key in pairs(b) do
+        if not a[key] then return false end
+      end
+      return true
+    end
+
+    local function QuestObjectiveItemName(text)
+      if not text then return nil end
+
+      local label = tostring(text)
+      label = string.gsub(label, "%s*:%s*%d+%s*/%s*%d+%s*$", "")
+      label = string.gsub(label, "^%s*%d+%s*/%s*%d+%s+", "")
+      label = string.lower(Trim(label))
+
+      if label == "" then return nil end
+      return label
+    end
+
+    local function RefreshQuestObjectiveItems()
+      local scannedIDs = {}
+      local scannedNames = {}
+      local hasCollapsedHeaders = false
+
+      if db.questEnabled and type(GetNumQuestLogEntries) == "function" and
+         type(GetQuestLogTitle) == "function" and
+         type(GetNumQuestLeaderBoards) == "function" and
+         type(GetQuestLogLeaderBoard) == "function" then
+        local entries = GetNumQuestLogEntries() or 0
+
+        for questIndex = 1, entries do
+          local title, _, _, isHeader, isCollapsed = GetQuestLogTitle(questIndex)
+
+          if title and isHeader then
+            if isCollapsed then hasCollapsedHeaders = true end
+          elseif title then
+            local objectives = GetNumQuestLeaderBoards(questIndex) or 0
+
+            for objectiveIndex = 1, objectives do
+              local text, objectiveType = GetQuestLogLeaderBoard(objectiveIndex, questIndex)
+
+              if objectiveType == "item" then
+                local name = QuestObjectiveItemName(text)
+                if name then scannedNames[name] = true end
+
+                -- ClassicAPI exposes the objective's real item ID. It is only an
+                -- optional precision upgrade; the Vanilla name path above is the
+                -- normal fallback and keeps BagTweaks dependency-free.
+                if type(G.GetQuestLogLeaderBoardID) == "function" then
+                  local ok, id, kind = pcall(G.GetQuestLogLeaderBoardID, objectiveIndex, questIndex)
+                  id = ok and tonumber(id) or nil
+                  if id and (kind == nil or kind == "item") then scannedIDs[id] = true end
+                end
+              end
+            end
+          end
+        end
+      end
+
+      local nextIDs = scannedIDs
+      local nextNames = scannedNames
+
+      -- Vanilla hides child quest rows when a quest-log header is collapsed.
+      -- Never discard previously seen objectives just because the user collapsed
+      -- a header. Once all headers are visible, the scan is authoritative again.
+      if db.questEnabled and hasCollapsedHeaders then
+        nextIDs = {}
+        nextNames = {}
+
+        for id in pairs(questObjectiveItemIDs) do nextIDs[id] = true end
+        for name in pairs(questObjectiveItemNames) do nextNames[name] = true end
+        for id in pairs(scannedIDs) do nextIDs[id] = true end
+        for name in pairs(scannedNames) do nextNames[name] = true end
+      end
+
+      local changed = not SetEquals(questObjectiveItemIDs, nextIDs) or
+        not SetEquals(questObjectiveItemNames, nextNames)
+
+      questObjectiveItemIDs = nextIDs
+      questObjectiveItemNames = nextNames
+      return changed
+    end
+
+    local function IsQuestObjectiveItem(id, meta)
+      if id and questObjectiveItemIDs[id] then return true end
+      if meta and meta.name and meta.name ~= "" and questObjectiveItemNames[meta.name] then
+        return true
+      end
+      return false
     end
 
     local function EntryLess(a, b, mode, reverse)
@@ -1446,7 +1542,8 @@ local function Initialize()
 
               if manual ~= nil then
                 if manual ~= GENERAL_OVERRIDE and grouped[manual] then groupID = manual end
-              elseif questGroupID and grouped[questGroupID] and IsQuestMetadata(meta) then
+              elseif questGroupID and grouped[questGroupID] and
+                     (IsQuestMetadata(meta) or IsQuestObjectiveItem(id, meta)) then
                 groupID = questGroupID
               end
             end
@@ -1720,6 +1817,7 @@ local function Initialize()
     pfUI.bagtweaks.HideMenus = HideMenus
     pfUI.bagtweaks.ToggleQuestCategory = function()
       db.questEnabled = not db.questEnabled
+      RefreshQuestObjectiveItems()
       Relayout()
     end
     pfUI.bagtweaks.QuestEnabled = function()
@@ -1765,8 +1863,16 @@ local function Initialize()
       pfUI.bagtweaks.itemDataWatcher = itemDataWatcher
     end
 
+    local questLogWatcher = CreateFrame("Frame")
+    questLogWatcher:RegisterEvent("QUEST_LOG_UPDATE")
+    questLogWatcher:SetScript("OnEvent", function()
+      if RefreshQuestObjectiveItems() then RequestRelayout() end
+    end)
+    pfUI.bagtweaks.questLogWatcher = questLogWatcher
+
     pfUI.bag.bagtweaks_hooked = true
     CleanState()
+    RefreshQuestObjectiveItems()
     if pfUI.bag.right then Relayout() end
   end)
 
