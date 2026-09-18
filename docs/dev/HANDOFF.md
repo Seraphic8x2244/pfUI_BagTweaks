@@ -1,0 +1,181 @@
+# pfUI_BagTweaks Development Handoff
+
+## Target
+
+- Vanilla WoW 1.12.1.
+- Primary tested target: brues-code pfUI.
+- Shagu pfUI compatibility is maintained where practical, but is not currently user-tested.
+- ClassicAPI may be present. Feature-detect newer APIs.
+- Keep implementation in one main Lua file unless there is a clear technical reason to split it. Locale strings live separately in `locales.lua`.
+
+## Core Behaviour
+
+- pfUI remains responsible for the actual bag frames and physical inventory.
+- BagTweaks adds visual categories inside the unified pfUI bag.
+- Visual category sorting never moves physical items.
+- The toolbar Sort control delegates to pfUI's native physical bag sorter when one exists.
+- General is always the bottom visual category.
+- User categories are ordered with `db.rows`, with a maximum of two categories per visual row.
+- Empty category visibility is controlled by `db.showEmptyCategories`.
+- Item assignments are stored by item ID, so all copies of an item follow the same manual assignment.
+
+## SavedVariables
+
+Global table:
+
+`pfUIBagTweaksDB`
+
+Current important fields:
+
+- `groups`: category records.
+- `nextGroupID`: next stable numeric category ID.
+- `rows`: visual row layout; each row contains one or two group IDs.
+- `accountAssignments`: account-wide manual item assignments.
+- `charAssignments`: character-specific manual assignments keyed by realm + character.
+- `generalSort`, `generalReverse`: General category visual sorting.
+- `showEmptyCategories`: whether empty categories are shown.
+- `questEnabled`: whether the built-in Quest category is active.
+
+Manual General assignment is stored as group ID `0`.
+
+Initialization may normalize genuinely old/invalid data, but normal login/relayout code should not reconstruct or rewrite valid SavedVariables unnecessarily.
+
+## Category Records
+
+Normal category:
+
+```lua
+{
+  id = 1,
+  name = "Consumables",
+  sort = "bag",
+  reverse = false,
+  scope = "account", -- or "char"
+  owner = nil,       -- realm/character key when scope == "char"
+}
+```
+
+Built-in Quest category:
+
+```lua
+{
+  id = 2,
+  sort = "bag",
+  reverse = false,
+  scope = "account",
+  system = "quest",
+}
+```
+
+The Quest display name comes from the locale table rather than SavedVariables.
+
+## Assignment Precedence
+
+1. Character assignment.
+2. Account assignment.
+3. Automatic Quest category, if enabled and the item is a quest item.
+4. General.
+
+Manual assignments always override Quest automation.
+
+## Visual Sort Modes
+
+Internal values remain stable:
+
+- `bag`: displayed as **Default**; follows physical/pfUI traversal order.
+- `name`: item name.
+- `value`: vendor value.
+- `slot`: character equipment slot order.
+
+Changing visual sort order must not move inventory.
+
+## Toolbar
+
+Current intended order:
+
+`[+] [Search] [Sort] [View] [Quest] [DE?] [Pick?] [Open] [Options] [X]`
+
+- `+`: new category.
+- Search: toggles pfUI's search field.
+- Sort: invokes pfUI's native physical bag sorter. Hidden if the active pfUI fork has no native sorter.
+- View: Bags, Keys, Empty Categories.
+- Quest: toggles the built-in Quest category.
+- DE: visible only when Disenchant is available.
+- Pick: visible only when Pick Lock is available.
+- Open: delegates to pfUI's native open-container control.
+- Options: opens Thirdparty -> Bag Tweaks in pfUI.
+- X: pfUI's native close button.
+
+No BagTweaks options are currently exposed; the former "Show Search Bar" option was retired because Search is now a direct toolbar control.
+
+### Toolbar UI TODO
+
+- Search: replace text with a magnifying-glass icon.
+- Sort: replace text with an icon; brues-code pfUI already exposes `pfUI.media["img:sort"]`.
+- Options: replace text with a cog/gear icon and keep the treatment visually consistent with pfUI.
+- Text controls should continue to truncate safely on narrow bag widths.
+- The `+` control is intentionally narrow and must always display `+`, never `...`.
+
+## Disenchant
+
+DE is a persistent click mode, not an automatic rearm loop.
+
+Intended interaction:
+
+`DE ON -> right-click item -> BagTweaks asks pfUI's native Disenchant button to arm -> target that exact bag slot -> loot -> repeat`
+
+BagTweaks should not maintain a loot-window/timer rearm state machine for DE.
+
+Pending in-game test: repeated disenchanting on a character with enough eligible items.
+
+## Pick Lock
+
+Pick currently uses pfUI's native Pick Lock control and maintains the existing persistent targeting behaviour.
+
+Pending in-game test on a rogue.
+
+## pfUI Integration Rules
+
+- Prefer calling or wrapping pfUI's native behaviour rather than reimplementing fork-specific details.
+- brues-code and Shagu differ in how profession buttons identify/cast spells.
+- Do not assume a numeric profession button ID means the same thing across forks.
+- Preserve pre-existing frame scripts when wrapping them.
+- Avoid broad per-frame work. Current OnUpdate use should be limited to:
+  - category drag tracking while dragging;
+  - one-frame coalesced relayout requests;
+  - lightweight toolbar refresh / Pick state.
+
+## Performance Notes
+
+- Item sort metadata is cached.
+- Repeated bag update relayout requests are coalesced.
+- Database cleanup happens at initialization rather than every relayout.
+- Category drag OnUpdate is active only during a drag.
+- Do not add polling or SavedVariable writes unless necessary.
+
+## Locales
+
+All user-facing BagTweaks strings belong in `locales.lua`.
+
+Do not move API constants, frame names, event names, internal sort keys, texture paths, or SavedVariable keys into locales.
+
+English is currently the fallback/default set.
+
+## Current Test Status
+
+Confirmed on brues-code pfUI:
+
+- Login with no Lua errors.
+- Toolbar present.
+- Options button opens Thirdparty -> Bag Tweaks.
+- Category drag/reorder/scope behaviour appears correct.
+- Visual sort modes and Reverse appear correct.
+- Quest category and manual precedence work.
+
+Pending:
+
+- Repeated DE workflow.
+- Rogue Pick Lock workflow.
+- Toolbar icon conversion.
+
+Shagu pfUI is not part of the user's test setup; compatibility there is best-effort unless another tester is available.
