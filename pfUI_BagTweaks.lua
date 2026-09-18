@@ -1625,20 +1625,21 @@ local function Initialize()
       return g.name or L.CATEGORY
     end
 
-    local function Collect()
+    local function Collect(view)
       local general = {}
       local grouped = {}
       local questGroupID = ActiveQuestGroupID()
       local ca = CharAssignments(false)
       local ordinal = 0
+      local bags = ViewBags(view) or {}
 
       for i = 1, table.getn(db.groups) do
         local g = db.groups[i]
         if IsGroupActive(g) then grouped[g.id] = {} end
       end
 
-      for i = 1, table.getn(pfUI.BACKPACK) do
-        local bag = pfUI.BACKPACK[i]
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
         local count = GetContainerNumSlots(bag)
         if bag == -2 and pfUI.bag.showKeyring == true then count = GetKeyRingSize() end
 
@@ -1690,9 +1691,11 @@ local function Initialize()
       return general, grouped
     end
 
-    local function HookItemSelection()
-      for i = 1, table.getn(pfUI.BACKPACK) do
-        local bag = pfUI.BACKPACK[i]
+    local function HookItemSelection(view)
+      local bags = ViewBags(view) or {}
+
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
         local count = GetContainerNumSlots(bag)
         if bag == -2 and pfUI.bag.showKeyring == true then count = GetKeyRingSize() end
 
@@ -1726,16 +1729,18 @@ local function Initialize()
       return math.floor((n - 1) / columns) + 1
     end
 
-    local function LayoutSection(key, name, groupID, list, columns, size, border)
+    local function LayoutSection(view, key, name, groupID, list, columns, size, border)
       if columns < 1 then columns = 1 end
 
       local spacing = border * 3
       local pitch = size + spacing
       local rows = RowsFor(list, columns)
       local wantedHeight = HEADER_HEIGHT + border + rows * pitch + border
-      local s = Section(key, groupID)
-      local h = Header(key, name, groupID)
-      local baseLevel = pfUI.bag.right:GetFrameLevel() or 0
+      local s = Section(view, key, groupID)
+      local h = Header(view, key, name, groupID)
+      local parent = ViewFrame(view)
+      if not s or not h or not parent then return nil, 0 end
+      local baseLevel = parent:GetFrameLevel() or 0
 
       s:SetFrameLevel(baseLevel + 1)
       h:SetFrameLevel(baseLevel + 4)
@@ -1770,10 +1775,14 @@ local function Initialize()
       return s, wantedHeight
     end
 
-    local function RowFrame(index)
-      if not rowFrames[index] then rowFrames[index] = CreateFrame("Frame", nil, pfUI.bag.right) end
-      rowFrames[index]:Show()
-      return rowFrames[index]
+    local function RowFrame(view, index)
+      local viewRows = rowFrames[view]
+      local parent = ViewFrame(view)
+      if not parent then return nil end
+
+      if not viewRows[index] then viewRows[index] = CreateFrame("Frame", nil, parent) end
+      viewRows[index]:Show()
+      return viewRows[index]
     end
 
     local function StabilizeBottomAnchor(frame)
