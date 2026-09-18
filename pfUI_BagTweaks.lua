@@ -2094,6 +2094,14 @@ local toolbarState = {
   onHideWrapper = nil,
 }
 
+local bankToolbarState = {
+  initialized = false,
+  searchOpen = false,
+  buttons = {},
+  native = {},
+  search = nil,
+}
+
 local function ToolbarFontSize()
   local size = 9
   if pfUI_config and pfUI_config.global and pfUI_config.global.font_size then
@@ -2227,6 +2235,8 @@ local function ToolbarUpdateActiveVisuals()
   ToolbarSetActive(toolbarState.buttons.quest, questEnabled)
   ToolbarSetActive(toolbarState.buttons.disenchant, toolbarState.activeMode == "disenchant")
   ToolbarSetActive(toolbarState.buttons.picklock, toolbarState.activeMode == "picklock")
+  ToolbarSetActive(bankToolbarState.buttons.search, bankToolbarState.searchOpen)
+  ToolbarSetActive(bankToolbarState.buttons.quest, questEnabled)
 end
 
 local function ToolbarApplySearchState()
