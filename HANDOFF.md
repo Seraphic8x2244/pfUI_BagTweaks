@@ -19,9 +19,10 @@
 - Previous functional commit: `638f2ea` — refine Subcategory spacing/dividers and DE safety.
 - Latest version commit: `d4bb1f7` — bump dev version to 0.1.29-dev.
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
-- Untested this pass: final L-shaped Subcategory accent in-game; DE target consumption; DE/Pick disarm on backpack close, bank close, and world/instance transition.
+- Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. Screenshot review shows the item grid starts too far left and overlaps the accent's vertical stroke. Backpack-close disarm does not fire on the tested pfUI path.
+- Untested this pass: corrected item-grid inset/accent width; bank-close disarm; world/instance-transition disarm.
 - Deferred: packing optimisation unless future inventories show a real problem, Pick Lock workflow test, active-quest ordinary-item detection, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
-- Exact next step: start a fresh chat, reload/test 0.1.29-dev, confirm the top+left Subcategory accent/spacing visually, then test DE left-click targeting and the three disarm paths.
+- Exact next step: inset Subcategory item grids to the right while keeping the header/accent origin fixed and extending the top accent/footprint accordingly; repair backpack-close persistent-mode disarm using the actual pfUI close path, then update this handoff and provide a new dev build for retest.
 
 ## Goals
 
