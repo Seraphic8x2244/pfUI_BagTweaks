@@ -1814,24 +1814,15 @@ end)
 local TOOLBAR_UPDATE_INTERVAL = .20
 local TOOLBAR_MENU_ROW_HEIGHT = 18
 local TOOLBAR_SEARCH_GAP = 2
-local DE_REARM_DELAY = .10
-local DE_VERIFY_DELAY = .02
-local DE_MAX_REARM_ATTEMPTS = 5
 
 local toolbarState = {
   initialized = false,
   searchOpen = false,
   activeMode = nil,
   castBusy = false,
-  waitingForLoot = false,
-  deRearmPending = false,
-  deVerifyPending = false,
-  deVerifyAt = nil,
-  deRearmAttempts = 0,
   rearmAt = nil,
   lastUpdate = 0,
   buttons = {},
-  extras = {},
   native = {},
   menu = nil,
   menuOwner = nil,
@@ -1914,8 +1905,8 @@ local function ToolbarHideIcon(frame)
   if not frame then return end
   if frame.texture and frame.texture.Hide then frame.texture:Hide() end
   if frame.GetNormalTexture then
-    local t = frame:GetNormalTexture()
-    if t and t.SetAlpha then t:SetAlpha(0) end
+    local texture = frame:GetNormalTexture()
+    if texture and texture.SetAlpha then texture:SetAlpha(0) end
   end
 end
 
@@ -1965,15 +1956,22 @@ local function ToolbarUpdateActiveVisuals()
   if pfUI.bagtweaks and pfUI.bagtweaks.QuestEnabled then
     questEnabled = pfUI.bagtweaks.QuestEnabled()
   end
+
   ToolbarSetActive(toolbarState.buttons.quest, questEnabled)
   ToolbarSetActive(toolbarState.buttons.disenchant, toolbarState.activeMode == "disenchant")
   ToolbarSetActive(toolbarState.buttons.picklock, toolbarState.activeMode == "picklock")
+end
+
+local function ToolbarSearchEnabled()
+  return not pfUI_config or not pfUI_config.bagtweaks or pfUI_config.bagtweaks.show_search ~= "0"
 end
 
 local function ToolbarApplySearchState()
   local bag = pfUI.bag and pfUI.bag.right
   local search = bag and bag.search
   if not search then return end
+
+  if not ToolbarSearchEnabled() then toolbarState.searchOpen = false end
 
   local _, border = ToolbarMetrics(bag)
 
@@ -2001,6 +1999,8 @@ end
 
 local function ToolbarToggleSearch()
   ToolbarHideMenu()
+  if not ToolbarSearchEnabled() then return end
+
   toolbarState.searchOpen = not toolbarState.searchOpen
   ToolbarApplySearchState()
 
@@ -2035,72 +2035,55 @@ local function ToolbarModeButton(mode)
   local bag = pfUI.bag and pfUI.bag.right
   if not bag then return nil end
   if mode == "disenchant" then return bag.disenchant end
-  return bag.picklock
+  if mode == "picklock" then return bag.picklock end
+  return nil
 end
 
-local function ToolbarCastPersistentMode(mode)
+local function ToolbarInvokeNativeMode(mode)
   local button = ToolbarModeButton(mode)
-  if not button or (button:GetID() or 0) <= 0 then return false end
-
-  local id = button:GetID()
-
-  -- brues-code stores real spell IDs; Shagu stores spellbook indices.
-  if (mode == "disenchant" and id == 13262) or (mode == "picklock" and id == 1804) then
-    if CastSpellByName then
-      CastSpellByName(id)
-      return true
-    end
-  elseif CastSpell then
-    CastSpell(id, BOOKTYPE_SPELL)
-    return true
-  end
-
-  return false
-end
-
-local function ToolbarDisenchantIsArmed()
-  if not SpellIsTargeting or not SpellIsTargeting() then return false end
-
-  if type(SpellCanTargetItem) == "function" then
-    return SpellCanTargetItem() and true or false
-  end
-
+  if not button or (button:GetID() or 0) <= 0 or not button.Click then return false end
+  button:Click()
   return true
-end
-
-local function ToolbarResetDisenchantRearm()
-  toolbarState.deRearmPending = false
-  toolbarState.deVerifyPending = false
-  toolbarState.deVerifyAt = nil
-  toolbarState.deRearmAttempts = 0
-  toolbarState.rearmAt = nil
 end
 
 local function ToolbarDisablePersistentMode()
   toolbarState.activeMode = nil
   toolbarState.castBusy = false
-  toolbarState.waitingForLoot = false
-  ToolbarResetDisenchantRearm()
+  toolbarState.rearmAt = nil
   ToolbarCancelTargeting()
   ToolbarUpdateActiveVisuals()
 end
 
-local function ToolbarActivatePersistentMode(mode)
+local function ToolbarToggleDisenchantMode()
   ToolbarHideMenu()
 
-  if toolbarState.activeMode == mode then
+  if toolbarState.activeMode == "disenchant" then
     ToolbarDisablePersistentMode()
     return
   end
 
   ToolbarCancelTargeting()
-  toolbarState.activeMode = mode
+  toolbarState.activeMode = "disenchant"
   toolbarState.castBusy = false
-  toolbarState.waitingForLoot = false
-  ToolbarResetDisenchantRearm()
+  toolbarState.rearmAt = nil
+  ToolbarUpdateActiveVisuals()
+end
+
+local function ToolbarTogglePickLockMode()
+  ToolbarHideMenu()
+
+  if toolbarState.activeMode == "picklock" then
+    ToolbarDisablePersistentMode()
+    return
+  end
+
+  ToolbarCancelTargeting()
+  toolbarState.activeMode = "picklock"
+  toolbarState.castBusy = false
+  toolbarState.rearmAt = nil
   ToolbarUpdateActiveVisuals()
 
-  if not ToolbarCastPersistentMode(mode) then
+  if not ToolbarInvokeNativeMode("picklock") then
     ToolbarDisablePersistentMode()
   end
 end
@@ -2109,73 +2092,12 @@ local function ToolbarPlayerIsCasting()
   return CastingBarFrame and (CastingBarFrame.casting or CastingBarFrame.channeling)
 end
 
-local function ToolbarQueueDisenchantRearm(now)
-  toolbarState.waitingForLoot = false
-  toolbarState.deRearmPending = true
-  toolbarState.deVerifyPending = false
-  toolbarState.deVerifyAt = nil
-  toolbarState.deRearmAttempts = 0
-  toolbarState.rearmAt = now + DE_REARM_DELAY
-end
+local function ToolbarUpdatePickLock(now)
+  if toolbarState.activeMode ~= "picklock" then return end
 
-local function ToolbarUpdatePersistentMode(now)
-  local mode = toolbarState.activeMode
-  if not mode then return end
-
-  local button = ToolbarModeButton(mode)
+  local button = ToolbarModeButton("picklock")
   if not button or (button:GetID() or 0) <= 0 then
     ToolbarDisablePersistentMode()
-    return
-  end
-
-  if mode == "disenchant" then
-    if toolbarState.waitingForLoot then return end
-
-    if toolbarState.deVerifyPending then
-      if ToolbarDisenchantIsArmed() then
-        ToolbarResetDisenchantRearm()
-        return
-      end
-
-      if not toolbarState.deVerifyAt or now < toolbarState.deVerifyAt then return end
-
-      toolbarState.deVerifyPending = false
-      toolbarState.deVerifyAt = nil
-
-      if toolbarState.deRearmAttempts >= DE_MAX_REARM_ATTEMPTS then
-        ToolbarDisablePersistentMode()
-      else
-        toolbarState.deRearmPending = true
-        toolbarState.rearmAt = now + DE_REARM_DELAY
-      end
-      return
-    end
-
-    if not toolbarState.deRearmPending then return end
-    if LootFrame and LootFrame.IsShown and LootFrame:IsShown() then return end
-    if toolbarState.castBusy or ToolbarPlayerIsCasting() then return end
-
-    if ToolbarDisenchantIsArmed() then
-      ToolbarResetDisenchantRearm()
-      return
-    end
-
-    if not toolbarState.rearmAt then toolbarState.rearmAt = now + DE_REARM_DELAY end
-    if now < toolbarState.rearmAt then return end
-
-    toolbarState.deRearmAttempts = toolbarState.deRearmAttempts + 1
-    toolbarState.deRearmPending = false
-    toolbarState.rearmAt = nil
-
-    if ToolbarCastPersistentMode("disenchant") then
-      toolbarState.deVerifyPending = true
-      toolbarState.deVerifyAt = now + DE_VERIFY_DELAY
-    elseif toolbarState.deRearmAttempts >= DE_MAX_REARM_ATTEMPTS then
-      ToolbarDisablePersistentMode()
-    else
-      toolbarState.deRearmPending = true
-      toolbarState.rearmAt = now + DE_REARM_DELAY
-    end
     return
   end
 
@@ -2185,59 +2107,72 @@ local function ToolbarUpdatePersistentMode(now)
   if not toolbarState.rearmAt then toolbarState.rearmAt = now + .15 end
   if now < toolbarState.rearmAt then return end
 
-  ToolbarCastPersistentMode(mode)
-  toolbarState.rearmAt = now + .50
+  if ToolbarInvokeNativeMode("picklock") then
+    toolbarState.rearmAt = now + .50
+  else
+    ToolbarDisablePersistentMode()
+  end
 end
 
 local function ToolbarOnSpellStarted()
-  if toolbarState.activeMode then toolbarState.castBusy = true end
+  if toolbarState.activeMode == "picklock" then toolbarState.castBusy = true end
 end
 
-local function ToolbarOnSpellFinished(failed)
-  local mode = toolbarState.activeMode
-  if not mode then return end
-
+local function ToolbarOnSpellFinished()
+  if toolbarState.activeMode ~= "picklock" then return end
   toolbarState.castBusy = false
-
-  if mode == "disenchant" then
-    if failed then ToolbarQueueDisenchantRearm(GetTime()) end
-    return
-  end
-
   toolbarState.rearmAt = GetTime() + .15
 end
 
-local function ToolbarOnLootOpened()
-  if toolbarState.activeMode ~= "disenchant" then return end
+local function ToolbarGetClickedBagSlot()
+  local itemButton = this
+  if not itemButton or not itemButton.GetParent or not itemButton.GetID then
+    return nil, nil
+  end
 
-  toolbarState.castBusy = false
-  toolbarState.waitingForLoot = true
-  ToolbarResetDisenchantRearm()
+  local parent = itemButton:GetParent()
+  if not parent or not parent.GetID then return nil, nil end
+
+  return parent:GetID(), itemButton:GetID()
 end
 
-local function ToolbarOnLootClosed()
-  if toolbarState.activeMode ~= "disenchant" then return end
+local function ToolbarTryDisenchantClick(button)
+  if toolbarState.activeMode ~= "disenchant" then return false end
+  if button ~= "RightButton" then return false end
+  if IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown() then return false end
+  if CursorHasItem() or (SpellIsTargeting and SpellIsTargeting()) then return false end
 
-  toolbarState.castBusy = false
-  ToolbarQueueDisenchantRearm(GetTime())
+  local bag, slot = ToolbarGetClickedBagSlot()
+  if bag == nil or slot == nil or not GetContainerItemLink(bag, slot) then return false end
+
+  -- Let pfUI itself arm Disenchant. This preserves each fork's spell lookup
+  -- and localization behaviour; BagTweaks only supplies the clicked target.
+  if not ToolbarInvokeNativeMode("disenchant") then return false end
+
+  if SpellIsTargeting and SpellIsTargeting() then
+    PickupContainerItem(bag, slot)
+    return true
+  end
+
+  return false
 end
 
 local function ToolbarMenuButton(parent, index)
   parent.buttons = parent.buttons or {}
 
   if not parent.buttons[index] then
-    local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(TOOLBAR_MENU_ROW_HEIGHT)
-    b:SetPoint("TOPLEFT", parent, "TOPLEFT", 4, -(4 + (index - 1) * TOOLBAR_MENU_ROW_HEIGHT))
-    b:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -4, -(4 + (index - 1) * TOOLBAR_MENU_ROW_HEIGHT))
-    b:SetFont(pfUI.font_default or STANDARD_TEXT_FONT, ToolbarFontSize(), "OUTLINE")
-    b:SetTextColor(.9, .9, .9, 1)
-    b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
-    if b:GetHighlightTexture() then b:GetHighlightTexture():SetAlpha(.20) end
-    b:SetScript("OnClick", function()
+    local button = CreateFrame("Button", nil, parent)
+    button:SetHeight(TOOLBAR_MENU_ROW_HEIGHT)
+    button:SetPoint("TOPLEFT", parent, "TOPLEFT", 4, -(4 + (index - 1) * TOOLBAR_MENU_ROW_HEIGHT))
+    button:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -4, -(4 + (index - 1) * TOOLBAR_MENU_ROW_HEIGHT))
+    button:SetFont(pfUI.font_default or STANDARD_TEXT_FONT, ToolbarFontSize(), "OUTLINE")
+    button:SetTextColor(.9, .9, .9, 1)
+    button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+    if button:GetHighlightTexture() then button:GetHighlightTexture():SetAlpha(.20) end
+    button:SetScript("OnClick", function()
       if this.action then this.action() end
     end)
-    parent.buttons[index] = b
+    parent.buttons[index] = button
   end
 
   return parent.buttons[index]
@@ -2311,20 +2246,21 @@ local function ToolbarShowViewMenu(owner)
   local bagsOn = bag and bag.bagslots and bag.bagslots:IsShown()
   local keysOn = pfUI.bag and pfUI.bag.showKeyring
   local emptyOn = true
+
   if pfUI.bagtweaks and pfUI.bagtweaks.ShowEmptyCategories then
     emptyOn = pfUI.bagtweaks.ShowEmptyCategories()
   end
 
   ToolbarShowMenu(owner, 145, {
-    { text=(bagsOn and "[x] " or "[ ] ") .. "Bags", action=function()
+    { text=(bagsOn and "[x] " or "[ ] ") .. L.BAGS, action=function()
         ToolbarToggleBagSlots()
         ToolbarHideMenu()
       end },
-    { text=(keysOn and "[x] " or "[ ] ") .. "Keys", action=function()
+    { text=(keysOn and "[x] " or "[ ] ") .. L.KEYS, action=function()
         ToolbarToggleKeys()
         ToolbarHideMenu()
       end },
-    { text=(emptyOn and "[x] " or "[ ] ") .. "Empty Categories", action=function()
+    { text=(emptyOn and "[x] " or "[ ] ") .. L.EMPTY_CATEGORIES, action=function()
         ToolbarToggleEmptyCategories()
         ToolbarHideMenu()
       end },
@@ -2341,13 +2277,10 @@ local function ToolbarOpenOptions()
   end
 
   local root = pfUI.gui.frames[thirdParty]
-  local child = root and root["Bag Tweaks"]
+  local child = root and root[L.PLUGIN_NAME]
   if not root or not child then return end
 
   pfUI.gui:Show()
-
-  -- Use pfUI's own tab click path. This handles hiding sibling pages and,
-  -- importantly, triggers the lazy OnShow population for our options page.
   if root.Click then root:Click() end
   if child.Click then child:Click() end
 end
@@ -2372,6 +2305,7 @@ local function ToolbarMakeButton(key, text, onclick)
   button = CreateFrame("Button", nil, bag)
   button.bagtweaks_toolbar_control = true
   button:EnableMouse(1)
+
   local _, border = ToolbarMetrics(bag)
   ToolbarCreateBackdrop(button, border)
   ToolbarEnsureLabel(button, text)
@@ -2383,6 +2317,7 @@ local function ToolbarMakeButton(key, text, onclick)
   button:SetScript("OnLeave", function()
     ToolbarSetHover(this, false)
   end)
+
   ToolbarSetHover(button, false)
   toolbarState.buttons[key] = button
   return button
@@ -2405,7 +2340,7 @@ local function ToolbarFriendlyExtraLabel(frame)
     end
   end
 
-  return "Button"
+  return L.BUTTON
 end
 
 local function ToolbarIsKnownNative(child, bag)
@@ -2426,10 +2361,11 @@ local function ToolbarSuppressNative(bag)
 
   for i = 1, table.getn(natives) do
     local button = natives[i]
-    if button then
+    if button and not button.bagtweaks_toolbar_suppressed then
       button:SetAlpha(0)
       button:EnableMouse(0)
       ToolbarHideIcon(button)
+      button.bagtweaks_toolbar_suppressed = true
     end
   end
 end
@@ -2469,8 +2405,8 @@ local function ToolbarDiscoverExtras(bag, border)
        not child.bagtweaks_toolbar_control and not child.bagtweaks_header and
        child.GetObjectType and child:GetObjectType() == "Button" and
        child.GetName and child:GetName() and child:IsShown() then
-      local h = child.GetHeight and child:GetHeight() or 0
-      if h > 0 and h <= 24 then
+      local height = child.GetHeight and child:GetHeight() or 0
+      if height > 0 and height <= 24 then
         ToolbarPrepareExtra(child, border)
         table.insert(result, child)
       end
@@ -2488,17 +2424,27 @@ local function ToolbarLayout()
   ToolbarSuppressNative(bag)
 
   local add = ToolbarMakeButton("add", "+", ToolbarAddCategory)
-  local search = ToolbarMakeButton("search", "Search", ToolbarToggleSearch)
-  local sort = ToolbarMakeButton("sort", "Sort", function() ToolbarNativeClick("sort") end)
-  local view = ToolbarMakeButton("view", "View", function() ToolbarShowViewMenu(this) end)
-  local quest = ToolbarMakeButton("quest", "Quest", ToolbarToggleQuest)
-  local disenchant = ToolbarMakeButton("disenchant", "DE", function() ToolbarActivatePersistentMode("disenchant") end)
-  local picklock = ToolbarMakeButton("picklock", "Pick", function() ToolbarActivatePersistentMode("picklock") end)
-  local open = ToolbarMakeButton("open", "Open", function() ToolbarNativeClick("open") end)
-  local options = ToolbarMakeButton("options", "Options", ToolbarOpenOptions)
+  local search = ToolbarMakeButton("search", L.TOOLBAR_SEARCH, ToolbarToggleSearch)
+  local sort = ToolbarMakeButton("sort", L.TOOLBAR_SORT, function() ToolbarNativeClick("sort") end)
+  local view = ToolbarMakeButton("view", L.TOOLBAR_VIEW, function() ToolbarShowViewMenu(this) end)
+  local quest = ToolbarMakeButton("quest", L.TOOLBAR_QUEST, ToolbarToggleQuest)
+  local disenchant = ToolbarMakeButton("disenchant", L.TOOLBAR_DISENCHANT, ToolbarToggleDisenchantMode)
+  local picklock = ToolbarMakeButton("picklock", L.TOOLBAR_PICKLOCK, ToolbarTogglePickLockMode)
+  local open = ToolbarMakeButton("open", L.TOOLBAR_OPEN, function() ToolbarNativeClick("open") end)
+  local options = ToolbarMakeButton("options", L.TOOLBAR_OPTIONS, ToolbarOpenOptions)
 
   local buttons = {}
-  if search then table.insert(buttons, search) end
+
+  if search then
+    if ToolbarSearchEnabled() then
+      search:Show()
+      table.insert(buttons, search)
+    else
+      search:Hide()
+      toolbarState.searchOpen = false
+    end
+  end
+
   if sort then table.insert(buttons, sort) end
   if view then table.insert(buttons, view) end
   if quest then table.insert(buttons, quest) end
@@ -2540,9 +2486,6 @@ local function ToolbarLayout()
     add:SetWidth(addWidth)
     add:SetPoint("TOPLEFT", bag, "TOPLEFT", border, -topInset)
 
-    -- The + button is intentionally as narrow as pfUI's close button.
-    -- Do not constrain its one-character label with the generic 2px insets,
-    -- otherwise Vanilla shortens it to "...".
     if add.bagtweaks_toolbar_label then
       add.bagtweaks_toolbar_label:ClearAllPoints()
       add.bagtweaks_toolbar_label:SetPoint("CENTER", add, "CENTER", 0, 0)
@@ -2568,6 +2511,7 @@ local function ToolbarLayout()
   for i = 1, count do
     local button = buttons[i]
     local width = base
+
     if remainder > 0 then
       width = width + 1
       remainder = remainder - 1
@@ -2589,6 +2533,11 @@ local function ToolbarLayout()
 
   ToolbarApplySearchState()
   ToolbarUpdateActiveVisuals()
+end
+
+local function ToolbarApplyOptions()
+  ToolbarApplySearchState()
+  ToolbarLayout()
 end
 
 local function ToolbarEnsureBagHideHook(bag)
@@ -2617,9 +2566,27 @@ local function ToolbarSetup()
 
   bag.bagtweaks_toolbar_managed = true
   ToolbarEnsureBagHideHook(bag)
-  ToolbarLayout()
-  toolbarState.initialized = true
+
+  if pfUI.bagtweaks then
+    pfUI.bagtweaks.ApplyHeaderOptions = ToolbarApplyOptions
+  end
+
+  if not toolbarState.initialized then
+    toolbarState.initialized = true
+    ToolbarLayout()
+  end
+
   return true
+end
+
+-- AutoPickLockbox-style bag click interception. Whichever addon loads second
+-- wraps the previous global handler, so both behaviours can coexist.
+local OriginalContainerFrameItemButton_OnClick_BagTweaks = ContainerFrameItemButton_OnClick
+if type(OriginalContainerFrameItemButton_OnClick_BagTweaks) == "function" then
+  function ContainerFrameItemButton_OnClick(button, ignoreShift)
+    if ToolbarTryDisenchantClick(button) then return end
+    return OriginalContainerFrameItemButton_OnClick_BagTweaks(button, ignoreShift)
+  end
 end
 
 local toolbarWatcher = CreateFrame("Frame")
@@ -2629,123 +2596,30 @@ toolbarWatcher:RegisterEvent("SPELLCAST_START")
 toolbarWatcher:RegisterEvent("SPELLCAST_STOP")
 toolbarWatcher:RegisterEvent("SPELLCAST_FAILED")
 toolbarWatcher:RegisterEvent("SPELLCAST_INTERRUPTED")
-toolbarWatcher:RegisterEvent("LOOT_OPENED")
-toolbarWatcher:RegisterEvent("LOOT_CLOSED")
 
 toolbarWatcher:SetScript("OnEvent", function()
   if event == "SPELLCAST_START" then
     ToolbarOnSpellStarted()
-  elseif event == "SPELLCAST_STOP" then
-    ToolbarOnSpellFinished(false)
-  elseif event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
-    ToolbarOnSpellFinished(true)
-  elseif event == "LOOT_OPENED" then
-    ToolbarOnLootOpened()
-  elseif event == "LOOT_CLOSED" then
-    ToolbarOnLootClosed()
+  elseif event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
+    ToolbarOnSpellFinished()
   end
-  ToolbarSetup()
+
+  if ToolbarSetup() then ToolbarLayout() end
 end)
 
 toolbarWatcher:SetScript("OnUpdate", function()
   local now = GetTime()
-  ToolbarUpdatePersistentMode(now)
+  ToolbarUpdatePickLock(now)
 
   if now - toolbarState.lastUpdate < TOOLBAR_UPDATE_INTERVAL then return end
   toolbarState.lastUpdate = now
 
-  if ToolbarSetup() and pfUI.bag.right:IsShown() then
+  local bag = pfUI.bag and pfUI.bag.right
+  if not toolbarState.initialized then
+    ToolbarSetup()
+  elseif bag and bag:IsShown() then
     ToolbarLayout()
   end
 end)
-
-ToolbarSetup()
-
--- ---------------------------------------------------------------------------
--- Click-time Disenchant mode
--- ---------------------------------------------------------------------------
--- Mirrors AutoPickLockbox's proven Vanilla pattern: cast the profession spell
--- on the item click, then immediately target that same bag slot.
-
-local DISENCHANT_SPELL = "Disenchant"
-
-local function ToolbarToggleDisenchantClickMode()
-  ToolbarHideMenu()
-
-  if toolbarState.activeMode == "disenchant" then
-    ToolbarDisablePersistentMode()
-    return
-  end
-
-  ToolbarCancelTargeting()
-  toolbarState.activeMode = "disenchant"
-  toolbarState.castBusy = false
-  toolbarState.waitingForLoot = false
-  ToolbarResetDisenchantRearm()
-  ToolbarUpdateActiveVisuals()
-end
-
-local function ToolbarGetClickedBagSlot()
-  local itemButton = this
-  if not itemButton or not itemButton.GetParent or not itemButton.GetID then
-    return nil, nil
-  end
-
-  local parent = itemButton:GetParent()
-  if not parent or not parent.GetID then return nil, nil end
-
-  return parent:GetID(), itemButton:GetID()
-end
-
-local function ToolbarTryDisenchantClick(button)
-  if toolbarState.activeMode ~= "disenchant" then return false end
-
-  -- Match AutoPickLockbox: only replace an ordinary right-click.
-  if button ~= "RightButton" then return false end
-  if IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown() then return false end
-
-  -- Do not interfere with an item already held on the cursor or another
-  -- targeting operation. Normal bag handling gets the click instead.
-  if CursorHasItem() or (SpellIsTargeting and SpellIsTargeting()) then return false end
-
-  local bag, slot = ToolbarGetClickedBagSlot()
-  if bag == nil or slot == nil or not GetContainerItemLink(bag, slot) then return false end
-
-  CastSpellByName(DISENCHANT_SPELL)
-
-  if SpellIsTargeting and SpellIsTargeting() then
-    PickupContainerItem(bag, slot)
-    return true
-  end
-
-  -- If Disenchant could not be armed, preserve the item's normal right-click.
-  return false
-end
-
--- The old timer/loot rearm machinery remains inert for DE. Pick Lock keeps its
--- existing persistent-mode updater until it is migrated separately.
-local ToolbarUpdatePersistentModeBase = ToolbarUpdatePersistentMode
-ToolbarUpdatePersistentMode = function(now)
-  if toolbarState.activeMode == "disenchant" then return end
-  return ToolbarUpdatePersistentModeBase(now)
-end
-
--- AutoPickLockbox-style bag click interception. pfUI's inventory slots use
--- ContainerFrameItemButtonTemplate, so this covers the unified pfUI bag too.
-local OriginalContainerFrameItemButton_OnClick_BagTweaks = ContainerFrameItemButton_OnClick
-function ContainerFrameItemButton_OnClick(button, ignoreShift)
-  if ToolbarTryDisenchantClick(button) then return end
-  return OriginalContainerFrameItemButton_OnClick_BagTweaks(button, ignoreShift)
-end
-
--- ToolbarSetup can run before or after pfUI has finished constructing the bag.
--- Wrap it so the DE button always gets the click-mode toggle when it exists.
-local ToolbarSetupBase = ToolbarSetup
-ToolbarSetup = function()
-  local ready = ToolbarSetupBase()
-  local de = toolbarState.buttons.disenchant
-  if de then de:SetScript("OnClick", ToolbarToggleDisenchantClickMode) end
-  return ready
-end
 
 ToolbarSetup()
