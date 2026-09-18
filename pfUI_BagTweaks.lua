@@ -1878,19 +1878,19 @@ local function Initialize()
         local rf = RowFrame(view, rowFrameIndex)
         local leftID = row[1]
         local rightID = row[2]
-        local leftGroup = FindCategory(leftID)
-        local rightGroup = rightID and FindCategory(rightID) or nil
+        local leftCategory = FindCategory(leftID)
+        local rightCategory = rightID and FindCategory(rightID) or nil
 
         local leftList = categorized[leftID] or {}
         local rightList = rightID and (categorized[rightID] or {}) or nil
 
-        SortEntries(leftList, leftGroup and leftGroup.sort or "bag", leftGroup and leftGroup.reverse or false)
-        if rightGroup then SortEntries(rightList, rightGroup.sort or "bag", rightGroup.reverse) end
+        SortEntries(leftList, leftCategory and leftCategory.sort or "bag", leftCategory and leftCategory.reverse or false)
+        if rightCategory then SortEntries(rightList, rightCategory.sort or "bag", rightCategory.reverse) end
 
         local leftSection, leftHeight = LayoutSection(
           view,
           leftID,
-          CategoryDisplayName(leftGroup),
+          CategoryDisplayName(leftCategory),
           leftID,
           leftList,
           rightID and halfColumns or fullColumns,
@@ -1899,11 +1899,11 @@ local function Initialize()
         )
 
         local rightSection, rightHeight
-        if rightID and rightGroup then
+        if rightID and rightCategory then
           rightSection, rightHeight = LayoutSection(
             view,
             rightID,
-            CategoryDisplayName(rightGroup),
+            CategoryDisplayName(rightCategory),
             rightID,
             rightList,
             halfColumns,
