@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.28-dev
+-- pfUI_BagTweaks 0.1.29-dev
 -- User-defined visual categories and subcategories for pfUI unified bags.
 -- Categories are full-width organisational containers; subcategories classify and sort items.
 -- Layout is visual only and never moves physical inventory slots.
@@ -1723,6 +1723,12 @@ local function Initialize()
         s.itemHighlight:SetVertexColor(.15, 1, .15, .16)
         s.itemHighlight:Hide()
 
+        s.divider = s:CreateTexture(nil, "ARTWORK")
+        s.divider:SetTexture(1, 1, 1, 1)
+        s.divider:SetVertexColor(.25, .25, .25, 1)
+        s.divider:SetWidth(1)
+        s.divider:Hide()
+
         s:SetScript("OnReceiveDrag", function()
           if not draggingSubcategoryID then AssignSelected(s.categoryID) end
         end)
@@ -1891,8 +1897,21 @@ local function Initialize()
       return columns
     end
 
-    local function ExpandPackedRow(row, maxColumns)
-      local spare = maxColumns - row.used
+    local function PackedRowWidth(row, pitch, border, subcategoryGap)
+      local count = table.getn(row.entries)
+      if count == 0 then return 0 end
+
+      local width = 0
+      for i = 1, count do
+        width = width + row.entries[i].columns * pitch - border
+        if i < count then width = width + subcategoryGap end
+      end
+      return width
+    end
+
+    local function ExpandPackedRow(row, maxColumns, pitch, border, subcategoryGap, parentWidth)
+      local sparePixels = parentWidth - PackedRowWidth(row, pitch, border, subcategoryGap)
+      local spare = math.floor(sparePixels / pitch)
       if spare <= 0 then return end
 
       while spare > 0 do
@@ -1901,8 +1920,10 @@ local function Initialize()
         for i = 1, table.getn(row.entries) do
           local entry = row.entries[i]
           local currentRows = RowsFor(entry.list, entry.columns)
+          local limit = entry.columns + spare
+          if limit > maxColumns then limit = maxColumns end
 
-          for columns = entry.columns + 1, entry.columns + spare do
+          for columns = entry.columns + 1, limit do
             local rows = RowsFor(entry.list, columns)
             if rows < currentRows then
               local cost = columns - entry.columns
@@ -1920,7 +1941,6 @@ local function Initialize()
 
         if not best then break end
         best.columns = best.columns + bestCost
-        row.used = row.used + bestCost
         spare = spare - bestCost
       end
     end
@@ -1928,23 +1948,25 @@ local function Initialize()
     local function BuildCategoryPlan(categoryInfo, categorized, fullColumns, size, border)
       local spacing = border * 3
       local pitch = size + spacing
+      local subcategoryGap = border * 3
+      local parentWidth = fullColumns * pitch - border
       local rows = {}
-      local row = { entries={}, used=0, height=0 }
+      local row = { entries={}, height=0 }
 
       local function FinishRow()
         if table.getn(row.entries) == 0 then return end
-        ExpandPackedRow(row, fullColumns)
+        ExpandPackedRow(row, fullColumns, pitch, border, subcategoryGap, parentWidth)
 
         row.height = 0
         for i = 1, table.getn(row.entries) do
           local entry = row.entries[i]
           local itemRows = RowsFor(entry.list, entry.columns)
-          entry.height = HEADER_HEIGHT + border + itemRows * pitch + border
+          entry.height = HEADER_HEIGHT + border + itemRows * pitch
           if entry.height > row.height then row.height = entry.height end
         end
 
         table.insert(rows, row)
-        row = { entries={}, used=0, height=0 }
+        row = { entries={}, height=0 }
       end
 
       for n = 1, table.getn(categoryInfo.subcategories) do
@@ -1956,7 +1978,14 @@ local function Initialize()
           SortEntries(list, subcategory.sort or "bag", subcategory.reverse or false)
 
           local columns = PreferredSubcategoryColumns(table.getn(list), fullColumns)
-          if row.used > 0 and row.used + columns > fullColumns then FinishRow() end
+          local entryWidth = columns * pitch - border
+          local currentWidth = PackedRowWidth(row, pitch, border, subcategoryGap)
+          local neededWidth = currentWidth == 0 and entryWidth
+            or currentWidth + subcategoryGap + entryWidth
+
+          if currentWidth > 0 and neededWidth > parentWidth then
+            FinishRow()
+          end
 
           table.insert(row.entries, {
             id=id,
@@ -1964,7 +1993,6 @@ local function Initialize()
             list=list,
             columns=columns,
           })
-          row.used = row.used + columns
         end
       end
       FinishRow()
@@ -1972,19 +2000,24 @@ local function Initialize()
       local height = CATEGORY_HEADER_HEIGHT + border * 2
       for i = 1, table.getn(rows) do
         height = height + rows[i].height
-        if i < table.getn(rows) then height = height + ROW_GAP end
+        if i < table.getn(rows) then height = height + border end
       end
 
-      return { category=categoryInfo.category, rows=rows, height=height }
+      return {
+        category=categoryInfo.category,
+        rows=rows,
+        height=height,
+        subcategoryGap=subcategoryGap,
+      }
     end
 
-    local function LayoutSection(view, key, name, subcategoryID, list, columns, size, border)
+    local function LayoutSection(view, key, name, subcategoryID, list, columns, size, border, showDivider)
       if columns < 1 then columns = 1 end
 
       local spacing = border * 3
       local pitch = size + spacing
       local rows = RowsFor(list, columns)
-      local wantedHeight = HEADER_HEIGHT + border + rows * pitch + border
+      local wantedHeight = HEADER_HEIGHT + border + rows * pitch
       local wantedWidth = columns * pitch - border
       local section = Section(view, key, subcategoryID)
       local header = Header(view, key, name, subcategoryID)
@@ -2001,6 +2034,13 @@ local function Initialize()
       header:SetPoint("TOPLEFT", section, "TOPLEFT", border, 0)
       header:SetPoint("TOPRIGHT", section, "TOPRIGHT", -border, 0)
 
+      if section.divider then
+        section.divider:ClearAllPoints()
+        section.divider:SetPoint("TOPRIGHT", section, "TOPRIGHT", 0, -HEADER_HEIGHT)
+        section.divider:SetPoint("BOTTOMRIGHT", section, "BOTTOMRIGHT", 0, 0)
+        if showDivider then section.divider:Show() else section.divider:Hide() end
+      end
+
       local row, col = 0, 0
       for i = 1, table.getn(list) do
         local item = list[i].frame
@@ -2011,7 +2051,7 @@ local function Initialize()
           section,
           "TOPLEFT",
           border + col * pitch,
-          -(HEADER_HEIGHT + border + row * pitch)
+          -(HEADER_HEIGHT + border * 2 + row * pitch)
         )
         item:SetWidth(size)
         item:SetHeight(size)
@@ -2151,7 +2191,7 @@ local function Initialize()
       SortEntries(general, db.generalSort, db.generalReverse)
 
       local generalSection, generalHeight = LayoutSection(
-        view, "general", L.GENERAL, nil, general, fullColumns, size, border
+        view, "general", L.GENERAL, nil, general, fullColumns, size, border, false
       )
       if not generalSection then return end
 
@@ -2182,11 +2222,12 @@ local function Initialize()
           local yOffset = CATEGORY_HEADER_HEIGHT + border
           for r = 1, table.getn(plan.rows) do
             local row = plan.rows[r]
-            local xColumns = 0
+            local xOffset = 0
 
             for n = 1, table.getn(row.entries) do
               local entry = row.entries[n]
-              local section = LayoutSection(
+              local showDivider = n < table.getn(row.entries)
+              local section, _, sectionWidth = LayoutSection(
                 view,
                 entry.id,
                 SubcategoryDisplayName(entry.subcategory),
@@ -2194,7 +2235,8 @@ local function Initialize()
                 entry.list,
                 entry.columns,
                 size,
-                border
+                border,
+                showDivider
               )
 
               if section then
@@ -2204,17 +2246,16 @@ local function Initialize()
                   "TOPLEFT",
                   categoryFrame,
                   "TOPLEFT",
-                  xColumns * pitch,
+                  xOffset,
                   -yOffset
                 )
                 section.bagtweaks_categoryFrame = categoryFrame
+                xOffset = xOffset + sectionWidth + plan.subcategoryGap
               end
-
-              xColumns = xColumns + entry.columns
             end
 
             yOffset = yOffset + row.height
-            if r < table.getn(plan.rows) then yOffset = yOffset + ROW_GAP end
+            if r < table.getn(plan.rows) then yOffset = yOffset + border end
           end
 
           totalHeight = totalHeight + plan.height + ROW_GAP
@@ -2716,7 +2757,7 @@ end
 
 local function ToolbarTryDisenchantClick(button)
   if toolbarState.activeMode ~= "disenchant" then return false end
-  if button ~= "RightButton" then return false end
+  if button ~= "LeftButton" then return false end
   if IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown() then return false end
   if CursorHasItem() or (SpellIsTargeting and SpellIsTargeting()) then return false end
 
@@ -2724,7 +2765,7 @@ local function ToolbarTryDisenchantClick(button)
   if bag == nil or slot == nil or not GetContainerItemLink(bag, slot) then return false end
 
   -- DE mode belongs to the carried inventory. Do not consume bank-item
-  -- right-clicks merely because the backpack's persistent DE mode is active.
+  -- left-clicks merely because the backpack's persistent DE mode is active.
   if bag ~= -2 and (bag < 0 or bag > 4) then return false end
 
   -- Let pfUI itself arm Disenchant. This preserves each fork's spell lookup
@@ -3345,6 +3386,7 @@ local function BankToolbarSetup()
 end
 
 local function BankToolbarClose()
+  if toolbarState.activeMode then ToolbarDisablePersistentMode() end
   bankToolbarState.searchOpen = false
   ToolbarHideMenu()
   if pfUI.bagtweaks and pfUI.bagtweaks.HideMenus then pfUI.bagtweaks.HideMenus() end
@@ -3489,6 +3531,7 @@ local function ToolbarEnsureBagHideHook(bag)
       local old = toolbarState.baseOnHide
       if old and old ~= toolbarState.onHideWrapper then old() end
       toolbarState.searchOpen = false
+      if toolbarState.activeMode then ToolbarDisablePersistentMode() end
       ToolbarHideMenu()
       if pfUI.bagtweaks and pfUI.bagtweaks.HideMenus then pfUI.bagtweaks.HideMenus() end
       ToolbarApplySearchState()
@@ -3530,7 +3573,9 @@ toolbarWatcher:RegisterEvent("SPELLCAST_FAILED")
 toolbarWatcher:RegisterEvent("SPELLCAST_INTERRUPTED")
 
 toolbarWatcher:SetScript("OnEvent", function()
-  if event == "SPELLCAST_START" then
+  if event == "PLAYER_ENTERING_WORLD" then
+    if toolbarState.activeMode then ToolbarDisablePersistentMode() end
+  elseif event == "SPELLCAST_START" then
     ToolbarOnSpellStarted()
     return
   elseif event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
