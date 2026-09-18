@@ -484,7 +484,7 @@ local function Initialize()
       Relayout()
     end
 
-    local function ToggleScope    local function ToggleScope(id, scope)
+    local function ToggleScope(id, scope)
       local category = FindSubcategory(id)
       if not category or category.system then return end
 
@@ -1163,7 +1163,7 @@ local function Initialize()
       ShowDeleteConfirm("category", id)
     end
 
-    local function CursorStillHasItem    local function CursorStillHasItem()
+    local function CursorStillHasItem()
       if type(CursorHasItem) ~= "function" then return true end
       return CursorHasItem() and true or false
     end
@@ -1617,7 +1617,7 @@ local function Initialize()
       end
     end
 
-    local function Header    local function Header(view, key, name, categoryID)
+    local function Header(view, key, name, categoryID)
       local viewHeaders = headers[view]
       local h = viewHeaders[key]
       local parent = ViewFrame(view)
@@ -2093,7 +2093,7 @@ local function Initialize()
       return frame
     end
 
-    local function StabilizeBottomAnchor    local function StabilizeBottomAnchor(frame)
+    local function StabilizeBottomAnchor(frame)
       if C.appearance.bags.movable == "1" then return end
       if not frame.GetNumPoints or not frame.GetPoint then return end
       if frame:GetNumPoints() < 2 then return end
@@ -2242,7 +2242,7 @@ local function Initialize()
       if draggingSubcategoryID and draggingView == view then UpdateDragVisual() end
     end
 
-    Relayout = function    Relayout = function()
+    Relayout = function()
       RelayoutView("backpack")
       RelayoutView("bank")
     end
