@@ -508,7 +508,7 @@ local function Initialize()
       if meta.classID ~= nil then return meta.classID == QUEST_CLASS_ID end
       if G.ITEM_CLASS_QUESTITEM and meta.itemType == G.ITEM_CLASS_QUESTITEM then return true end
       if G.ITEM_CLASS_QUEST and meta.itemType == G.ITEM_CLASS_QUEST then return true end
-      return meta.itemType == L.QUEST
+      return meta.itemType == L.ITEM_CLASS_QUEST
     end
 
     local function EntryLess(a, b, mode, reverse)
