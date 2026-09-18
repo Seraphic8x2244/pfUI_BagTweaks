@@ -1,6 +1,6 @@
--- pfUI_BagTweaks 0.1.26-dev
--- User-defined visual groups for pfUI unified bags.
--- Groups can be account-wide or character-specific, with an optional default Quest category,
+-- pfUI_BagTweaks 0.1.26
+-- User-defined visual categories for pfUI unified bags.
+-- Categories can be account-wide or character-specific, with an optional default Quest category,
 -- can be arranged as one or two columns, and never move physical inventory slots.
 
 if not pfUI then return end
@@ -88,7 +88,7 @@ local function Initialize()
     local questScanIgnoreUntil = 0
     local Relayout
 
-    local draggingGroupID = nil
+    local draggingCategoryID = nil
     local draggingView = nil
     local dragTargetID = nil
     local dragTargetSection = nil
@@ -99,27 +99,37 @@ local function Initialize()
     G.pfUIBagTweaksDB = G.pfUIBagTweaksDB or {}
     local db = G.pfUIBagTweaksDB
 
-    -- Only write defaults/migrations when the stored value actually needs it.
-    -- Normal logins and relayouts should leave an already-valid DB untouched.
-    if db.groups == nil then db.groups = {} end
+    -- Current schema:
+    --   categories: category definitions
+    --   accountCategories[itemID] = categoryID
+    --   characterCategories[characterKey][itemID] = categoryID
+    -- Migrate the pre-0.1.26 "group"/"assignment" field names once.
+    if db.categories == nil then db.categories = db.groups or {} end
+    if db.groups ~= nil then db.groups = nil end
 
-    local nextID = tonumber(db.nextGroupID)
+    local nextID = tonumber(db.nextCategoryID or db.nextGroupID)
     if not nextID or nextID < 1 then nextID = 1 end
-    if db.nextGroupID ~= nextID then db.nextGroupID = nextID end
+    if db.nextCategoryID ~= nextID then db.nextCategoryID = nextID end
+    if db.nextGroupID ~= nil then db.nextGroupID = nil end
 
     if db.generalSort == nil then db.generalSort = "bag" end
     if db.generalReverse == nil then db.generalReverse = false end
 
-    if db.accountAssignments == nil then
-      db.accountAssignments = db.assignments or {}
+    if db.accountCategories == nil then
+      db.accountCategories = db.accountAssignments or db.assignments or {}
     end
+    if db.accountAssignments ~= nil then db.accountAssignments = nil end
     if db.assignments ~= nil then db.assignments = nil end
 
-    if db.charAssignments == nil then db.charAssignments = {} end
+    if db.characterCategories == nil then
+      db.characterCategories = db.charAssignments or {}
+    end
+    if db.charAssignments ~= nil then db.charAssignments = nil end
+
     if db.rows == nil then db.rows = {} end
     if db.showEmptyCategories == nil then db.showEmptyCategories = true end
 
-    local legacyQuestEnabled = db.questGroupID ~= nil
+    local legacyQuestEnabled = db.questCategoryID ~= nil or db.questGroupID ~= nil
 
     local function CharacterKey()
       local realm = GetRealmName and GetRealmName() or ""
@@ -128,20 +138,20 @@ local function Initialize()
     end
 
     local characterKey = CharacterKey()
-    local currentCharAssignments = db.charAssignments[characterKey]
+    local currentCharacterCategories = db.characterCategories[characterKey]
 
-    local function CharAssignments(create)
-      if not currentCharAssignments and create then
-        currentCharAssignments = {}
-        db.charAssignments[characterKey] = currentCharAssignments
+    local function CharacterCategories(create)
+      if not currentCharacterCategories and create then
+        currentCharacterCategories = {}
+        db.characterCategories[characterKey] = currentCharacterCategories
       end
-      return currentCharAssignments
+      return currentCharacterCategories
     end
 
-    local function PruneCurrentCharAssignments()
-      if currentCharAssignments and not next(currentCharAssignments) then
-        db.charAssignments[characterKey] = nil
-        currentCharAssignments = nil
+    local function PruneCurrentCharacterCategories()
+      if currentCharacterCategories and not next(currentCharacterCategories) then
+        db.characterCategories[characterKey] = nil
+        currentCharacterCategories = nil
       end
     end
 
@@ -174,21 +184,21 @@ local function Initialize()
       return columns
     end
 
-    local function FindGroup(id)
-      for i = 1, table.getn(db.groups) do
-        if db.groups[i].id == id then return db.groups[i], i end
+    local function FindCategory(id)
+      for i = 1, table.getn(db.categories) do
+        if db.categories[i].id == id then return db.categories[i], i end
       end
     end
 
-    local function GroupExists(id)
-      return FindGroup(id) ~= nil
+    local function CategoryExists(id)
+      return FindCategory(id) ~= nil
     end
 
-    local function IsGroupActive(g)
-      if not g then return false end
-      if g.system == "quest" then return db.questEnabled and true or false end
-      if g.scope ~= "char" then return true end
-      return g.owner == characterKey
+    local function IsCategoryActive(category)
+      if not category then return false end
+      if category.system == "quest" then return db.questEnabled and true or false end
+      if category.scope ~= "char" then return true end
+      return category.owner == characterKey
     end
 
     local function RowsEqual(a, b)
@@ -217,7 +227,7 @@ local function Initialize()
 
         for c = 1, table.getn(source) do
           local id = tonumber(source[c])
-          if id and GroupExists(id) and not seen[id] then
+          if id and CategoryExists(id) and not seen[id] then
             table.insert(row, id)
             seen[id] = true
             if table.getn(row) == 2 then break end
@@ -227,8 +237,8 @@ local function Initialize()
         if table.getn(row) > 0 then table.insert(clean, row) end
       end
 
-      for i = 1, table.getn(db.groups) do
-        local id = db.groups[i].id
+      for i = 1, table.getn(db.categories) do
+        local id = db.categories[i].id
         if not seen[id] then
           table.insert(clean, { id })
           seen[id] = true
@@ -241,41 +251,42 @@ local function Initialize()
     end
 
     local questSystem = nil
-    for i = 1, table.getn(db.groups) do
-      local g = db.groups[i]
+    for i = 1, table.getn(db.categories) do
+      local category = db.categories[i]
 
-      local id = tonumber(g.id)
+      local id = tonumber(category.id)
       if not id then
-        id = db.nextGroupID
-        g.id = id
-        db.nextGroupID = id + 1
+        id = db.nextCategoryID
+        category.id = id
+        db.nextCategoryID = id + 1
       else
-        if g.id ~= id then g.id = id end
-        if id >= db.nextGroupID then db.nextGroupID = id + 1 end
+        if category.id ~= id then category.id = id end
+        if id >= db.nextCategoryID then db.nextCategoryID = id + 1 end
       end
 
-      if g.system ~= "quest" and g.name == nil then
-        g.name = string.format(L.DEFAULT_GROUP, g.id)
+      if category.system ~= "quest" and category.name == nil then
+        category.name = string.format(L.DEFAULT_CATEGORY, category.id)
       end
-      if g.sort == nil then g.sort = "bag" end
-      if g.reverse == nil then g.reverse = false end
+      if category.sort == nil then category.sort = "bag" end
+      if category.reverse == nil then category.reverse = false end
 
-      if g.scope == "character" then
-        g.scope = "char"
-      elseif g.scope ~= "char" and g.scope ~= "account" then
-        g.scope = "account"
+      if category.scope == "character" then
+        category.scope = "char"
+      elseif category.scope ~= "char" and category.scope ~= "account" then
+        category.scope = "account"
       end
 
-      if g.scope == "char" and not g.owner then g.owner = characterKey end
+      if category.scope == "char" and not category.owner then category.owner = characterKey end
 
-      if g.quest then legacyQuestEnabled = true end
-      if g.quest ~= nil then g.quest = nil end
+      if category.quest then legacyQuestEnabled = true end
+      if category.quest ~= nil then category.quest = nil end
 
-      if g.system == "quest" and not questSystem then
-        questSystem = g
+      if category.system == "quest" and not questSystem then
+        questSystem = category
       end
     end
 
+    if db.questCategoryID ~= nil then db.questCategoryID = nil end
     if db.questGroupID ~= nil then db.questGroupID = nil end
     if db.questEnabled == nil then
       db.questEnabled = legacyQuestEnabled
@@ -285,14 +296,14 @@ local function Initialize()
 
     if not questSystem then
       questSystem = {
-        id=db.nextGroupID,
+        id=db.nextCategoryID,
         sort="bag",
         reverse=false,
         scope="account",
         system="quest",
       }
-      db.nextGroupID = db.nextGroupID + 1
-      table.insert(db.groups, questSystem)
+      db.nextCategoryID = db.nextCategoryID + 1
+      table.insert(db.categories, questSystem)
     else
       if questSystem.scope ~= "account" then questSystem.scope = "account" end
       if questSystem.owner ~= nil then questSystem.owner = nil end
@@ -301,7 +312,7 @@ local function Initialize()
 
     NormalizeRows()
 
-    local function ActiveRows(grouped)
+    local function ActiveRows(categorized)
       local result = {}
 
       for r = 1, table.getn(db.rows) do
@@ -309,14 +320,14 @@ local function Initialize()
         local row = {}
 
         for c = 1, table.getn(source) do
-          local g = FindGroup(source[c])
-          if g and IsGroupActive(g) then
+          local category = FindCategory(source[c])
+          if category and IsCategoryActive(category) then
             local visible = db.showEmptyCategories ~= false
             if not visible then
-              local items = grouped and grouped[g.id]
+              local items = categorized and categorized[category.id]
               visible = items and table.getn(items) > 0
             end
-            if visible then table.insert(row, g.id) end
+            if visible then table.insert(row, category.id) end
           end
         end
 
@@ -326,31 +337,31 @@ local function Initialize()
       return result
     end
 
-    local function CleanAssignments(assignments)
-      for itemID, groupID in pairs(assignments) do
-        local normalized = tonumber(groupID)
+    local function CleanCategoryMap(categoryMap)
+      for itemID, categoryID in pairs(categoryMap) do
+        local normalized = tonumber(categoryID)
         if normalized == nil then normalized = GENERAL_OVERRIDE end
-        if normalized ~= GENERAL_OVERRIDE and not GroupExists(normalized) then
+        if normalized ~= GENERAL_OVERRIDE and not CategoryExists(normalized) then
           normalized = GENERAL_OVERRIDE
         end
-        if normalized ~= groupID then assignments[itemID] = normalized end
+        if normalized ~= categoryID then categoryMap[itemID] = normalized end
       end
     end
 
     local function CleanState()
       NormalizeRows()
-      CleanAssignments(db.accountAssignments)
+      CleanCategoryMap(db.accountCategories)
 
-      for key, assignments in pairs(db.charAssignments) do
-        CleanAssignments(assignments)
-        if not next(assignments) then
-          db.charAssignments[key] = nil
-          if key == characterKey then currentCharAssignments = nil end
+      for key, categoryMap in pairs(db.characterCategories) do
+        CleanCategoryMap(categoryMap)
+        if not next(categoryMap) then
+          db.characterCategories[key] = nil
+          if key == characterKey then currentCharacterCategories = nil end
         end
       end
     end
 
-    local function RemoveGroupFromRows(id)
+    local function RemoveCategoryFromRows(id)
       for r = table.getn(db.rows), 1, -1 do
         local row = db.rows[r]
 
@@ -372,35 +383,35 @@ local function Initialize()
     end
 
     local function ToggleScope(id, scope)
-      local g = FindGroup(id)
-      if not g or g.system then return end
+      local category = FindCategory(id)
+      if not category or category.system then return end
 
-      local ca = CharAssignments(false)
+      local characterMap = CharacterCategories(false)
 
-      if scope == "account" and g.scope == "char" then
-        if ca then
-          for itemID, groupID in pairs(ca) do
-            if groupID == id then
-              db.accountAssignments[itemID] = id
-              ca[itemID] = nil
+      if scope == "account" and category.scope == "char" then
+        if characterMap then
+          for itemID, categoryID in pairs(characterMap) do
+            if categoryID == id then
+              db.accountCategories[itemID] = id
+              characterMap[itemID] = nil
             end
           end
         end
 
-        g.scope = "account"
-        g.owner = nil
-        PruneCurrentCharAssignments()
-      elseif scope == "char" and g.scope ~= "char" then
-        for itemID, groupID in pairs(db.accountAssignments) do
-          if groupID == id then
-            if not ca then ca = CharAssignments(true) end
-            if ca[itemID] == nil then ca[itemID] = id end
-            db.accountAssignments[itemID] = nil
+        category.scope = "account"
+        category.owner = nil
+        PruneCurrentCharacterCategories()
+      elseif scope == "char" and category.scope ~= "char" then
+        for itemID, categoryID in pairs(db.accountCategories) do
+          if categoryID == id then
+            if not characterMap then characterMap = CharacterCategories(true) end
+            if characterMap[itemID] == nil then characterMap[itemID] = id end
+            db.accountCategories[itemID] = nil
           end
         end
 
-        g.scope = "char"
-        g.owner = characterKey
+        category.scope = "char"
+        category.owner = characterKey
       end
 
       Relayout()
@@ -410,9 +421,9 @@ local function Initialize()
       if id == nil then
         db.generalSort = mode
       else
-        local g = FindGroup(id)
-        if not g then return end
-        g.sort = mode
+        local category = FindCategory(id)
+        if not category then return end
+        category.sort = mode
       end
       Relayout()
     end
@@ -421,17 +432,17 @@ local function Initialize()
       if id == nil then
         db.generalReverse = not db.generalReverse
       else
-        local g = FindGroup(id)
-        if not g then return end
-        g.reverse = not g.reverse
+        local category = FindCategory(id)
+        if not category then return end
+        category.reverse = not category.reverse
       end
       Relayout()
     end
 
     local function GetSort(id)
       if id == nil then return db.generalSort or "bag", db.generalReverse end
-      local g = FindGroup(id)
-      return g and (g.sort or "bag") or "bag", g and g.reverse or false
+      local category = FindCategory(id)
+      return category and (category.sort or "bag") or "bag", category and category.reverse or false
     end
 
     local function ItemID(bag, slot)
@@ -787,7 +798,7 @@ local function Initialize()
     end
 
     local function ShowItemHighlight(section)
-      if not section or draggingGroupID then return end
+      if not section or draggingCategoryID then return end
       if not selectedItemID then return end
       if type(CursorHasItem) == "function" and not CursorHasItem() then return end
 
@@ -839,14 +850,14 @@ local function Initialize()
       return preview, insertLine
     end
 
-    local function ShowNameDialog(groupID)
-      if groupID then
-        local group = FindGroup(groupID)
-        if group and group.system then return end
+    local function ShowNameDialog(categoryID)
+      if categoryID then
+        local category = FindCategory(categoryID)
+        if category and category.system then return end
       end
 
       if not nameDialog then
-        local f = CreateFrame("Frame", "pfBagTweaksGroupEditor", UIParent)
+        local f = CreateFrame("Frame", "pfBagTweaksCategoryEditor", UIParent)
         f:SetWidth(250)
         f:SetHeight(86)
         f:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
@@ -857,7 +868,7 @@ local function Initialize()
         f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -10)
 
-        f.edit = CreateFrame("EditBox", "pfBagTweaksGroupNameEdit", f, "InputBoxTemplate")
+        f.edit = CreateFrame("EditBox", "pfBagTweaksCategoryNameEdit", f, "InputBoxTemplate")
         f.edit:SetWidth(226)
         f.edit:SetHeight(20)
         f.edit:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -30)
@@ -879,12 +890,12 @@ local function Initialize()
           local name = Trim(f.edit:GetText())
           if name == "" then return end
 
-          if f.groupID then
-            local g = FindGroup(f.groupID)
-            if g and not g.system then g.name = name end
+          if f.categoryID then
+            local category = FindCategory(f.categoryID)
+            if category and not category.system then category.name = name end
           else
-            local id = db.nextGroupID
-            table.insert(db.groups, {
+            local id = db.nextCategoryID
+            table.insert(db.categories, {
               id=id,
               name=name,
               sort="bag",
@@ -892,7 +903,7 @@ local function Initialize()
               scope="account",
             })
             table.insert(db.rows, { id })
-            db.nextGroupID = id + 1
+            db.nextCategoryID = id + 1
           end
 
           f:Hide()
@@ -907,13 +918,13 @@ local function Initialize()
         nameDialog = f
       end
 
-      nameDialog.groupID = groupID
+      nameDialog.categoryID = categoryID
 
-      if groupID then
-        local g = FindGroup(groupID)
-        if not g then return end
+      if categoryID then
+        local category = FindCategory(categoryID)
+        if not category then return end
         nameDialog.title:SetText(L.RENAME_CATEGORY)
-        nameDialog.edit:SetText(g.name)
+        nameDialog.edit:SetText(category.name)
       else
         nameDialog.title:SetText(L.NEW_CATEGORY)
         nameDialog.edit:SetText("")
@@ -924,29 +935,29 @@ local function Initialize()
       nameDialog.edit:HighlightText()
     end
 
-    local function DeleteGroup(groupID)
-      local g, index = FindGroup(groupID)
-      if not g or not index or g.system then return end
+    local function DeleteCategory(categoryID)
+      local category, index = FindCategory(categoryID)
+      if not category or not index or category.system then return end
 
-      for itemID, assigned in pairs(db.accountAssignments) do
-        if assigned == groupID then db.accountAssignments[itemID] = GENERAL_OVERRIDE end
+      for itemID, assignedCategoryID in pairs(db.accountCategories) do
+        if assignedCategoryID == categoryID then db.accountCategories[itemID] = GENERAL_OVERRIDE end
       end
 
-      for _, assignments in pairs(db.charAssignments) do
-        for itemID, assigned in pairs(assignments) do
-          if assigned == groupID then assignments[itemID] = GENERAL_OVERRIDE end
+      for _, categoryMap in pairs(db.characterCategories) do
+        for itemID, assignedCategoryID in pairs(categoryMap) do
+          if assignedCategoryID == categoryID then categoryMap[itemID] = GENERAL_OVERRIDE end
         end
       end
 
-      RemoveGroupFromRows(groupID)
-      table.remove(db.groups, index)
+      RemoveCategoryFromRows(categoryID)
+      table.remove(db.categories, index)
       NormalizeRows()
       Relayout()
     end
 
-    local function ShowDeleteDialog(groupID)
-      local g = FindGroup(groupID)
-      if not g or g.system then return end
+    local function ShowDeleteDialog(categoryID)
+      local category = FindCategory(categoryID)
+      if not category or category.system then return end
 
       if not deleteDialog then
         local f = CreateFrame("Frame", "pfBagTweaksDeleteConfirm", UIParent)
@@ -975,9 +986,9 @@ local function Initialize()
         f.cancel:SetText(L.CANCEL)
 
         f.ok:SetScript("OnClick", function()
-          local id = f.groupID
+          local id = f.categoryID
           f:Hide()
-          DeleteGroup(id)
+          DeleteCategory(id)
         end)
 
         f.cancel:SetScript("OnClick", function() f:Hide() end)
@@ -985,8 +996,8 @@ local function Initialize()
         deleteDialog = f
       end
 
-      deleteDialog.groupID = groupID
-      deleteDialog.text:SetText(string.format(L.DELETE_PROMPT, tostring(g.name)))
+      deleteDialog.categoryID = categoryID
+      deleteDialog.text:SetText(string.format(L.DELETE_PROMPT, tostring(category.name)))
       deleteDialog:Show()
     end
 
@@ -995,7 +1006,7 @@ local function Initialize()
       return CursorHasItem() and true or false
     end
 
-    local function AssignSelected(groupID)
+    local function AssignSelected(categoryID)
       if not selectedItemID then return false end
 
       if not CursorStillHasItem() then
@@ -1005,31 +1016,31 @@ local function Initialize()
       end
 
       local itemKey = tostring(selectedItemID)
-      local ca = CharAssignments(false)
+      local characterMap = CharacterCategories(false)
 
-      if groupID == nil then
-        if ca and ca[itemKey] ~= nil then
-          ca[itemKey] = GENERAL_OVERRIDE
-        elseif db.accountAssignments[itemKey] ~= nil then
-          db.accountAssignments[itemKey] = GENERAL_OVERRIDE
+      if categoryID == nil then
+        if characterMap and characterMap[itemKey] ~= nil then
+          characterMap[itemKey] = GENERAL_OVERRIDE
+        elseif db.accountCategories[itemKey] ~= nil then
+          db.accountCategories[itemKey] = GENERAL_OVERRIDE
         else
-          ca = ca or CharAssignments(true)
-          ca[itemKey] = GENERAL_OVERRIDE
+          characterMap = characterMap or CharacterCategories(true)
+          characterMap[itemKey] = GENERAL_OVERRIDE
         end
       else
-        local g = FindGroup(groupID)
-        if not g or not IsGroupActive(g) then return false end
+        local category = FindCategory(categoryID)
+        if not category or not IsCategoryActive(category) then return false end
 
-        if g.scope == "char" then
-          ca = ca or CharAssignments(true)
-          ca[itemKey] = groupID
+        if category.scope == "char" then
+          characterMap = characterMap or CharacterCategories(true)
+          characterMap[itemKey] = categoryID
         else
-          db.accountAssignments[itemKey] = groupID
-          if ca then ca[itemKey] = nil end
+          db.accountCategories[itemKey] = categoryID
+          if characterMap then characterMap[itemKey] = nil end
         end
       end
 
-      PruneCurrentCharAssignments()
+      PruneCurrentCharacterCategories()
 
       if type(ClearCursor) == "function" then ClearCursor() end
       selectedItemID = nil
@@ -1065,18 +1076,18 @@ local function Initialize()
       Backdrop(frame)
     end
 
-    local function ShowSortMenu(anchor, groupID)
+    local function ShowSortMenu(anchor, categoryID)
       if not sortMenu then
         sortMenu = CreateFrame("Frame", "pfBagTweaksSortMenu", UIParent)
         sortMenu:Hide()
       end
 
       ConfigureMenuFrame(sortMenu, 5)
-      sortMenu.groupID = groupID
+      sortMenu.categoryID = categoryID
       sortMenu:ClearAllPoints()
       sortMenu:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -2, 0)
 
-      local current, reverse = GetSort(groupID)
+      local current, reverse = GetSort(categoryID)
 
       for i = 1, table.getn(SORT_MODES) do
         local b = MenuButton(sortMenu, i)
@@ -1084,7 +1095,7 @@ local function Initialize()
         b:SetText((current == b.sortMode and "[x] " or "[ ] ") .. SORT_LABEL[b.sortMode])
         b:SetScript("OnClick", function()
           local mode = this.sortMode
-          SetSort(sortMenu.groupID, mode)
+          SetSort(sortMenu.categoryID, mode)
           HideMenus()
         end)
         b:Show()
@@ -1094,7 +1105,7 @@ local function Initialize()
       reverseButton.sortMode = nil
       reverseButton:SetText((reverse and "[x] " or "[ ] ") .. L.REVERSE)
       reverseButton:SetScript("OnClick", function()
-        ToggleReverse(sortMenu.groupID)
+        ToggleReverse(sortMenu.categoryID)
         HideMenus()
       end)
       reverseButton:Show()
@@ -1102,18 +1113,18 @@ local function Initialize()
       sortMenu:Show()
     end
 
-    local function ShowGroupMenu(anchor, groupID)
+    local function ShowCategoryMenu(anchor, categoryID)
       if not menu then
-        menu = CreateFrame("Frame", "pfBagTweaksGroupMenu", UIParent)
+        menu = CreateFrame("Frame", "pfBagTweaksCategoryMenu", UIParent)
         menu:Hide()
       end
 
-      menu.groupID = groupID
+      menu.categoryID = categoryID
       menu.anchor = anchor
       menu:ClearAllPoints()
       menu:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -2, 0)
 
-      if groupID == nil then
+      if categoryID == nil then
         ConfigureMenuFrame(menu, 2)
 
         local add = MenuButton(menu, 1)
@@ -1134,16 +1145,16 @@ local function Initialize()
 
         for i = 3, table.getn(menu.buttons or {}) do menu.buttons[i]:Hide() end
       else
-        local g = FindGroup(groupID)
-        if not g then return end
+        local category = FindCategory(categoryID)
+        if not category then return end
 
-        if g.system == "quest" then
+        if category.system == "quest" then
           ConfigureMenuFrame(menu, 1)
 
           local sorting = MenuButton(menu, 1)
-          sorting:SetText(string.format(L.SORTING, SORT_LABEL[g.sort or "bag"]))
+          sorting:SetText(string.format(L.SORTING, SORT_LABEL[category.sort or "bag"]))
           sorting:SetScript("OnClick", function()
-            ShowSortMenu(menu, menu.groupID)
+            ShowSortMenu(menu, menu.categoryID)
           end)
           sorting:Show()
 
@@ -1154,41 +1165,41 @@ local function Initialize()
           local rename = MenuButton(menu, 1)
           rename:SetText(L.RENAME_CATEGORY)
           rename:SetScript("OnClick", function()
-            local id = menu.groupID
+            local id = menu.categoryID
             HideMenus()
             ShowNameDialog(id)
           end)
           rename:Show()
 
           local account = MenuButton(menu, 2)
-          account:SetText((g.scope ~= "char" and "[x] " or "[ ] ") .. L.ACCOUNT_WIDE)
+          account:SetText((category.scope ~= "char" and "[x] " or "[ ] ") .. L.ACCOUNT_WIDE)
           account:SetScript("OnClick", function()
-            local id = menu.groupID
+            local id = menu.categoryID
             HideMenus()
             ToggleScope(id, "account")
           end)
           account:Show()
 
           local character = MenuButton(menu, 3)
-          character:SetText((g.scope == "char" and "[x] " or "[ ] ") .. L.PER_CHARACTER)
+          character:SetText((category.scope == "char" and "[x] " or "[ ] ") .. L.PER_CHARACTER)
           character:SetScript("OnClick", function()
-            local id = menu.groupID
+            local id = menu.categoryID
             HideMenus()
             ToggleScope(id, "char")
           end)
           character:Show()
 
           local sorting = MenuButton(menu, 4)
-          sorting:SetText(string.format(L.SORTING, SORT_LABEL[g.sort or "bag"]))
+          sorting:SetText(string.format(L.SORTING, SORT_LABEL[category.sort or "bag"]))
           sorting:SetScript("OnClick", function()
-            ShowSortMenu(menu, menu.groupID)
+            ShowSortMenu(menu, menu.categoryID)
           end)
           sorting:Show()
 
           local delete = MenuButton(menu, 5)
           delete:SetText("|cffff6666" .. L.DELETE_CATEGORY .. "|r")
           delete:SetScript("OnClick", function()
-            local id = menu.groupID
+            local id = menu.categoryID
             HideMenus()
             ShowDeleteDialog(id)
           end)
@@ -1222,7 +1233,7 @@ local function Initialize()
       return (x - left) / (right - left), (y - bottom) / (top - bottom)
     end
 
-    local function SectionKeyForGroupID(id)
+    local function SectionKeyForCategoryID(id)
       if id == nil or id == "general" then return "general" end
       return id
     end
@@ -1233,8 +1244,8 @@ local function Initialize()
         if s:IsShown() then
           local rx, ry = CursorPositionFor(s)
           if rx and ry then
-            local id = s.groupID or "general"
-            if id ~= draggingGroupID then return id, s, rx, ry end
+            local id = s.categoryID or "general"
+            if id ~= draggingCategoryID then return id, s, rx, ry end
           end
         end
       end
@@ -1297,7 +1308,7 @@ local function Initialize()
       local targetRow = FindRowIndex(targetID)
       if not targetRow then return nil, nil end
 
-      local sourceRow = FindRowIndex(draggingGroupID)
+      local sourceRow = FindRowIndex(draggingCategoryID)
       local sameRow = sourceRow and sourceRow == targetRow
       local row = db.rows[targetRow]
       local rowCount = table.getn(row)
@@ -1321,7 +1332,7 @@ local function Initialize()
     end
 
     local function UpdateDragVisual()
-      if not draggingGroupID then
+      if not draggingCategoryID then
         dragTargetID = nil
         dragTargetSection = nil
         dragIntent = nil
@@ -1357,18 +1368,18 @@ local function Initialize()
       end
     end
 
-    local function PlaceDraggedGroup(sourceID, targetID, intent, side)
+    local function PlaceDraggedCategory(sourceID, targetID, intent, side)
       if not sourceID or not targetID or not intent then return end
 
       if targetID == "general" then
-        RemoveGroupFromRows(sourceID)
+        RemoveCategoryFromRows(sourceID)
         table.insert(db.rows, { sourceID })
         NormalizeRows()
         Relayout()
         return
       end
 
-      if sourceID == targetID or not GroupExists(targetID) then return end
+      if sourceID == targetID or not CategoryExists(targetID) then return end
 
       local sourceRowBefore = FindRowIndex(sourceID)
       local targetRowBefore = FindRowIndex(targetID)
@@ -1389,7 +1400,7 @@ local function Initialize()
         end
       end
 
-      RemoveGroupFromRows(sourceID)
+      RemoveCategoryFromRows(sourceID)
 
       local targetRow = FindRowIndex(targetID)
       if not targetRow then
@@ -1418,11 +1429,11 @@ local function Initialize()
       Relayout()
     end
 
-    local function BeginGroupDrag(id, view)
+    local function BeginCategoryDrag(id, view)
       if selectedItemID and CursorStillHasItem() then return end
       if not id or not view then return end
 
-      draggingGroupID = id
+      draggingCategoryID = id
       draggingView = view
       dragTargetID = nil
       dragTargetSection = nil
@@ -1435,24 +1446,24 @@ local function Initialize()
       if not dragWatcher then
         dragWatcher = CreateFrame("Frame")
         dragWatcher:SetScript("OnUpdate", function()
-          if draggingGroupID then UpdateDragVisual() end
+          if draggingCategoryID then UpdateDragVisual() end
         end)
         dragWatcher:Hide()
       end
       dragWatcher:Show()
     end
 
-    local function EndGroupDrag()
-      if not draggingGroupID then return end
+    local function EndCategoryDrag()
+      if not draggingCategoryID then return end
 
       UpdateDragVisual()
 
-      local source = draggingGroupID
+      local source = draggingCategoryID
       local target = dragTargetID
       local intent = dragIntent
       local side = dragSide
 
-      draggingGroupID = nil
+      draggingCategoryID = nil
       draggingView = nil
       dragTargetID = nil
       dragTargetSection = nil
@@ -1462,10 +1473,10 @@ local function Initialize()
       HideDragVisuals()
       if dragWatcher then dragWatcher:Hide() end
 
-      if target and intent then PlaceDraggedGroup(source, target, intent, side) end
+      if target and intent then PlaceDraggedCategory(source, target, intent, side) end
     end
 
-    local function Header(view, key, name, groupID)
+    local function Header(view, key, name, categoryID)
       local viewHeaders = headers[view]
       local h = viewHeaders[key]
       local parent = ViewFrame(view)
@@ -1493,45 +1504,45 @@ local function Initialize()
         h.line:SetPoint("BOTTOMRIGHT", h)
 
         h:SetScript("OnDragStart", function()
-          if h.groupID then BeginGroupDrag(h.groupID, h.bagtweaks_view) end
+          if h.categoryID then BeginCategoryDrag(h.categoryID, h.bagtweaks_view) end
         end)
 
         h:SetScript("OnDragStop", function()
-          EndGroupDrag()
+          EndCategoryDrag()
         end)
 
         h:SetScript("OnMouseUp", function()
           if arg1 ~= "LeftButton" and arg1 ~= "RightButton" then return end
-          if AssignSelected(h.groupID) then return end
+          if AssignSelected(h.categoryID) then return end
           if GetTime and lastDragStop > 0 and (GetTime() - lastDragStop) < .15 then return end
 
           if arg1 == "RightButton" and menu and menu:IsShown() and menu.anchor == h then
             HideMenus()
             return
           end
-          ShowGroupMenu(h, h.groupID)
+          ShowCategoryMenu(h, h.categoryID)
         end)
 
         h:SetScript("OnReceiveDrag", function()
-          if not draggingGroupID then AssignSelected(h.groupID) end
+          if not draggingCategoryID then AssignSelected(h.categoryID) end
         end)
 
         h:SetScript("OnEnter", function()
-          if draggingGroupID then return end
+          if draggingCategoryID then return end
 
-          local section = sections[h.bagtweaks_view][SectionKeyForGroupID(h.groupID)]
+          local section = sections[h.bagtweaks_view][SectionKeyForCategoryID(h.categoryID)]
           if selectedItemID and CursorStillHasItem() then
             ShowItemHighlight(section)
             return
           end
 
-          if h.groupID then
-            local g = FindGroup(h.groupID)
-            local mode = g and SORT_LABEL[g.sort or "bag"] or ""
-            if g and g.system == "quest" then
+          if h.categoryID then
+            local category = FindCategory(h.categoryID)
+            local mode = category and SORT_LABEL[category.sort or "bag"] or ""
+            if category and category.system == "quest" then
               Tooltip(L.QUEST, string.format(L.QUEST_TOOLTIP, mode))
             else
-              local scope = g and g.scope == "char" and L.PER_CHARACTER or L.ACCOUNT_WIDE
+              local scope = category and category.scope == "char" and L.PER_CHARACTER or L.ACCOUNT_WIDE
               Tooltip(h.text:GetText(), string.format(L.CATEGORY_TOOLTIP, scope, mode))
             end
           else
@@ -1548,13 +1559,13 @@ local function Initialize()
       end
 
       h.bagtweaks_view = view
-      h.groupID = groupID
+      h.categoryID = categoryID
       h.text:SetText(name)
       h:Show()
       return h
     end
 
-    local function Section(view, key, groupID)
+    local function Section(view, key, categoryID)
       local viewSections = sections[view]
       local s = viewSections[key]
       local parent = ViewFrame(view)
@@ -1572,18 +1583,18 @@ local function Initialize()
         s.itemHighlight:Hide()
 
         s:SetScript("OnReceiveDrag", function()
-          if not draggingGroupID then AssignSelected(s.groupID) end
+          if not draggingCategoryID then AssignSelected(s.categoryID) end
         end)
 
         s:SetScript("OnMouseUp", function()
-          if arg1 == "LeftButton" and not draggingGroupID then AssignSelected(s.groupID) end
+          if arg1 == "LeftButton" and not draggingCategoryID then AssignSelected(s.categoryID) end
         end)
 
         s:SetScript("OnEnter", function()
-          if draggingGroupID then return end
+          if draggingCategoryID then return end
           if selectedItemID and CursorStillHasItem() then
             ShowItemHighlight(s)
-            if s.groupID then
+            if s.categoryID then
               Tooltip(L.ADD_TO_CATEGORY, L.ADD_TO_CATEGORY_TOOLTIP)
             else
               Tooltip(L.MOVE_TO_GENERAL, L.MOVE_TO_GENERAL_TOOLTIP)
@@ -1600,12 +1611,12 @@ local function Initialize()
       end
 
       s.bagtweaks_view = view
-      s.groupID = groupID
+      s.categoryID = categoryID
       s:Show()
       return s
     end
 
-    local function ActiveQuestGroupID()
+    local function ActiveQuestCategoryID()
       if not db.questEnabled or not questSystem then return nil end
       return questSystem.id
     end
@@ -1619,23 +1630,23 @@ local function Initialize()
       value=nil,
     }
 
-    local function GroupDisplayName(g)
-      if not g then return L.CATEGORY end
-      if g.system == "quest" then return L.QUEST end
-      return g.name or L.CATEGORY
+    local function CategoryDisplayName(category)
+      if not category then return L.CATEGORY end
+      if category.system == "quest" then return L.QUEST end
+      return category.name or L.CATEGORY
     end
 
     local function Collect(view)
       local general = {}
-      local grouped = {}
-      local questGroupID = ActiveQuestGroupID()
-      local ca = CharAssignments(false)
+      local categorized = {}
+      local questCategoryID = ActiveQuestCategoryID()
+      local characterMap = CharacterCategories(false)
       local ordinal = 0
       local bags = ViewBags(view) or {}
 
-      for i = 1, table.getn(db.groups) do
-        local g = db.groups[i]
-        if IsGroupActive(g) then grouped[g.id] = {} end
+      for i = 1, table.getn(db.categories) do
+        local category = db.categories[i]
+        if IsCategoryActive(category) then categorized[category.id] = {} end
       end
 
       for i = 1, table.getn(bags) do
@@ -1667,28 +1678,28 @@ local function Initialize()
               ordinal=ordinal,
             }
 
-            local groupID = nil
+            local categoryID = nil
 
             if id then
               local itemKey = tostring(id)
-              local manual = ca and ca[itemKey]
-              if manual == nil then manual = db.accountAssignments[itemKey] end
+              local manualCategoryID = characterMap and characterMap[itemKey]
+              if manualCategoryID == nil then manualCategoryID = db.accountCategories[itemKey] end
 
-              if manual ~= nil then
-                if manual ~= GENERAL_OVERRIDE and grouped[manual] then groupID = manual end
-              elseif questGroupID and grouped[questGroupID] and
+              if manualCategoryID ~= nil then
+                if manualCategoryID ~= GENERAL_OVERRIDE and categorized[manualCategoryID] then categoryID = manualCategoryID end
+              elseif questCategoryID and categorized[questCategoryID] and
                      (IsQuestMetadata(meta) or IsQuestObjectiveItem(id, meta)) then
-                groupID = questGroupID
+                categoryID = questCategoryID
               end
             end
 
-            if groupID then table.insert(grouped[groupID], entry)
+            if categoryID then table.insert(categorized[categoryID], entry)
             else table.insert(general, entry) end
           end
         end
       end
 
-      return general, grouped
+      return general, categorized
     end
 
     local function HookItemSelection(view)
@@ -1729,15 +1740,15 @@ local function Initialize()
       return math.floor((n - 1) / columns) + 1
     end
 
-    local function LayoutSection(view, key, name, groupID, list, columns, size, border)
+    local function LayoutSection(view, key, name, categoryID, list, columns, size, border)
       if columns < 1 then columns = 1 end
 
       local spacing = border * 3
       local pitch = size + spacing
       local rows = RowsFor(list, columns)
       local wantedHeight = HEADER_HEIGHT + border + rows * pitch + border
-      local s = Section(view, key, groupID)
-      local h = Header(view, key, name, groupID)
+      local s = Section(view, key, categoryID)
+      local h = Header(view, key, name, categoryID)
       local parent = ViewFrame(view)
       if not s or not h or not parent then return nil, 0 end
       local baseLevel = parent:GetFrameLevel() or 0
@@ -1832,7 +1843,7 @@ local function Initialize()
         and panel:GetHeight() + border
         or 16 + border
 
-      local general, grouped = Collect(view)
+      local general, categorized = Collect(view)
       local active = {}
       local totalHeight = 0
       local viewRows = rowFrames[view]
@@ -1856,7 +1867,7 @@ local function Initialize()
       generalSection.bagtweaks_rowFrame = generalSection
 
       local below = generalSection
-      local activeRows = ActiveRows(grouped)
+      local activeRows = ActiveRows(categorized)
       local visibleRowCount = table.getn(activeRows)
       local rowFrameIndex = 0
 
@@ -1867,11 +1878,11 @@ local function Initialize()
         local rf = RowFrame(view, rowFrameIndex)
         local leftID = row[1]
         local rightID = row[2]
-        local leftGroup = FindGroup(leftID)
-        local rightGroup = rightID and FindGroup(rightID) or nil
+        local leftGroup = FindCategory(leftID)
+        local rightGroup = rightID and FindCategory(rightID) or nil
 
-        local leftList = grouped[leftID] or {}
-        local rightList = rightID and (grouped[rightID] or {}) or nil
+        local leftList = categorized[leftID] or {}
+        local rightList = rightID and (categorized[rightID] or {}) or nil
 
         SortEntries(leftList, leftGroup and leftGroup.sort or "bag", leftGroup and leftGroup.reverse or false)
         if rightGroup then SortEntries(rightList, rightGroup.sort or "bag", rightGroup.reverse) end
@@ -1879,7 +1890,7 @@ local function Initialize()
         local leftSection, leftHeight = LayoutSection(
           view,
           leftID,
-          GroupDisplayName(leftGroup),
+          CategoryDisplayName(leftGroup),
           leftID,
           leftList,
           rightID and halfColumns or fullColumns,
@@ -1892,7 +1903,7 @@ local function Initialize()
           rightSection, rightHeight = LayoutSection(
             view,
             rightID,
-            GroupDisplayName(rightGroup),
+            CategoryDisplayName(rightGroup),
             rightID,
             rightList,
             halfColumns,
@@ -1942,7 +1953,7 @@ local function Initialize()
       end
 
       frame:SetHeight(bottomSpace + totalHeight + topSpace + border * 2)
-      if draggingGroupID and draggingView == view then UpdateDragVisual() end
+      if draggingCategoryID and draggingView == view then UpdateDragVisual() end
     end
 
     Relayout = function()
@@ -1971,7 +1982,7 @@ local function Initialize()
     end
 
     pfUI.bagtweaks.Relayout = Relayout
-    pfUI.bagtweaks.ShowGroupEditor = ShowNameDialog
+    pfUI.bagtweaks.ShowCategoryEditor = ShowNameDialog
     pfUI.bagtweaks.HideMenus = HideMenus
     pfUI.bagtweaks.ToggleQuestCategory = function()
       db.questEnabled = not db.questEnabled
@@ -2013,7 +2024,7 @@ local function Initialize()
         if oldOnHide then oldOnHide() end
         HideMenus()
         HideItemHighlight()
-        if draggingView == "bank" and frame == pfUI.bag.left then EndGroupDrag() end
+        if draggingView == "bank" and frame == pfUI.bag.left then EndCategoryDrag() end
       end)
       frame.bagtweaks_menu_hide_hooked = true
     end
@@ -2155,11 +2166,11 @@ local function ToolbarCreateBackdrop(frame, border)
   frame.bagtweaks_toolbar_backdrop = true
 end
 
-local function ToolbarSetBorderColor(frame, r, g, b, a)
+local function ToolbarSetBorderColor(frame, r, category, b, a)
   if frame.backdrop and frame.backdrop.SetBackdropBorderColor then
-    frame.backdrop:SetBackdropBorderColor(r, g, b, a or 1)
+    frame.backdrop:SetBackdropBorderColor(r, category, b, a or 1)
   elseif frame.SetBackdropBorderColor then
-    frame:SetBackdropBorderColor(r, g, b, a or 1)
+    frame:SetBackdropBorderColor(r, category, b, a or 1)
   end
 end
 
@@ -2285,8 +2296,8 @@ end
 
 local function ToolbarAddCategory()
   ToolbarHideMenu()
-  if pfUI.bagtweaks and pfUI.bagtweaks.ShowGroupEditor then
-    pfUI.bagtweaks.ShowGroupEditor(nil)
+  if pfUI.bagtweaks and pfUI.bagtweaks.ShowCategoryEditor then
+    pfUI.bagtweaks.ShowCategoryEditor(nil)
   end
 end
 
