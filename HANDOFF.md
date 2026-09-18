@@ -4,7 +4,7 @@
 
 - Repository: `Seraphic8x2244/pfUI_BagTweaks`.
 - Work from the `dev` branch. Fetch current files before editing; the user may have changed the repo externally.
-- Current development version: `0.1.29-dev`.
+- Current development version: `0.1.30-dev`.
 - Work directly on `dev`; do not open a PR unless asked.
 - `main` is the stable user branch. Do not develop directly on `main`.
 - Keep this handoff updated when behaviour, invariants, test status, or TODOs change.
@@ -14,15 +14,16 @@
 ## Current Status
 
 - Branch: `dev`.
-- Version: `0.1.29-dev`.
-- Latest functional commit: `458e4d3` — draw Subcategory accent on top and left.
-- Previous functional commit: `638f2ea` — refine Subcategory spacing/dividers and DE safety.
-- Latest version commit: `d4bb1f7` — bump dev version to 0.1.29-dev.
+- Version: `0.1.30-dev`.
+- Latest functional commit: `b5cd41d` — inset Subcategory item grids and add a reliable backpack-hidden persistent-mode disarm fallback.
+- Previous functional commit: `458e4d3` — draw Subcategory accent on top and left.
+- Latest version commits: `25d1b80` / `6b6329c` — bump Lua/TOC to 0.1.30-dev.
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
-- Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. Screenshot review shows the item grid starts too far left and overlaps the accent's vertical stroke. Backpack-close disarm does not fire on the tested pfUI path.
-- Untested this pass: corrected item-grid inset/accent width; bank-close disarm; world/instance-transition disarm.
+- Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
+- Completed in 0.1.30-dev: Subcategory item grids are inset right by one pfUI spacing unit while the accent/header origin stays fixed; Subcategory footprint/top line grows by the same inset; packing calculations include that extra width. Persistent DE/Pick now also disarms when the existing toolbar watcher observes the backpack frame hidden, so it no longer depends solely on the replaceable OnHide wrapper.
+- Untested this pass: corrected item-grid inset/accent width and any resulting packing changes; backpack-close disarm fallback; bank-close disarm; world/instance-transition disarm.
 - Deferred: packing optimisation unless future inventories show a real problem, Pick Lock workflow test, active-quest ordinary-item detection, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
-- Exact next step: inset Subcategory item grids to the right while keeping the header/accent origin fixed and extending the top accent/footprint accordingly; repair backpack-close persistent-mode disarm using the actual pfUI close path, then update this handoff and provide a new dev build for retest.
+- Exact next step: reload/test 0.1.30-dev. Visually confirm the first item column now clears the left grey accent and the top line still reaches the item block's right edge; then activate DE, close the backpack, and confirm the mode disarms. If those pass, test bank close and a world/instance transition.
 
 ## Goals
 
