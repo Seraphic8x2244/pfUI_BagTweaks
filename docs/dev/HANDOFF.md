@@ -73,10 +73,24 @@ The Quest display name comes from the locale table rather than SavedVariables.
 
 1. Character assignment.
 2. Account assignment.
-3. Automatic Quest category, if enabled and the item is a quest item.
+3. Automatic Quest category, if enabled and either:
+   - the item is a real quest-class item; or
+   - the item matches an active quest-log item objective.
 4. General.
 
 Manual assignments always override Quest automation.
+
+### Temporary Quest Objective Items
+
+BagTweaks scans active quest objectives at runtime when the Quest category is enabled.
+
+- Vanilla 1.12 path: `GetQuestLogLeaderBoard()` identifies objectives with type `"item"`; the localized objective label is matched against the localized bag item name.
+- Optional ClassicAPI enhancement: if `GetQuestLogLeaderBoardID()` exists, its exact objective item ID is cached as an additional match.
+- ClassicAPI is not required.
+- The cache is runtime-only and must never be stored in SavedVariables.
+- `QUEST_LOG_UPDATE` refreshes the cache; relayout only occurs when the objective item set changes.
+- Completed objectives remain classified as Quest while the quest remains in the log.
+- Vanilla hides quests underneath collapsed quest-log headers. BagTweaks preserves objective items it has already seen while headers are collapsed, but objectives hidden before the first scan cannot be discovered until that header is expanded. Do not expand/collapse the player's quest log automatically just to work around this limitation.
 
 ## Visual Sort Modes
 
@@ -171,11 +185,13 @@ Confirmed on brues-code pfUI:
 - Category drag/reorder/scope behaviour appears correct.
 - Visual sort modes and Reverse appear correct.
 - Quest category and manual precedence work.
+- Active item-objective detection is implemented; Vanilla name matching is the dependency-free path with optional exact ClassicAPI IDs.
 
 Pending:
 
 - Repeated DE workflow.
 - Rogue Pick Lock workflow.
 - Toolbar icon conversion.
+- Temporary quest-objective item behaviour on a quest that uses a normal item class.
 
 Shagu pfUI is not part of the user's test setup; compatibility there is best-effort unless another tester is available.
