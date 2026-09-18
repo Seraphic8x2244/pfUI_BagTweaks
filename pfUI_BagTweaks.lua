@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.26
+-- pfUI_BagTweaks 0.1.27-dev
 -- User-defined visual categories for pfUI unified bags.
 -- Categories can be account-wide or character-specific, with an optional default Quest category,
 -- can be arranged as one or two columns, and never move physical inventory slots.
