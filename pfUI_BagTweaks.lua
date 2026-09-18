@@ -2414,6 +2414,10 @@ local function ToolbarTryDisenchantClick(button)
   local bag, slot = ToolbarGetClickedBagSlot()
   if bag == nil or slot == nil or not GetContainerItemLink(bag, slot) then return false end
 
+  -- DE mode belongs to the carried inventory. Do not consume bank-item
+  -- right-clicks merely because the backpack's persistent DE mode is active.
+  if bag ~= -2 and (bag < 0 or bag > 4) then return false end
+
   -- Let pfUI itself arm Disenchant. This preserves each fork's spell lookup
   -- and localization behaviour; BagTweaks only supplies the clicked target.
   if not ToolbarInvokeNativeMode("disenchant") then return false end
@@ -2992,6 +2996,7 @@ end
 local function BankToolbarClose()
   bankToolbarState.searchOpen = false
   ToolbarHideMenu()
+  if pfUI.bagtweaks and pfUI.bagtweaks.HideMenus then pfUI.bagtweaks.HideMenus() end
   if bankToolbarState.search then
     bankToolbarState.search.edit:ClearFocus()
     bankToolbarState.search.edit:SetText("")
