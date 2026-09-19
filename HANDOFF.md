@@ -37,8 +37,8 @@
 - Toolbar icon direction finalized: use Lucide only. Locked choices are Search=`Search`, Sort=`ArrowUpDown`, View=`PanelsTopLeft`, Quest=`ScrollText`, Disenchant=`WandSparkles`, Pick Lock=`KeyRound`, Open=`PackageOpen`, Options=`Settings2`. User preferred Lucide over Tabler; do not mix families.
 - Completed in 0.1.34-dev: the eight locked controls now use rasterized Lucide 32x32 RGBA TGA textures; icons are centered and sized from the pfUI toolbar height (clamped to 8-14 px), retain the existing grey/yellow hover treatment, and show the existing localized control label as a tooltip. `+` and discovered third-party controls remain text. Existing active overlays and click handlers are unchanged. Lucide/Feather attribution is stored beside the textures.
 - Asset verification: all eight committed TGA files are exactly 4,140 bytes and their Git blob hashes match the locally generated source files. This verifies repository-byte integrity, not Vanilla client rendering.
-- Tested in-game: the 0.1.34-dev Lucide toolbar icons render cleanly and are visually successful. Remaining toolbar interaction checks are hover tint, tooltips, active overlays, and conditional hiding. All 0.1.33-dev Quest migration/repair changes remain untested in-game.
-- Exact next step: on the affected legacy SavedVariables run `/run DEFAULT_CHAT_FRAME:AddMessage("Released "..pfUI.bagtweaks.RepairLegacyQuestOverrides().." legacy Quest overrides")` once and verify the missing Quest items enter Quest. Then delete a temporary user Subcategory containing a Quest item and confirm it falls through to automatic Quest instead of staying in General. Also verify toolbar hover tint/tooltips/active overlays/conditional hiding during this pass. After these fixes/tests, revisit the user's requested slight toolbar button-size change and expand Lucide icon usage.
+- Tested in-game: the 0.1.34-dev Lucide toolbar icons render cleanly and are visually successful; hover tint is a clean gold border and tooltips work. The Disenchant tooltip has been expanded from `DE` to `Disenchant`. Remaining toolbar interaction checks are active overlays and conditional hiding. The explicit legacy Quest repair cannot currently be reproduced because both available affected clients are already fixed; the 0.1.33-dev migration/repair path remains code-reviewed but not reproducibly testable in-game.
+- Exact next step: verify deleting a temporary user Subcategory containing a Quest item falls through to automatic Quest instead of staying in General, and verify toolbar active overlays/conditional hiding. The legacy override repair cannot currently be reproduced on the available clients. After these checks, revisit the requested slight toolbar button-size change and expand Lucide icon usage.
 
 ## Goals
 
@@ -173,7 +173,7 @@ Previously confirmed on the pre-0.1.28 brues-code pfUI base:
 
 - Rogue Pick Lock workflow.
 - DE discoverability: targeting-style cursor / candidate-item hover feedback; keep Vanilla-style left-click targeting.
-- Finish in-game toolbar interaction verification: hover tint, tooltips, active overlays, and conditional button hiding. Basic Lucide rendering/visual quality is confirmed good.
+- Finish in-game toolbar interaction verification: active overlays and conditional button hiding. Lucide rendering, visual quality, hover tint, and tooltips are confirmed good.
 - After current Quest/assignment fixes are verified, slightly adjust toolbar button size and expand Lucide icon usage as requested.
 - Consider reducing the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
