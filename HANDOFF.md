@@ -46,7 +46,8 @@
 - Completed in 0.1.37-dev: reordered the backpack toolbar to `Sort -> Open -> Disenchant -> Pick Lock -> Search -> Empty Subcategories -> Quest -> Keys -> Bags -> New Category -> New Subcategory -> third-party extras -> Options -> Close`; bank mirrors the applicable subset as `Sort -> Search -> Empty Subcategories -> Quest -> Bags -> New Category -> New Subcategory -> Options -> Close`. Conditional visibility and existing control behaviour are unchanged.
 - Completed in 0.1.39-dev: toolbar controls now use an 18 px minimum width (or the toolbar height if larger). When the visible control set no longer fits beside Close, earlier controls wrap into balanced overflow row(s) above the primary row while the final controls remain on the primary row leading into Close. Bank overflow rows account for the visible bank bag-slot strip. Backpack and bank search fields were moved 2 px farther from the bag, and search placement now rises above any overflow toolbar rows.
 - Untested in-game in 0.1.39-dev: exact overflow-row geometry at narrow widths, interaction with the bank bag-slot strip, and the +2 px search-field spacing.
-- Exact next step: test 0.1.39-dev in-game at a width that forces wrapping and confirm the search field spacing; adjust geometry only if the live pfUI frame positions expose an overlap. Then continue the remaining toolbar interaction checks. Do not revisit Eye/EyeOff asset work unless a new regression appears.
+- In-game 0.1.39-dev result: minimum-width wrapping works functionally, but upward overflow rows interfere with pfUI bag background/border chrome.
+- Exact next step: keep the primary toolbar row in its native top position, move overflow rows downward inside the bag, push BagTweaks/pfUI bag content below the added toolbar height, and increase total frame height by exactly the overflow-row height so borders/background remain coherent. Re-test backpack and bank at wrapped and unwrapped widths.
 
 ## Goals
 
