@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.39-dev
+-- pfUI_BagTweaks 0.1.40-dev
 -- User-defined visual categories and subcategories for pfUI unified bags.
 -- Categories are full-width organisational containers; subcategories classify and sort items.
 -- Layout is visual only and never moves physical inventory slots.
@@ -2186,7 +2186,9 @@ local function Initialize()
       local size = frame.button_size
       local spacing = border * 3
       local pitch = size + spacing
-      local topSpace = frame.close:GetHeight() + border * 2
+      local toolbarExtraHeight = tonumber(frame.bagtweaks_toolbar_extra_height) or 0
+      if toolbarExtraHeight < 0 then toolbarExtraHeight = 0 end
+      local topSpace = frame.close:GetHeight() + border * 2 + toolbarExtraHeight
       local panel = nil
       if pfUI.panel then
         if view == "bank" then panel = pfUI.panel.left
@@ -2688,9 +2690,9 @@ local function ToolbarSizeIcon(button, height, border)
   icon:SetPoint("CENTER", button, "CENTER", 0, 0)
 end
 
-local function ToolbarLayoutButtonRows(frame, buttons, height, border, gap, topInset, overflowBase)
+local function ToolbarLayoutButtonRows(frame, buttons, height, border, gap, topInset)
   local count = table.getn(buttons)
-  if count == 0 then return 1 end
+  if count == 0 then return 1, 0 end
 
   local closeWidth = frame.close and frame.close:GetWidth() or height
   local primaryAvailable = frame:GetWidth() - border - border - closeWidth - gap
@@ -2719,24 +2721,19 @@ local function ToolbarLayoutButtonRows(frame, buttons, height, border, gap, topI
 
   local remaining = count
   local index = 1
-  overflowBase = overflowBase or 0
 
   for row = 1, rows do
     local rowsLeft = rows - row + 1
-    local currentCapacity = row == rows and primaryCapacity or overflowCapacity
-    local laterCapacity = 0
-
-    if rowsLeft > 1 then
-      laterCapacity = primaryCapacity + math.max(0, rowsLeft - 2) * overflowCapacity
-    end
-
+    local currentCapacity = row == 1 and primaryCapacity or overflowCapacity
+    local laterCapacity = math.max(0, rowsLeft - 1) * overflowCapacity
     local rowCount = math.ceil(remaining / rowsLeft)
     local minimumHere = remaining - laterCapacity
+
     if minimumHere < 1 then minimumHere = 1 end
     if rowCount < minimumHere then rowCount = minimumHere end
     if rowCount > currentCapacity then rowCount = currentCapacity end
 
-    local available = row == rows and primaryAvailable or overflowAvailable
+    local available = row == 1 and primaryAvailable or overflowAvailable
     local usable = available - (rowCount - 1) * gap
     local width = math.floor(usable / rowCount)
     local remainder = usable - width * rowCount
@@ -2758,10 +2755,7 @@ local function ToolbarLayoutButtonRows(frame, buttons, height, border, gap, topI
       if previous then
         button:SetPoint("TOPLEFT", previous, "TOPRIGHT", gap, 0)
       else
-        local y = -topInset
-        if row < rows then
-          y = overflowBase + (rows - row) * (height + gap) - topInset
-        end
+        local y = -topInset - (row - 1) * (height + gap)
         button:SetPoint("TOPLEFT", frame, "TOPLEFT", border, y)
       end
 
@@ -2774,9 +2768,8 @@ local function ToolbarLayoutButtonRows(frame, buttons, height, border, gap, topI
     remaining = remaining - rowCount
   end
 
-  return rows
+  return rows, (rows - 1) * (height + gap)
 end
-
 
 local function ToolbarShowTooltip(button)
   if not button or not button.bagtweaks_toolbar_tooltip or not GameTooltip then return end
@@ -2849,11 +2842,8 @@ local function ToolbarApplySearchState()
   local search = bag and bag.search
   if not search then return end
 
-  local height, border, gap, topInset = ToolbarMetrics(bag)
+  local _, border = ToolbarMetrics(bag)
   local y = TOOLBAR_SEARCH_GAP
-  if (toolbarState.rows or 1) > 1 then
-    y = y + (toolbarState.rows - 1) * (height + gap) - topInset
-  end
 
   search:Show()
   search:ClearAllPoints()
@@ -3404,13 +3394,10 @@ local function BankToolbarApplySearchState()
   local search = BankToolbarEnsureSearch()
   if not bank or not search then return end
 
-  local height, border, gap, topInset = ToolbarMetrics(bank)
+  local _, border = ToolbarMetrics(bank)
   local y = TOOLBAR_SEARCH_GAP
   if bank.bagslots and bank.bagslots:IsShown() then
     y = y + (bank.bagslots:GetHeight() or 0) + border * 2
-  end
-  if (bankToolbarState.rows or 1) > 1 then
-    y = y + (bankToolbarState.rows - 1) * (height + gap) - topInset
   end
 
   search:ClearAllPoints()
@@ -3550,14 +3537,15 @@ local function BankToolbarLayout()
   if newSubcategory then table.insert(buttons, newSubcategory) end
   if options then table.insert(buttons, options) end
 
-  local overflowBase = 0
-  if bank.bagslots and bank.bagslots:IsShown() then
-    overflowBase = (bank.bagslots:GetHeight() or 0) + border * 2
-  end
-
-  bankToolbarState.rows = ToolbarLayoutButtonRows(
-    bank, buttons, height, border, gap, topInset, overflowBase
+  local extraHeight
+  bankToolbarState.rows, extraHeight = ToolbarLayoutButtonRows(
+    bank, buttons, height, border, gap, topInset
   )
+
+  if bank.bagtweaks_toolbar_extra_height ~= extraHeight then
+    bank.bagtweaks_toolbar_extra_height = extraHeight
+    if pfUI.bagtweaks and pfUI.bagtweaks.Relayout then pfUI.bagtweaks.Relayout() end
+  end
 
   BankToolbarApplySearchState()
   ToolbarUpdateActiveVisuals()
@@ -3659,14 +3647,24 @@ local function ToolbarLayout()
   local count = table.getn(buttons)
   if count == 0 then
     toolbarState.rows = 1
+    if bag.bagtweaks_toolbar_extra_height ~= 0 then
+      bag.bagtweaks_toolbar_extra_height = 0
+      if pfUI.bagtweaks and pfUI.bagtweaks.Relayout then pfUI.bagtweaks.Relayout() end
+    end
     ToolbarApplySearchState()
     ToolbarUpdateActiveVisuals()
     return
   end
 
-  toolbarState.rows = ToolbarLayoutButtonRows(
-    bag, buttons, height, border, gap, topInset, 0
+  local extraHeight
+  toolbarState.rows, extraHeight = ToolbarLayoutButtonRows(
+    bag, buttons, height, border, gap, topInset
   )
+
+  if bag.bagtweaks_toolbar_extra_height ~= extraHeight then
+    bag.bagtweaks_toolbar_extra_height = extraHeight
+    if pfUI.bagtweaks and pfUI.bagtweaks.Relayout then pfUI.bagtweaks.Relayout() end
+  end
 
   ToolbarApplySearchState()
   ToolbarUpdateActiveVisuals()
