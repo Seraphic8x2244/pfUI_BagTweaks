@@ -44,7 +44,8 @@
 - Completed in 0.1.38-dev: discarded both prior Eye/EyeOff binaries and regenerated the pair from scratch as fresh 32x32 uncompressed RGBA TGAs using the same Vanilla-safe 4,140-byte file layout as the known-good toolbar assets. No toolbar logic/order changes in this build.
 - Tested in-game: the 0.1.38-dev regenerated Eye and EyeOff icons now render correctly inside their toolbar borders in both visibility-toggle states. The malformed-eye asset issue is closed.
 - Completed in 0.1.37-dev: reordered the backpack toolbar to `Sort -> Open -> Disenchant -> Pick Lock -> Search -> Empty Subcategories -> Quest -> Keys -> Bags -> New Category -> New Subcategory -> third-party extras -> Options -> Close`; bank mirrors the applicable subset as `Sort -> Search -> Empty Subcategories -> Quest -> Bags -> New Category -> New Subcategory -> Options -> Close`. Conditional visibility and existing control behaviour are unchanged.
-- Exact next step for the fresh chat: fetch current `dev` first, keep `0.1.38-dev` as the active build, and continue with the remaining toolbar logic/interaction checks or the user's next requested feature. Do not revisit Eye/EyeOff asset work unless a new regression appears.
+- Current requested next pass: replace unconstrained toolbar button shrinking with a real minimum button width and automatic overflow wrapping into an additional toolbar row; move backpack/bank search fields 2 px farther from the bag. Preserve button order, conditional visibility, and close-button ownership of the primary row.
+- Exact next step: implement that toolbar layout/search-spacing change on `dev`, bump the development version for the test build, then verify wrapping/search placement in-game. Do not revisit Eye/EyeOff asset work unless a new regression appears.
 
 ## Goals
 
