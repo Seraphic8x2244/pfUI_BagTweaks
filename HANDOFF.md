@@ -4,7 +4,7 @@
 
 - Repository: `Seraphic8x2244/pfUI_BagTweaks`.
 - Work from the `dev` branch. Fetch current files before editing; the user may have changed the repo externally.
-- Current development version: `0.1.35-dev`.
+- Current development version: `0.1.36-dev`.
 - Work directly on `dev`; do not open a PR unless asked.
 - `main` is the stable user branch. Do not develop directly on `main`.
 - Keep this handoff updated when behaviour, invariants, test status, or TODOs change.
@@ -14,13 +14,13 @@
 ## Current Status
 
 - Branch: `dev`.
-- Version: `0.1.35-dev`.
-- Latest functional commit: `7e8402e` — finish the 0.1.35 direct-toolbar pass by making the bank Bags toggle close any open toolbar menu consistently. Core redesign commit: `05a294d`. Latest repository head: `21e23ad` — move spare Lock/LockOpen artwork out of live toolbar assets.
+- Version: `0.1.36-dev`.
+- Latest functional commit: `6bb247f` — point Options at the cog-shaped Lucide Settings texture. Asset repair commit: `bed6c82` — repair truncated Eye/EyeOff TGAs and add the cog Settings artwork. Previous 0.1.35 toolbar functional commit: `7e8402e`; core redesign commit: `05a294d`.
 - Texture integrity commit: `caf6016` — repair the Lucide texture blobs so all eight committed 32x32 TGA assets exactly match the generated source files.
 - Icon integration commit: `849ecf8` — add the finalized Lucide toolbar textures, centered icon sizing, hover tint/tooltips, license attribution, and bump Lua/TOC to 0.1.34-dev.
 - Previous Quest functional commit: `47bf529` — narrow the explicit legacy Quest repair to account-wide plus current-character overrides and ensure name metadata is available for active-objective matching.
-- Latest TOC version commit: `dfd8f5a` — sync TOC to 0.1.35-dev.
-- Latest docs commit before this handoff: `059dbbf` — update handoff for the 0.1.35 toolbar redesign.
+- Latest TOC version commit: `5a4b061` — sync TOC to 0.1.36-dev.
+- Latest docs commit before this handoff: `eea6a8f` — record 0.1.35 artwork cleanup.
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
 - Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
 - Completed in 0.1.30-dev: Subcategory item grids were inset right by one pfUI spacing unit while the accent/header origin stayed fixed; Subcategory footprint/top line grew by the same inset; packing calculations included that extra width. Persistent DE/Pick now also disarms when the existing toolbar watcher observes the backpack frame hidden, so it no longer depends solely on the replaceable OnHide wrapper.
@@ -34,13 +34,14 @@
 - Root cause confirmed from history: the 0.1.16 system-Quest migration used old `questGroupID` only to enable the new Quest system, leaving the old designated group and its assignments as normal manual overrides. Deleting that old group then converted those assignments to `GENERAL_OVERRIDE`, permanently outranking automatic Quest detection.
 - Completed in 0.1.33-dev: future direct legacy upgrades reuse the old designated Quest Subcategory as the system Quest Subcategory; deleting a normal Subcategory now removes its saved assignments instead of manufacturing General overrides; `IsQuestMetadata()` now accepts class ID 12 OR textual Quest type; `pfUI.bagtweaks.RepairLegacyQuestOverrides()` explicitly releases account/current-character General overrides that currently qualify for Quest automation. The repair is explicit because automatic cleanup could erase intentional modern General overrides.
 - Untested in-game: all 0.1.33-dev Quest migration/repair changes.
-- Toolbar icon direction finalized: use Lucide only; do not mix icon families. Live 0.1.35 choices are New Category=`SquarePlus`, New Subcategory=`Grid2x2Plus`, Search=`Search`, Sort=`ArrowUpDown`, Bags=`Backpack`, Keys=`KeyRound`, Empty Subcategories=`Eye`/`EyeOff`, Quest=`ScrollText`, Disenchant=`WandSparkles`, Pick Lock=`LockKeyhole`, Open=`PackageOpen`, Options=`Settings2`. Spare `Lock`, `LockOpen`, and the previous `PanelsTopLeft` artwork remain available for future use.
+- Toolbar icon direction finalized: use Lucide only; do not mix icon families. Live 0.1.35 choices are New Category=`SquarePlus`, New Subcategory=`Grid2x2Plus`, Search=`Search`, Sort=`ArrowUpDown`, Bags=`Backpack`, Keys=`KeyRound`, Empty Subcategories=`Eye`/`EyeOff`, Quest=`ScrollText`, Disenchant=`WandSparkles`, Pick Lock=`LockKeyhole`, Open=`PackageOpen`, Options=`Settings` (cog; the current Lucide `settings-2` glyph is slider-style). Spare `Lock`, `LockOpen`, and the previous `PanelsTopLeft` artwork remain available for future use.
 - Completed in 0.1.34-dev: the eight locked controls now use rasterized Lucide 32x32 RGBA TGA textures; icons are centered and sized from the pfUI toolbar height (clamped to 8-14 px), retain the existing grey/yellow hover treatment, and show the existing localized control label as a tooltip. `+` and discovered third-party controls remain text. Existing active overlays and click handlers are unchanged. Lucide/Feather attribution is stored beside the textures.
 - Asset verification: all eight committed TGA files are exactly 4,140 bytes and their Git blob hashes match the locally generated source files. This verifies repository-byte integrity, not Vanilla client rendering.
 - Tested in-game: the 0.1.34-dev Lucide toolbar icons render cleanly and are visually successful; hover tint is a clean gold border and tooltips work. The Disenchant tooltip has been expanded from `DE` to `Disenchant`. Remaining toolbar interaction checks are active overlays and conditional hiding. The explicit legacy Quest repair cannot currently be reproduced because both available affected clients are already fixed; the 0.1.33-dev migration/repair path remains code-reviewed but not reproducibly testable in-game.
 - Completed in 0.1.35-dev: removed the View dropdown; exposed direct Bags, Keys, and Empty Subcategories controls; split the old `+` menu into direct New Category and New Subcategory buttons; moved KeyRound to Keys and LockKeyhole to Pick Lock; added Eye/EyeOff state artwork; retained current toolbar/button sizing; kept Sort/DE/Pick conditional visibility; placed discovered third-party controls before Options; preserved Options immediately before Close. New Subcategory opens directly when only one Category exists and retains the Category-choice menu when multiple Categories exist. New Lucide assets plus spare Lock/LockOpen were committed in `2414b85`; spare `Lock` and `LockOpen` were moved to `textures/artwork/` in `21e23ad` so only live toolbar assets remain under `textures/toolbar/`.
 - Untested in-game: the complete 0.1.35-dev toolbar redesign. The legacy Quest override repair cannot currently be reproduced on the available clients.
-- Exact next step: install 0.1.35-dev and verify the backpack and bank toolbar order; direct New Category/New Subcategory flows; Bags/Keys state overlays; Eye/EyeOff switching and shared Empty Subcategories state; Quest/DE/Pick overlays; Sort/DE/Pick conditional hiding; LockKeyhole rendering; third-party extras staying before Options; and the maximum-control-width case. Then report any preferred reorder changes.
+- Completed in 0.1.36-dev: fixed malformed Eye/EyeOff texture files. Both were declared as uncompressed 32x32 RGBA TGAs but were physically truncated (Eye missing 120 bytes; EyeOff missing 156 bytes), causing Vanilla texture wrapping/bleed over the button border. Both are now complete 4,140-byte TGAs. Options now uses the cog-shaped Lucide `Settings` artwork; the previous slider-style `settings-2` asset was moved to `textures/artwork/`.
+- Exact next step: install 0.1.36-dev and first verify Eye/EyeOff no longer wrap/bleed over their button border and Options now shows the intended cog. Then continue the 0.1.35 toolbar checks (direct controls, state overlays, conditional visibility, maximum-width case) and proceed to the planned reorder/logic pass.
 
 ## Goals
 
@@ -177,7 +178,7 @@ Previously confirmed on the pre-0.1.28 brues-code pfUI base:
 
 - Rogue Pick Lock workflow.
 - DE discoverability: targeting-style cursor / candidate-item hover feedback; keep Vanilla-style left-click targeting.
-- In-game test the complete 0.1.35-dev direct-toolbar redesign, especially state overlays, Eye/EyeOff switching, conditional buttons, parent selection for New Subcategory, and worst-case toolbar width. The prior 0.1.34 Lucide rendering, visual quality, hover tint, and tooltips are confirmed good.
+- In-game test 0.1.36-dev Eye/EyeOff texture repair and cog Options artwork, then finish the direct-toolbar redesign checks: state overlays, conditional buttons, parent selection for New Subcategory, and worst-case toolbar width. The prior 0.1.34 Lucide rendering, visual quality, hover tint, and tooltips are confirmed good.
 - Consider reducing the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Branches
