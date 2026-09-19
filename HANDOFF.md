@@ -17,7 +17,7 @@
 - Version: `0.1.31-dev`.
 - Latest functional commit: `2501d1d` — fine-tune Subcategory item inset from `border * 3` to `border` and bump Lua to 0.1.31-dev.
 - Previous functional commit: `b5cd41d` — inset Subcategory item grids and add a reliable backpack-hidden persistent-mode disarm fallback.
-- Latest TOC version commit: pending sync to 0.1.31-dev.
+- Latest TOC version commit: `f9582ac` — sync TOC to 0.1.31-dev.
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
 - Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
 - Completed in 0.1.30-dev: Subcategory item grids were inset right by one pfUI spacing unit while the accent/header origin stayed fixed; Subcategory footprint/top line grew by the same inset; packing calculations included that extra width. Persistent DE/Pick now also disarms when the existing toolbar watcher observes the backpack frame hidden, so it no longer depends solely on the replaceable OnHide wrapper.
