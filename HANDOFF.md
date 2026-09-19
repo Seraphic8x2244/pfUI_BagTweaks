@@ -32,7 +32,7 @@
 - Root cause confirmed from history: the 0.1.16 system-Quest migration used old `questGroupID` only to enable the new Quest system, leaving the old designated group and its assignments as normal manual overrides. Deleting that old group then converted those assignments to `GENERAL_OVERRIDE`, permanently outranking automatic Quest detection.
 - Completed in 0.1.33-dev: future direct legacy upgrades reuse the old designated Quest Subcategory as the system Quest Subcategory; deleting a normal Subcategory now removes its saved assignments instead of manufacturing General overrides; `IsQuestMetadata()` now accepts class ID 12 OR textual Quest type; `pfUI.bagtweaks.RepairLegacyQuestOverrides()` explicitly releases account/current-character General overrides that currently qualify for Quest automation. The repair is explicit because automatic cleanup could erase intentional modern General overrides.
 - Untested in-game: all 0.1.33-dev Quest migration/repair changes.
-- Exact next step: on the affected legacy SavedVariables, load 0.1.33-dev with Quest enabled and run the explicit repair helper once; verify the previously missing Quest items enter Quest. Then test deleting a temporary user Subcategory containing a Quest item and confirm the item falls through to automatic Quest instead of staying in General.
+- Exact next step: on the affected legacy SavedVariables, load 0.1.33-dev with Quest enabled and run `/run DEFAULT_CHAT_FRAME:AddMessage("Released "..pfUI.bagtweaks.RepairLegacyQuestOverrides().." legacy Quest overrides")` once; verify the previously missing Quest items enter Quest. Then test deleting a temporary user Subcategory containing a Quest item and confirm the item falls through to automatic Quest instead of staying in General.
 
 ## Goals
 
