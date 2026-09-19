@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.32-dev
+-- pfUI_BagTweaks 0.1.33-dev
 -- User-defined visual categories and subcategories for pfUI unified bags.
 -- Categories are full-width organisational containers; subcategories classify and sort items.
 -- Layout is visual only and never moves physical inventory slots.
@@ -151,7 +151,8 @@ local function Initialize()
 
     if db.showEmptyCategories == nil then db.showEmptyCategories = true end
 
-    local legacyQuestEnabled = db.questCategoryID ~= nil or db.questGroupID ~= nil
+    local legacyQuestSubcategoryID = tonumber(db.questCategoryID or db.questGroupID)
+    local legacyQuestEnabled = legacyQuestSubcategoryID ~= nil
 
     local function CharacterKey()
       local realm = GetRealmName and GetRealmName() or ""
@@ -234,6 +235,7 @@ local function Initialize()
     end
 
     local questSystem = nil
+    local legacyQuestSystem = nil
     for i = 1, table.getn(db.subcategories) do
       local subcategory = db.subcategories[i]
 
@@ -261,11 +263,23 @@ local function Initialize()
 
       if subcategory.scope == "char" and not subcategory.owner then subcategory.owner = characterKey end
 
-      if subcategory.quest then legacyQuestEnabled = true end
+      if subcategory.quest then
+        legacyQuestEnabled = true
+        if not legacyQuestSystem then legacyQuestSystem = subcategory end
+      end
+      if legacyQuestSubcategoryID and subcategory.id == legacyQuestSubcategoryID then
+        legacyQuestEnabled = true
+        legacyQuestSystem = subcategory
+      end
       subcategory.quest = nil
 
       if subcategory.system == "quest" and not questSystem then questSystem = subcategory end
     end
+
+    -- Very old builds designated an ordinary user subcategory as the automatic
+    -- Quest destination. Reuse that exact subcategory as the system Quest entry
+    -- so its saved assignments do not become higher-priority manual overrides.
+    if not questSystem and legacyQuestSystem then questSystem = legacyQuestSystem end
 
     db.questCategoryID = nil
     db.questGroupID = nil
@@ -640,7 +654,7 @@ local function Initialize()
 
     local function IsQuestMetadata(meta)
       if not meta then return false end
-      if meta.classID ~= nil then return meta.classID == QUEST_CLASS_ID end
+      if meta.classID == QUEST_CLASS_ID then return true end
       if G.ITEM_CLASS_QUESTITEM and meta.itemType == G.ITEM_CLASS_QUESTITEM then return true end
       if G.ITEM_CLASS_QUEST and meta.itemType == G.ITEM_CLASS_QUEST then return true end
       return meta.itemType == L.ITEM_CLASS_QUEST
@@ -1081,14 +1095,14 @@ local function Initialize()
 
       for itemID, assignedSubcategoryID in pairs(db.accountSubcategories) do
         if assignedSubcategoryID == subcategoryID then
-          db.accountSubcategories[itemID] = GENERAL_OVERRIDE
+          db.accountSubcategories[itemID] = nil
         end
       end
 
       for _, subcategoryMap in pairs(db.characterSubcategories) do
         for itemID, assignedSubcategoryID in pairs(subcategoryMap) do
           if assignedSubcategoryID == subcategoryID then
-            subcategoryMap[itemID] = GENERAL_OVERRIDE
+            subcategoryMap[itemID] = nil
           end
         end
       end
@@ -2327,6 +2341,52 @@ local function Initialize()
     end
     pfUI.bagtweaks.QuestEnabled = function()
       return db.questEnabled and true or false
+    end
+    pfUI.bagtweaks.RepairLegacyQuestOverrides = function()
+      RefreshQuestObjectiveItems()
+
+      local released = 0
+
+      local function Release(map)
+        if not map then return end
+
+        for itemKey, assignedSubcategoryID in pairs(map) do
+          if assignedSubcategoryID == GENERAL_OVERRIDE then
+            local id = tonumber(itemKey)
+            local itemType, equipLoc, classID = InstantInfo(id)
+            local name = ""
+
+            if id and (itemType == nil or classID == nil) then
+              local fullName, fullType, fullEquipLoc, fullClassID = FullInfo(id, nil)
+              name = string.lower(fullName or "")
+              itemType = itemType or fullType
+              equipLoc = equipLoc or fullEquipLoc or ""
+              classID = classID or fullClassID
+            end
+
+            local meta = {
+              name=name,
+              rank=SLOT_ORDER[equipLoc or ""] or 999,
+              equipLoc=equipLoc or "",
+              itemType=itemType,
+              classID=classID,
+              value=nil,
+            }
+
+            if IsQuestMetadata(meta) or IsQuestObjectiveItem(id, meta) then
+              map[itemKey] = nil
+              released = released + 1
+            end
+          end
+        end
+      end
+
+      Release(db.accountSubcategories)
+      for _, subcategoryMap in pairs(db.characterSubcategories) do Release(subcategoryMap) end
+
+      PruneCurrentCharacterSubcategories()
+      Relayout()
+      return released
     end
     pfUI.bagtweaks.ToggleEmptyCategories = function()
       db.showEmptyCategories = not db.showEmptyCategories
