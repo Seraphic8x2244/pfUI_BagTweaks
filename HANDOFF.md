@@ -41,7 +41,8 @@
 - Completed in 0.1.35-dev: removed the View dropdown; exposed direct Bags, Keys, and Empty Subcategories controls; split the old `+` menu into direct New Category and New Subcategory buttons; moved KeyRound to Keys and LockKeyhole to Pick Lock; added Eye/EyeOff state artwork; retained current toolbar/button sizing; kept Sort/DE/Pick conditional visibility; placed discovered third-party controls before Options; preserved Options immediately before Close. New Subcategory opens directly when only one Category exists and retains the Category-choice menu when multiple Categories exist. New Lucide assets plus spare Lock/LockOpen were committed in `2414b85`; spare `Lock` and `LockOpen` were moved to `textures/artwork/` in `21e23ad` so only live toolbar assets remain under `textures/toolbar/`.
 - Untested in-game: the complete 0.1.35-dev toolbar redesign. The legacy Quest override repair cannot currently be reproduced on the available clients.
 - Completed in 0.1.36-dev: fixed malformed Eye/EyeOff texture files. Both were declared as uncompressed 32x32 RGBA TGAs but were physically truncated (Eye missing 120 bytes; EyeOff missing 156 bytes), causing Vanilla texture wrapping/bleed over the button border. Both are now complete 4,140-byte TGAs. Options now uses the cog-shaped Lucide `Settings` artwork; the previous slider-style `settings-2` asset was moved to `textures/artwork/`.
-- Exact next step: install 0.1.36-dev and first verify Eye/EyeOff no longer wrap/bleed over their button border and Options now shows the intended cog. Then continue the 0.1.35 toolbar checks (direct controls, state overlays, conditional visibility, maximum-width case) and proceed to the planned reorder/logic pass.
+- Planned reorder target: backpack `Sort -> Open -> Disenchant -> Pick Lock -> Search -> Empty Subcategories -> Quest -> Keys -> Bags -> New Category -> New Subcategory -> third-party extras -> Options -> Close`; bank mirrors the applicable subset as `Sort -> Search -> Empty Subcategories -> Quest -> Bags -> New Category -> New Subcategory -> Options -> Close`.
+- Exact next step: implement that reorder as the next dev build, preserving conditional visibility and existing control behaviour; then verify the Eye/EyeOff repair, cog Options artwork, and toolbar feel in-game.
 
 ## Goals
 
@@ -140,11 +141,11 @@ Migration from schema 1:
 
 Backpack:
 
-`[New Category] [New Subcategory] [Search] [Sort?] [Bags] [Keys] [Empty] [Quest] [DE?] [Pick?] [Open] [Third-party?] [Options] [X]`
+`[Sort?] [Open] [DE?] [Pick?] [Search] [Empty] [Quest] [Keys] [Bags] [New Category] [New Subcategory] [Third-party?] [Options] [X]`
 
 Bank:
 
-`[New Category] [New Subcategory] [Search] [Sort?] [Bags] [Empty] [Quest] [Options] [X]`
+`[Sort?] [Search] [Empty] [Quest] [Bags] [New Category] [New Subcategory] [Options] [X]`
 
 - Bags, Keys, and Empty Subcategories are direct toggles; Bags/Keys use the active overlay when enabled.
 - Empty Subcategories swaps Eye/EyeOff with state and also uses the active overlay when enabled.
