@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.40-dev
+-- pfUI_BagTweaks 0.1.41-dev
 -- User-defined visual categories and subcategories for pfUI unified bags.
 -- Categories are full-width organisational containers; subcategories classify and sort items.
 -- Layout is visual only and never moves physical inventory slots.
@@ -2507,6 +2507,7 @@ local TOOLBAR_ICON_TEXTURE = {
   picklock = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\lock-keyhole",
   open = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\package-open",
   options = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\settings",
+  close = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\x",
 }
 
 local toolbarState = {
@@ -2692,25 +2693,26 @@ end
 
 local function ToolbarLayoutButtonRows(frame, buttons, height, border, gap, topInset)
   local count = table.getn(buttons)
-  if count == 0 then return 1, 0 end
+  local close = frame and frame.close
+  if not close then return 1, 0 end
 
-  local closeWidth = frame.close and frame.close:GetWidth() or height
-  local primaryAvailable = frame:GetWidth() - border - border - closeWidth - gap
-  local overflowAvailable = frame:GetWidth() - border - border
-  if primaryAvailable < 1 then primaryAvailable = 1 end
-  if overflowAvailable < 1 then overflowAvailable = 1 end
+  local available = frame:GetWidth() - border - border
+  if available < 1 then available = 1 end
 
   local minWidth = TOOLBAR_MIN_BUTTON_WIDTH
   if minWidth < height then minWidth = height end
 
-  local function Capacity(available)
-    local capacity = math.floor((available + gap) / (minWidth + gap))
+  local function Capacity(width)
+    local capacity = math.floor((width + gap) / (minWidth + gap))
     if capacity < 1 then capacity = 1 end
     return capacity
   end
 
-  local primaryCapacity = Capacity(primaryAvailable)
-  local overflowCapacity = Capacity(overflowAvailable)
+  local fullCapacity = Capacity(available)
+  local primaryCapacity = fullCapacity - 1
+  if primaryCapacity < 0 then primaryCapacity = 0 end
+  local overflowCapacity = fullCapacity
+
   local rows = 1
   local totalCapacity = primaryCapacity
 
@@ -2729,14 +2731,18 @@ local function ToolbarLayoutButtonRows(frame, buttons, height, border, gap, topI
     local rowCount = math.ceil(remaining / rowsLeft)
     local minimumHere = remaining - laterCapacity
 
-    if minimumHere < 1 then minimumHere = 1 end
+    if minimumHere < 0 then minimumHere = 0 end
     if rowCount < minimumHere then rowCount = minimumHere end
     if rowCount > currentCapacity then rowCount = currentCapacity end
+    if rowCount < 0 then rowCount = 0 end
 
-    local available = row == 1 and primaryAvailable or overflowAvailable
-    local usable = available - (rowCount - 1) * gap
-    local width = math.floor(usable / rowCount)
-    local remainder = usable - width * rowCount
+    local controlCount = rowCount
+    if row == 1 then controlCount = controlCount + 1 end
+    if controlCount < 1 then controlCount = 1 end
+
+    local usable = available - (controlCount - 1) * gap
+    local width = math.floor(usable / controlCount)
+    local remainder = usable - width * controlCount
     local previous = nil
 
     for n = 1, rowCount do
@@ -2765,6 +2771,17 @@ local function ToolbarLayoutButtonRows(frame, buttons, height, border, gap, topI
       index = index + 1
     end
 
+    if row == 1 then
+      local closeWidth = width
+      if remainder > 0 then closeWidth = closeWidth + 1 end
+      close:ClearAllPoints()
+      close:SetHeight(height)
+      close:SetWidth(closeWidth)
+      close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -border, -topInset)
+      ToolbarHideIcon(close)
+      ToolbarSizeIcon(close, height, border)
+    end
+
     remaining = remaining - rowCount
   end
 
@@ -2776,6 +2793,31 @@ local function ToolbarShowTooltip(button)
   GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
   GameTooltip:SetText(button.bagtweaks_toolbar_tooltip)
   GameTooltip:Show()
+end
+
+local function ToolbarPrepareClose(frame)
+  local close = frame and frame.close
+  if not close then return nil end
+
+  if not close.bagtweaks_toolbar_close then
+    close.bagtweaks_toolbar_close = true
+    close.bagtweaks_toolbar_control = true
+
+    close:SetScript("OnEnter", function()
+      ToolbarSetHover(this, true)
+      ToolbarShowTooltip(this)
+    end)
+
+    close:SetScript("OnLeave", function()
+      ToolbarSetHover(this, false)
+      if GameTooltip then GameTooltip:Hide() end
+    end)
+  end
+
+  ToolbarEnsureButtonVisual(close, "close", L.TOOLBAR_CLOSE)
+  ToolbarSetHover(close, false)
+  close:Show()
+  return close
 end
 
 local function ToolbarEnsureActiveOverlay(button)
@@ -3508,6 +3550,7 @@ local function BankToolbarLayout()
 
   local height, border, gap, topInset = ToolbarMetrics(bank)
   BankToolbarSuppressNative(bank)
+  ToolbarPrepareClose(bank)
 
   local newCategory = BankToolbarMakeButton("newcategory", L.NEW_CATEGORY, ToolbarNewCategory)
   local newSubcategory = BankToolbarMakeButton("newsubcategory", L.NEW_SUBCATEGORY, ToolbarNewSubcategory)
@@ -3582,6 +3625,7 @@ local function ToolbarLayout()
 
   local height, border, gap, topInset = ToolbarMetrics(bag)
   ToolbarSuppressNative(bag)
+  ToolbarPrepareClose(bag)
 
   local newCategory = ToolbarMakeButton("newcategory", L.NEW_CATEGORY, ToolbarNewCategory)
   local newSubcategory = ToolbarMakeButton("newsubcategory", L.NEW_SUBCATEGORY, ToolbarNewSubcategory)
