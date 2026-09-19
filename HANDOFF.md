@@ -4,7 +4,7 @@
 
 - Repository: `Seraphic8x2244/pfUI_BagTweaks`.
 - Work from the `dev` branch. Fetch current files before editing; the user may have changed the repo externally.
-- Current development version: `0.1.39-dev`.
+- Current development version: `0.1.40-dev`.
 - Work directly on `dev`; do not open a PR unless asked.
 - `main` is the stable user branch. Do not develop directly on `main`.
 - Keep this handoff updated when behaviour, invariants, test status, or TODOs change.
@@ -14,12 +14,12 @@
 ## Current Status
 
 - Branch: `dev`.
-- Version: `0.1.39-dev`.
-- Latest functional commits: `5e1347b` — add minimum-width toolbar wrapping and raise search spacing; `9e14a4f` — move the row-layout helper after its local icon dependencies for Vanilla-safe Lua lexical resolution. Latest asset rebuild commit: `74958e1` — regenerate Eye/EyeOff toolbar textures from scratch as fresh 32x32 uncompressed RGBA TGAs. Previous attempted eye repair commit: `bed6c82`; Options cog wiring commit: `6bb247f`; core redesign commit: `05a294d`.
+- Version: `0.1.40-dev`.
+- Latest functional commits: `b937712` — move toolbar overflow rows downward inside the bag and reserve their exact height in BagTweaks relayout; `5e1347b` — add minimum-width toolbar wrapping and raise search spacing; `9e14a4f` — move the row-layout helper after its local icon dependencies for Vanilla-safe Lua lexical resolution. Latest asset rebuild commit: `74958e1` — regenerate Eye/EyeOff toolbar textures from scratch as fresh 32x32 uncompressed RGBA TGAs. Previous attempted eye repair commit: `bed6c82`; Options cog wiring commit: `6bb247f`; core redesign commit: `05a294d`.
 - Texture integrity commit: `caf6016` — repair the Lucide texture blobs so all eight committed 32x32 TGA assets exactly match the generated source files.
 - Icon integration commit: `849ecf8` — add the finalized Lucide toolbar textures, centered icon sizing, hover tint/tooltips, license attribution, and bump Lua/TOC to 0.1.34-dev.
 - Previous Quest functional commit: `47bf529` — narrow the explicit legacy Quest repair to account-wide plus current-character overrides and ensure name metadata is available for active-objective matching.
-- Latest TOC version commit: `1403aa5` — sync TOC to 0.1.39-dev.
+- Latest TOC version commit: `fcab265` — sync TOC to 0.1.40-dev.
 - Latest handoff/docs baseline before this update: `ba4f0ebd` — document the 0.1.38 Eye/EyeOff asset rebuild.
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
 - Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
@@ -47,7 +47,10 @@
 - Completed in 0.1.39-dev: toolbar controls now use an 18 px minimum width (or the toolbar height if larger). When the visible control set no longer fits beside Close, earlier controls wrap into balanced overflow row(s) above the primary row while the final controls remain on the primary row leading into Close. Bank overflow rows account for the visible bank bag-slot strip. Backpack and bank search fields were moved 2 px farther from the bag, and search placement now rises above any overflow toolbar rows.
 - Untested in-game in 0.1.39-dev: exact overflow-row geometry at narrow widths, interaction with the bank bag-slot strip, and the +2 px search-field spacing.
 - In-game 0.1.39-dev result: minimum-width wrapping works functionally, but upward overflow rows interfere with pfUI bag background/border chrome.
-- Exact next step: keep the primary toolbar row in its native top position, move overflow rows downward inside the bag, push BagTweaks/pfUI bag content below the added toolbar height, and increase total frame height by exactly the overflow-row height so borders/background remain coherent. Re-test backpack and bank at wrapped and unwrapped widths.
+- Completed in 0.1.40-dev: wrapping now runs top-to-bottom inside the bag. The native top toolbar row stays in place; additional rows are placed beneath it. Each extra row reserves exactly one `(toolbar height + toolbar gap)` pitch in `RelayoutView()` via `frame.bagtweaks_toolbar_extra_height`, so category/general content is displaced below the toolbar and total frame height grows by the same amount. Search remains a constant 4 px outside the expanded bag frame. The old bank-specific upward overflow offset was removed.
+- Compatibility review: pfUI itself calculates bag height from a top-space term and supports saved movable anchors; BagTweaks now extends that existing top-space model rather than adding an external overlay. Non-movable bags retain their stabilized bottom anchor; movable bags continue to follow pfUI's saved anchor semantics.
+- Untested in-game in 0.1.40-dev: wrapped backpack/bank border/background coherence, exact category clearance beneath the second row, and behaviour when switching between widths/control sets that add or remove the overflow row.
+- Exact next step: test 0.1.40-dev at one wrapped and one unwrapped width on backpack and bank. Confirm the second row is inside the bag background, content is pushed down cleanly, total height returns when wrapping disappears, and the 4 px search gap still looks right.
 
 ## Goals
 
@@ -156,8 +159,8 @@ Bank:
 - Empty Subcategories swaps Eye/EyeOff with state and also uses the active overlay when enabled.
 - Keys is backpack-only.
 - Sort is hidden if the pfUI fork has no native sorter; DE/Pick remain availability-gated.
-- Toolbar buttons have an 18 px minimum width (or toolbar height if larger); overflow wraps above the primary row rather than shrinking below that floor. The primary row retains the final controls immediately before Close.
-- Search sits 4 px above the bag/upper toolbar surface (2 px farther than 0.1.38-dev) and rises with wrapped toolbar rows.
+- Toolbar buttons have an 18 px minimum width (or toolbar height if larger); overflow wraps downward inside the bag rather than shrinking below that floor. Each extra row increases the bag's reserved top space and total frame height by exactly one toolbar-row pitch.
+- Search sits 4 px outside the bag's top edge (2 px farther than 0.1.38-dev); because wrapped rows are internal, Search does not need an extra row-specific offset.
 - Discovered third-party bag controls stay before Options; Options stays immediately before Close.
 - No BagTweaks options are currently exposed.
 
@@ -186,7 +189,7 @@ Previously confirmed on the pre-0.1.28 brues-code pfUI base:
 
 - Rogue Pick Lock workflow.
 - DE discoverability: targeting-style cursor / candidate-item hover feedback; keep Vanilla-style left-click targeting.
-- Finish direct-toolbar redesign checks: active overlays for Bags/Keys/Quest/DE/Pick, Sort/DE/Pick conditional visibility, New Subcategory parent selection when multiple Categories exist, third-party extras staying before Options, cog Options artwork, and in-game verification of the new 0.1.39 minimum-width wrapping/search geometry. Eye/EyeOff rendering is confirmed fixed in 0.1.38-dev; prior Lucide rendering, hover tint, and tooltips are also confirmed good.
+- Finish direct-toolbar redesign checks: first verify 0.1.40 downward internal wrapping/height restoration, then active overlays for Bags/Keys/Quest/DE/Pick, Sort/DE/Pick conditional visibility, New Subcategory parent selection when multiple Categories exist, third-party extras staying before Options, and cog Options artwork. Eye/EyeOff rendering is confirmed fixed in 0.1.38-dev; prior Lucide rendering, hover tint, and tooltips are also confirmed good.
 - Consider reducing the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Branches
