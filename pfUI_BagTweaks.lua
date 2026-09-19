@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.31-dev
+-- pfUI_BagTweaks 0.1.32-dev
 -- User-defined visual categories and subcategories for pfUI unified bags.
 -- Categories are full-width organisational containers; subcategories classify and sort items.
 -- Layout is visual only and never moves physical inventory slots.
@@ -1901,7 +1901,7 @@ local function Initialize()
       local count = table.getn(row.entries)
       if count == 0 then return 0 end
 
-      local itemInset = border
+      local itemInset = border * 2
       local width = 0
       for i = 1, count do
         width = width + row.entries[i].columns * pitch - border + itemInset
@@ -1979,7 +1979,7 @@ local function Initialize()
           SortEntries(list, subcategory.sort or "bag", subcategory.reverse or false)
 
           local columns = PreferredSubcategoryColumns(table.getn(list), fullColumns)
-          local itemInset = border
+          local itemInset = border * 2
           local entryWidth = columns * pitch - border + itemInset
           local currentWidth = PackedRowWidth(row, pitch, border, subcategoryGap)
           local neededWidth = currentWidth == 0 and entryWidth
@@ -2019,7 +2019,7 @@ local function Initialize()
       local spacing = border * 3
       local pitch = size + spacing
       local rows = RowsFor(list, columns)
-      local itemInset = subcategoryID and border or 0
+      local itemInset = subcategoryID and border * 2 or 0
       local wantedHeight = HEADER_HEIGHT + border + rows * pitch
       local wantedWidth = columns * pitch - border + itemInset
       local section = Section(view, key, subcategoryID)
