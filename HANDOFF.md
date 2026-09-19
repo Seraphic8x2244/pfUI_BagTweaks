@@ -32,7 +32,8 @@
 - Root cause confirmed from history: the 0.1.16 system-Quest migration used old `questGroupID` only to enable the new Quest system, leaving the old designated group and its assignments as normal manual overrides. Deleting that old group then converted those assignments to `GENERAL_OVERRIDE`, permanently outranking automatic Quest detection.
 - Completed in 0.1.33-dev: future direct legacy upgrades reuse the old designated Quest Subcategory as the system Quest Subcategory; deleting a normal Subcategory now removes its saved assignments instead of manufacturing General overrides; `IsQuestMetadata()` now accepts class ID 12 OR textual Quest type; `pfUI.bagtweaks.RepairLegacyQuestOverrides()` explicitly releases account/current-character General overrides that currently qualify for Quest automation. The repair is explicit because automatic cleanup could erase intentional modern General overrides.
 - Untested in-game: all 0.1.33-dev Quest migration/repair changes.
-- Exact next step: on the affected legacy SavedVariables, load 0.1.33-dev with Quest enabled and run `/run DEFAULT_CHAT_FRAME:AddMessage("Released "..pfUI.bagtweaks.RepairLegacyQuestOverrides().." legacy Quest overrides")` once; verify the previously missing Quest items enter Quest. Then test deleting a temporary user Subcategory containing a Quest item and confirm the item falls through to automatic Quest instead of staying in General.
+- Toolbar icon direction finalized: use Lucide only. Locked choices are Search=`Search`, Sort=`ArrowUpDown`, View=`PanelsTopLeft`, Quest=`ScrollText`, Disenchant=`WandSparkles`, Pick Lock=`KeyRound`, Open=`PackageOpen`, Options=`Settings2`. User preferred Lucide over Tabler; do not mix families.
+- Exact next step: in a fresh chat, implement the finalized Lucide toolbar textures (`Search`, `ArrowUpDown`, `PanelsTopLeft`, `ScrollText`, `WandSparkles`, `KeyRound`, `PackageOpen`, `Settings2`) with stroke/padding tuned for tiny pfUI buttons and Vanilla WoW texture constraints. Preserve one-family consistency. After icon integration, test the 0.1.33-dev legacy Quest repair on the affected SavedVariables using `/run DEFAULT_CHAT_FRAME:AddMessage("Released "..pfUI.bagtweaks.RepairLegacyQuestOverrides().." legacy Quest overrides")`, then verify deleting a temporary user Subcategory containing a Quest item falls through to automatic Quest instead of staying in General.
 
 ## Goals
 
@@ -167,7 +168,7 @@ Previously confirmed on the pre-0.1.28 brues-code pfUI base:
 
 - Rogue Pick Lock workflow.
 - DE discoverability: targeting-style cursor / candidate-item hover feedback; keep Vanilla-style left-click targeting.
-- Custom tiny toolbar artwork: Search, Sort, Options, DE, Pick, Open.
+- Implement finalized Lucide toolbar artwork: Search=`Search`, Sort=`ArrowUpDown`, View=`PanelsTopLeft`, Quest=`ScrollText`, DE=`WandSparkles`, Pick=`KeyRound`, Open=`PackageOpen`, Options=`Settings2`; tune stroke/padding for tiny pfUI buttons and Vanilla WoW textures.
 - Consider reducing the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Branches
