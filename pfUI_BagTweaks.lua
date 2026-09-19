@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.37-dev
+-- pfUI_BagTweaks 0.1.38-dev
 -- User-defined visual categories and subcategories for pfUI unified bags.
 -- Categories are full-width organisational containers; subcategories classify and sort items.
 -- Layout is visual only and never moves physical inventory slots.
