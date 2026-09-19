@@ -2503,7 +2503,7 @@ local TOOLBAR_ICON_TEXTURE = {
   disenchant = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\wand-sparkles",
   picklock = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\lock-keyhole",
   open = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\package-open",
-  options = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\settings-2",
+  options = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\settings",
 }
 
 local toolbarState = {
