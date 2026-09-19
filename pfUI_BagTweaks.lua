@@ -2799,7 +2799,8 @@ local function ToolbarPrepareClose(frame)
   local close = frame and frame.close
   if not close then return nil end
 
-  if not close.bagtweaks_toolbar_close then
+  local initialized = close.bagtweaks_toolbar_close
+  if not initialized then
     close.bagtweaks_toolbar_close = true
     close.bagtweaks_toolbar_control = true
 
@@ -2815,7 +2816,7 @@ local function ToolbarPrepareClose(frame)
   end
 
   ToolbarEnsureButtonVisual(close, "close", L.TOOLBAR_CLOSE)
-  ToolbarSetHover(close, false)
+  if not initialized then ToolbarSetHover(close, false) end
   close:Show()
   return close
 end
