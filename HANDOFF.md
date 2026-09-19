@@ -21,8 +21,9 @@
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
 - Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
 - Completed in 0.1.30-dev: Subcategory item grids are inset right by one pfUI spacing unit while the accent/header origin stays fixed; Subcategory footprint/top line grows by the same inset; packing calculations include that extra width. Persistent DE/Pick now also disarms when the existing toolbar watcher observes the backpack frame hidden, so it no longer depends solely on the replaceable OnHide wrapper.
+- Tested this pass: temporary active-quest objective detection for ordinary item-class items works in-game.
 - Untested this pass: corrected item-grid inset/accent width and any resulting packing changes; backpack-close disarm fallback; bank-close disarm; world/instance-transition disarm.
-- Deferred: packing optimisation unless future inventories show a real problem, Pick Lock workflow test, active-quest ordinary-item detection, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
+- Deferred: packing optimisation unless future inventories show a real problem, Pick Lock workflow test, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
 - Exact next step: reload/test 0.1.30-dev. Visually confirm the first item column now clears the left grey accent and the top line still reaches the item block's right edge; then activate DE, close the backpack, and confirm the mode disarms. If those pass, test bank close and a world/instance transition.
 
 ## Goals
@@ -156,7 +157,6 @@ Previously confirmed on the pre-0.1.28 brues-code pfUI base:
 ## TODO / Untested
 
 - Rogue Pick Lock workflow.
-- Temporary active-quest objective detection for ordinary item-class items; implemented but not yet encountered in-game.
 - DE discoverability: targeting-style cursor / candidate-item hover feedback; keep Vanilla-style left-click targeting.
 - Custom tiny toolbar artwork: Search, Sort, Options, DE, Pick, Open.
 - Consider reducing the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
