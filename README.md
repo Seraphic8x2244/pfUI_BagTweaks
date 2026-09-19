@@ -10,6 +10,7 @@ A lightweight pfUI plugin for Vanilla WoW 1.12.1, developed and tested against b
 - Subcategories classify items and retain account/per-character scope plus visual sorting.
 - Drag-and-drop item classification between Subcategories, and Subcategory reordering/movement between Categories.
 - Optional built-in Quest Subcategory, including active item-objective detection, with manual categorization taking priority.
+- Deleting a user Subcategory releases its saved item assignments instead of turning them into permanent General overrides, so automatic rules such as Quest can classify those items again.
 - General remains fixed at the bottom and contains all empty physical slots.
 - Layout width, item size, borders, anchoring, and physical sorting continue to respect pfUI's own bag settings.
 - Matching backpack/bank header controls for search, pfUI's physical sorting, view options, Quest, and addon options; profession shortcuts remain backpack-only.
