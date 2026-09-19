@@ -24,9 +24,10 @@
 - Completed in 0.1.31-dev: reduced that extra Subcategory item inset from `border * 3` to `border`, moving icons about 2 px left in the tested setup while preserving the accent/header origin and matching width/packing calculations.
 - Tested this pass: temporary active-quest objective detection for ordinary item-class items works in-game.
 - Tested this pass: backpack-close and bank-close persistent-mode disarm both work in-game. The 0.1.30-dev item inset is about 2 px too far right.
-- Untested this pass: revised item-grid inset/accent width and any resulting packing changes; world/instance-transition disarm.
+- Tested this pass: backpack-close, bank-close, and world/instance-transition persistent-mode disarm all work in-game. On the tested instance transition the backpack is also forcibly closed, so the hidden-bag fallback already guarantees disarm there; the explicit `PLAYER_ENTERING_WORLD` disarm remains as a cheap safety net for alternate transition/order behaviour.
+- Untested this pass: revised item-grid inset/accent width and any resulting packing changes.
 - Deferred: packing optimisation unless future inventories show a real problem, Pick Lock workflow test, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
-- Exact next step: reload/test 0.1.31-dev. Confirm the first item column now clears the left grey accent without looking over-inset and the top line still reaches the item block's right edge; then test persistent-mode disarm across a world/instance transition.
+- Exact next step: reload/test 0.1.31-dev and confirm the revised item inset visually: the first item column should clear the left grey accent without looking over-inset, and the top line should still reach the item block's right edge.
 
 ## Goals
 
