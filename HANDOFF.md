@@ -20,7 +20,7 @@
 - Icon integration commit: `849ecf8` — add the finalized Lucide toolbar textures, centered icon sizing, hover tint/tooltips, license attribution, and bump Lua/TOC to 0.1.34-dev.
 - Previous Quest functional commit: `47bf529` — narrow the explicit legacy Quest repair to account-wide plus current-character overrides and ensure name metadata is available for active-objective matching.
 - Latest TOC version commit: `849ecf8` — sync TOC to 0.1.34-dev.
-- Latest docs commit: current handoff update — record 0.1.34-dev icon integration and test status.
+- Latest docs commit: current handoff update — record successful initial in-game Lucide rendering and defer toolbar sizing/icon expansion until current Quest/assignment fixes are verified.
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
 - Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
 - Completed in 0.1.30-dev: Subcategory item grids were inset right by one pfUI spacing unit while the accent/header origin stayed fixed; Subcategory footprint/top line grew by the same inset; packing calculations included that extra width. Persistent DE/Pick now also disarms when the existing toolbar watcher observes the backpack frame hidden, so it no longer depends solely on the replaceable OnHide wrapper.
@@ -37,8 +37,8 @@
 - Toolbar icon direction finalized: use Lucide only. Locked choices are Search=`Search`, Sort=`ArrowUpDown`, View=`PanelsTopLeft`, Quest=`ScrollText`, Disenchant=`WandSparkles`, Pick Lock=`KeyRound`, Open=`PackageOpen`, Options=`Settings2`. User preferred Lucide over Tabler; do not mix families.
 - Completed in 0.1.34-dev: the eight locked controls now use rasterized Lucide 32x32 RGBA TGA textures; icons are centered and sized from the pfUI toolbar height (clamped to 8-14 px), retain the existing grey/yellow hover treatment, and show the existing localized control label as a tooltip. `+` and discovered third-party controls remain text. Existing active overlays and click handlers are unchanged. Lucide/Feather attribution is stored beside the textures.
 - Asset verification: all eight committed TGA files are exactly 4,140 bytes and their Git blob hashes match the locally generated source files. This verifies repository-byte integrity, not Vanilla client rendering.
-- Untested in-game: all 0.1.34-dev toolbar texture rendering/hover/tooltips/active overlays and all 0.1.33-dev Quest migration/repair changes.
-- Exact next step: install 0.1.34-dev and first verify backpack/bank icons render crisp and centered, hover yellow, show the correct tooltips, preserve Quest/DE/Pick active overlays, and still hide conditional Sort/DE/Pick controls correctly. Then on the affected legacy SavedVariables run `/run DEFAULT_CHAT_FRAME:AddMessage("Released "..pfUI.bagtweaks.RepairLegacyQuestOverrides().." legacy Quest overrides")` once and verify the missing Quest items enter Quest. Finally, delete a temporary user Subcategory containing a Quest item and confirm it falls through to automatic Quest instead of staying in General.
+- Tested in-game: the 0.1.34-dev Lucide toolbar icons render cleanly and are visually successful. Remaining toolbar interaction checks are hover tint, tooltips, active overlays, and conditional hiding. All 0.1.33-dev Quest migration/repair changes remain untested in-game.
+- Exact next step: on the affected legacy SavedVariables run `/run DEFAULT_CHAT_FRAME:AddMessage("Released "..pfUI.bagtweaks.RepairLegacyQuestOverrides().." legacy Quest overrides")` once and verify the missing Quest items enter Quest. Then delete a temporary user Subcategory containing a Quest item and confirm it falls through to automatic Quest instead of staying in General. Also verify toolbar hover tint/tooltips/active overlays/conditional hiding during this pass. After these fixes/tests, revisit the user's requested slight toolbar button-size change and expand Lucide icon usage.
 
 ## Goals
 
@@ -173,7 +173,8 @@ Previously confirmed on the pre-0.1.28 brues-code pfUI base:
 
 - Rogue Pick Lock workflow.
 - DE discoverability: targeting-style cursor / candidate-item hover feedback; keep Vanilla-style left-click targeting.
-- In-game verify the finalized Lucide toolbar artwork on both backpack and bank, including tiny-size legibility, hover tint, tooltips, active overlays, and conditional button hiding.
+- Finish in-game toolbar interaction verification: hover tint, tooltips, active overlays, and conditional button hiding. Basic Lucide rendering/visual quality is confirmed good.
+- After current Quest/assignment fixes are verified, slightly adjust toolbar button size and expand Lucide icon usage as requested.
 - Consider reducing the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Branches
