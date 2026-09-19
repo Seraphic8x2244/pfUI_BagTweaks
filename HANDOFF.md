@@ -4,7 +4,7 @@
 
 - Repository: `Seraphic8x2244/pfUI_BagTweaks`.
 - Work from the `dev` branch. Fetch current files before editing; the user may have changed the repo externally.
-- Current development version: `0.1.38-dev`.
+- Current development version: `0.1.39-dev`.
 - Work directly on `dev`; do not open a PR unless asked.
 - `main` is the stable user branch. Do not develop directly on `main`.
 - Keep this handoff updated when behaviour, invariants, test status, or TODOs change.
@@ -14,12 +14,12 @@
 ## Current Status
 
 - Branch: `dev`.
-- Version: `0.1.38-dev`.
-- Latest functional commit: `5028d2d` — reorder toolbar controls by function. Latest asset rebuild commit: `74958e1` — regenerate Eye/EyeOff toolbar textures from scratch as fresh 32x32 uncompressed RGBA TGAs. Previous attempted eye repair commit: `bed6c82`; Options cog wiring commit: `6bb247f`; core redesign commit: `05a294d`.
+- Version: `0.1.39-dev`.
+- Latest functional commits: `5e1347b` — add minimum-width toolbar wrapping and raise search spacing; `9e14a4f` — move the row-layout helper after its local icon dependencies for Vanilla-safe Lua lexical resolution. Latest asset rebuild commit: `74958e1` — regenerate Eye/EyeOff toolbar textures from scratch as fresh 32x32 uncompressed RGBA TGAs. Previous attempted eye repair commit: `bed6c82`; Options cog wiring commit: `6bb247f`; core redesign commit: `05a294d`.
 - Texture integrity commit: `caf6016` — repair the Lucide texture blobs so all eight committed 32x32 TGA assets exactly match the generated source files.
 - Icon integration commit: `849ecf8` — add the finalized Lucide toolbar textures, centered icon sizing, hover tint/tooltips, license attribution, and bump Lua/TOC to 0.1.34-dev.
 - Previous Quest functional commit: `47bf529` — narrow the explicit legacy Quest repair to account-wide plus current-character overrides and ensure name metadata is available for active-objective matching.
-- Latest TOC version commit: `89020d9` — sync TOC to 0.1.38-dev.
+- Latest TOC version commit: `1403aa5` — sync TOC to 0.1.39-dev.
 - Latest handoff/docs baseline before this update: `ba4f0ebd` — document the 0.1.38 Eye/EyeOff asset rebuild.
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
 - Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
@@ -44,8 +44,9 @@
 - Completed in 0.1.38-dev: discarded both prior Eye/EyeOff binaries and regenerated the pair from scratch as fresh 32x32 uncompressed RGBA TGAs using the same Vanilla-safe 4,140-byte file layout as the known-good toolbar assets. No toolbar logic/order changes in this build.
 - Tested in-game: the 0.1.38-dev regenerated Eye and EyeOff icons now render correctly inside their toolbar borders in both visibility-toggle states. The malformed-eye asset issue is closed.
 - Completed in 0.1.37-dev: reordered the backpack toolbar to `Sort -> Open -> Disenchant -> Pick Lock -> Search -> Empty Subcategories -> Quest -> Keys -> Bags -> New Category -> New Subcategory -> third-party extras -> Options -> Close`; bank mirrors the applicable subset as `Sort -> Search -> Empty Subcategories -> Quest -> Bags -> New Category -> New Subcategory -> Options -> Close`. Conditional visibility and existing control behaviour are unchanged.
-- Current requested next pass: replace unconstrained toolbar button shrinking with a real minimum button width and automatic overflow wrapping into an additional toolbar row; move backpack/bank search fields 2 px farther from the bag. Preserve button order, conditional visibility, and close-button ownership of the primary row.
-- Exact next step: implement that toolbar layout/search-spacing change on `dev`, bump the development version for the test build, then verify wrapping/search placement in-game. Do not revisit Eye/EyeOff asset work unless a new regression appears.
+- Completed in 0.1.39-dev: toolbar controls now use an 18 px minimum width (or the toolbar height if larger). When the visible control set no longer fits beside Close, earlier controls wrap into balanced overflow row(s) above the primary row while the final controls remain on the primary row leading into Close. Bank overflow rows account for the visible bank bag-slot strip. Backpack and bank search fields were moved 2 px farther from the bag, and search placement now rises above any overflow toolbar rows.
+- Untested in-game in 0.1.39-dev: exact overflow-row geometry at narrow widths, interaction with the bank bag-slot strip, and the +2 px search-field spacing.
+- Exact next step: test 0.1.39-dev in-game at a width that forces wrapping and confirm the search field spacing; adjust geometry only if the live pfUI frame positions expose an overlap. Then continue the remaining toolbar interaction checks. Do not revisit Eye/EyeOff asset work unless a new regression appears.
 
 ## Goals
 
@@ -154,6 +155,8 @@ Bank:
 - Empty Subcategories swaps Eye/EyeOff with state and also uses the active overlay when enabled.
 - Keys is backpack-only.
 - Sort is hidden if the pfUI fork has no native sorter; DE/Pick remain availability-gated.
+- Toolbar buttons have an 18 px minimum width (or toolbar height if larger); overflow wraps above the primary row rather than shrinking below that floor. The primary row retains the final controls immediately before Close.
+- Search sits 4 px above the bag/upper toolbar surface (2 px farther than 0.1.38-dev) and rises with wrapped toolbar rows.
 - Discovered third-party bag controls stay before Options; Options stays immediately before Close.
 - No BagTweaks options are currently exposed.
 
@@ -182,7 +185,7 @@ Previously confirmed on the pre-0.1.28 brues-code pfUI base:
 
 - Rogue Pick Lock workflow.
 - DE discoverability: targeting-style cursor / candidate-item hover feedback; keep Vanilla-style left-click targeting.
-- Finish direct-toolbar redesign checks: active overlays for Bags/Keys/Quest/DE/Pick, Sort/DE/Pick conditional visibility, New Subcategory parent selection when multiple Categories exist, third-party extras staying before Options, cog Options artwork, and worst-case toolbar width. Eye/EyeOff rendering is confirmed fixed in 0.1.38-dev; prior Lucide rendering, hover tint, and tooltips are also confirmed good.
+- Finish direct-toolbar redesign checks: active overlays for Bags/Keys/Quest/DE/Pick, Sort/DE/Pick conditional visibility, New Subcategory parent selection when multiple Categories exist, third-party extras staying before Options, cog Options artwork, and in-game verification of the new 0.1.39 minimum-width wrapping/search geometry. Eye/EyeOff rendering is confirmed fixed in 0.1.38-dev; prior Lucide rendering, hover tint, and tooltips are also confirmed good.
 - Consider reducing the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Branches
