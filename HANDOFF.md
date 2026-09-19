@@ -15,7 +15,8 @@
 
 - Branch: `dev`.
 - Version: `0.1.34-dev`.
-- Latest functional commit: `caf6016` — repair the Lucide texture blobs so all eight committed 32x32 TGA assets exactly match the generated source files.
+- Latest functional commit: `2ee0d17` — preserve yellow icon hover tint across the 0.20s toolbar relayout loop instead of resetting hovered icons to grey.
+- Texture integrity commit: `caf6016` — repair the Lucide texture blobs so all eight committed 32x32 TGA assets exactly match the generated source files.
 - Icon integration commit: `849ecf8` — add the finalized Lucide toolbar textures, centered icon sizing, hover tint/tooltips, license attribution, and bump Lua/TOC to 0.1.34-dev.
 - Previous Quest functional commit: `47bf529` — narrow the explicit legacy Quest repair to account-wide plus current-character overrides and ensure name metadata is available for active-objective matching.
 - Latest TOC version commit: `849ecf8` — sync TOC to 0.1.34-dev.
