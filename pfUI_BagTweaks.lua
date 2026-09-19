@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.38-dev
+-- pfUI_BagTweaks 0.1.39-dev
 -- User-defined visual categories and subcategories for pfUI unified bags.
 -- Categories are full-width organisational containers; subcategories classify and sort items.
 -- Layout is visual only and never moves physical inventory slots.
@@ -2488,7 +2488,8 @@ end)
 
 local TOOLBAR_UPDATE_INTERVAL = .20
 local TOOLBAR_MENU_ROW_HEIGHT = 18
-local TOOLBAR_SEARCH_GAP = 2
+local TOOLBAR_SEARCH_GAP = 4
+local TOOLBAR_MIN_BUTTON_WIDTH = 18
 
 local TOOLBAR_ICON_TEXTURE = {
   newcategory = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\square-plus",
@@ -2513,6 +2514,7 @@ local toolbarState = {
   castBusy = false,
   rearmAt = nil,
   lastUpdate = 0,
+  rows = 1,
   buttons = {},
   native = {},
   menu = nil,
@@ -2524,6 +2526,7 @@ local toolbarState = {
 local bankToolbarState = {
   initialized = false,
   searchOpen = false,
+  rows = 1,
   buttons = {},
   native = {},
   search = nil,
@@ -2555,6 +2558,96 @@ local function ToolbarMetrics(bag)
   if topInset < 1 then topInset = border end
 
   return height, border, border * 3, topInset
+end
+
+
+local function ToolbarLayoutButtonRows(frame, buttons, height, border, gap, topInset, overflowBase)
+  local count = table.getn(buttons)
+  if count == 0 then return 1 end
+
+  local closeWidth = frame.close and frame.close:GetWidth() or height
+  local primaryAvailable = frame:GetWidth() - border - border - closeWidth - gap
+  local overflowAvailable = frame:GetWidth() - border - border
+  if primaryAvailable < 1 then primaryAvailable = 1 end
+  if overflowAvailable < 1 then overflowAvailable = 1 end
+
+  local minWidth = TOOLBAR_MIN_BUTTON_WIDTH
+  if minWidth < height then minWidth = height end
+
+  local function Capacity(available)
+    local capacity = math.floor((available + gap) / (minWidth + gap))
+    if capacity < 1 then capacity = 1 end
+    return capacity
+  end
+
+  local primaryCapacity = Capacity(primaryAvailable)
+  local overflowCapacity = Capacity(overflowAvailable)
+  local rows = 1
+  local totalCapacity = primaryCapacity
+
+  while totalCapacity < count do
+    rows = rows + 1
+    totalCapacity = totalCapacity + overflowCapacity
+  end
+
+  local remaining = count
+  local index = 1
+  overflowBase = overflowBase or 0
+
+  for row = 1, rows do
+    local rowsLeft = rows - row + 1
+    local currentCapacity = row == rows and primaryCapacity or overflowCapacity
+    local laterCapacity = 0
+
+    if rowsLeft > 1 then
+      laterCapacity = primaryCapacity + math.max(0, rowsLeft - 2) * overflowCapacity
+    end
+
+    local rowCount = math.ceil(remaining / rowsLeft)
+    local minimumHere = remaining - laterCapacity
+    if minimumHere < 1 then minimumHere = 1 end
+    if rowCount < minimumHere then rowCount = minimumHere end
+    if rowCount > currentCapacity then rowCount = currentCapacity end
+
+    local available = row == rows and primaryAvailable or overflowAvailable
+    local usable = available - (rowCount - 1) * gap
+    local width = math.floor(usable / rowCount)
+    local remainder = usable - width * rowCount
+    local previous = nil
+
+    for n = 1, rowCount do
+      local button = buttons[index]
+      local buttonWidth = width
+
+      if remainder > 0 then
+        buttonWidth = buttonWidth + 1
+        remainder = remainder - 1
+      end
+
+      button:ClearAllPoints()
+      button:SetHeight(height)
+      button:SetWidth(buttonWidth)
+
+      if previous then
+        button:SetPoint("TOPLEFT", previous, "TOPRIGHT", gap, 0)
+      else
+        local y = -topInset
+        if row < rows then
+          y = overflowBase + (rows - row) * (height + gap) - topInset
+        end
+        button:SetPoint("TOPLEFT", frame, "TOPLEFT", border, y)
+      end
+
+      ToolbarHideIcon(button)
+      ToolbarSizeIcon(button, height, border)
+      previous = button
+      index = index + 1
+    end
+
+    remaining = remaining - rowCount
+  end
+
+  return rows
 end
 
 local function ToolbarCreateBackdrop(frame, border)
@@ -2755,12 +2848,16 @@ local function ToolbarApplySearchState()
   local search = bag and bag.search
   if not search then return end
 
-  local _, border = ToolbarMetrics(bag)
+  local height, border, gap, topInset = ToolbarMetrics(bag)
+  local y = TOOLBAR_SEARCH_GAP
+  if (toolbarState.rows or 1) > 1 then
+    y = y + (toolbarState.rows - 1) * (height + gap) - topInset
+  end
 
   search:Show()
   search:ClearAllPoints()
-  search:SetPoint("BOTTOMLEFT", bag, "TOPLEFT", border, TOOLBAR_SEARCH_GAP)
-  search:SetPoint("BOTTOMRIGHT", bag, "TOPRIGHT", -border, TOOLBAR_SEARCH_GAP)
+  search:SetPoint("BOTTOMLEFT", bag, "TOPLEFT", border, y)
+  search:SetPoint("BOTTOMRIGHT", bag, "TOPRIGHT", -border, y)
   search:SetHeight(bag.close and bag.close:GetHeight() or 12)
 
   if toolbarState.searchOpen then
@@ -3306,10 +3403,13 @@ local function BankToolbarApplySearchState()
   local search = BankToolbarEnsureSearch()
   if not bank or not search then return end
 
-  local _, border = ToolbarMetrics(bank)
+  local height, border, gap, topInset = ToolbarMetrics(bank)
   local y = TOOLBAR_SEARCH_GAP
   if bank.bagslots and bank.bagslots:IsShown() then
     y = y + (bank.bagslots:GetHeight() or 0) + border * 2
+  end
+  if (bankToolbarState.rows or 1) > 1 then
+    y = y + (bankToolbarState.rows - 1) * (height + gap) - topInset
   end
 
   search:ClearAllPoints()
@@ -3449,41 +3549,14 @@ local function BankToolbarLayout()
   if newSubcategory then table.insert(buttons, newSubcategory) end
   if options then table.insert(buttons, options) end
 
-  local count = table.getn(buttons)
-  if count > 0 then
-    local closeWidth = bank.close:GetWidth() or height
-    local available = bank:GetWidth() - border - border - closeWidth - gap
-    local gaps = (count - 1) * gap
-    local usable = available - gaps
-
-    if usable >= count then
-      local base = math.floor(usable / count)
-      local remainder = usable - base * count
-      local previous = nil
-
-      for i = 1, count do
-        local button = buttons[i]
-        local width = base
-
-        if remainder > 0 then
-          width = width + 1
-          remainder = remainder - 1
-        end
-
-        button:ClearAllPoints()
-        button:SetHeight(height)
-        button:SetWidth(width)
-        if previous then
-          button:SetPoint("TOPLEFT", previous, "TOPRIGHT", gap, 0)
-        else
-          button:SetPoint("TOPLEFT", bank, "TOPLEFT", border, -topInset)
-        end
-        ToolbarHideIcon(button)
-        ToolbarSizeIcon(button, height, border)
-        previous = button
-      end
-    end
+  local overflowBase = 0
+  if bank.bagslots and bank.bagslots:IsShown() then
+    overflowBase = (bank.bagslots:GetHeight() or 0) + border * 2
   end
+
+  bankToolbarState.rows = ToolbarLayoutButtonRows(
+    bank, buttons, height, border, gap, topInset, overflowBase
+  )
 
   BankToolbarApplySearchState()
   ToolbarUpdateActiveVisuals()
@@ -3584,44 +3657,15 @@ local function ToolbarLayout()
 
   local count = table.getn(buttons)
   if count == 0 then
+    toolbarState.rows = 1
     ToolbarApplySearchState()
     ToolbarUpdateActiveVisuals()
     return
   end
 
-  local closeWidth = bag.close:GetWidth() or height
-  local available = bag:GetWidth() - border - border - closeWidth - gap
-  local gaps = (count - 1) * gap
-  local usable = available - gaps
-  if usable < count then return end
-
-  local base = math.floor(usable / count)
-  local remainder = usable - base * count
-  local previous = nil
-
-  for i = 1, count do
-    local button = buttons[i]
-    local width = base
-
-    if remainder > 0 then
-      width = width + 1
-      remainder = remainder - 1
-    end
-
-    button:ClearAllPoints()
-    button:SetHeight(height)
-    button:SetWidth(width)
-
-    if previous then
-      button:SetPoint("TOPLEFT", previous, "TOPRIGHT", gap, 0)
-    else
-      button:SetPoint("TOPLEFT", bag, "TOPLEFT", border, -topInset)
-    end
-
-    ToolbarHideIcon(button)
-    ToolbarSizeIcon(button, height, border)
-    previous = button
-  end
+  toolbarState.rows = ToolbarLayoutButtonRows(
+    bag, buttons, height, border, gap, topInset, 0
+  )
 
   ToolbarApplySearchState()
   ToolbarUpdateActiveVisuals()
