@@ -4,7 +4,7 @@
 
 - Repository: `Seraphic8x2244/pfUI_BagTweaks`.
 - Work from the `dev` branch. Fetch current files before editing; the user may have changed the repo externally.
-- Current development version: `0.1.33-dev`.
+- Current development version: `0.1.34-dev`.
 - Work directly on `dev`; do not open a PR unless asked.
 - `main` is the stable user branch. Do not develop directly on `main`.
 - Keep this handoff updated when behaviour, invariants, test status, or TODOs change.
@@ -14,11 +14,12 @@
 ## Current Status
 
 - Branch: `dev`.
-- Version: `0.1.33-dev`.
-- Latest functional commit: `47bf529` — narrow the explicit legacy Quest repair to account-wide plus current-character overrides and ensure name metadata is available for active-objective matching.
-- Previous functional commit: `4187ce6` — repair legacy Quest migration/deletion handling, harden Quest metadata fallback, add explicit repair helper, and bump Lua to 0.1.33-dev.
-- Latest TOC version commit: `4cf31ec` — sync TOC to 0.1.33-dev.
-- Latest docs commit: `25598e9` — document assignment release on Subcategory deletion.
+- Version: `0.1.34-dev`.
+- Latest functional commit: `caf6016` — repair the Lucide texture blobs so all eight committed 32x32 TGA assets exactly match the generated source files.
+- Icon integration commit: `849ecf8` — add the finalized Lucide toolbar textures, centered icon sizing, hover tint/tooltips, license attribution, and bump Lua/TOC to 0.1.34-dev.
+- Previous Quest functional commit: `47bf529` — narrow the explicit legacy Quest repair to account-wide plus current-character overrides and ensure name metadata is available for active-objective matching.
+- Latest TOC version commit: `849ecf8` — sync TOC to 0.1.34-dev.
+- Latest docs commit: current handoff update — record 0.1.34-dev icon integration and test status.
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
 - Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
 - Completed in 0.1.30-dev: Subcategory item grids were inset right by one pfUI spacing unit while the accent/header origin stayed fixed; Subcategory footprint/top line grew by the same inset; packing calculations included that extra width. Persistent DE/Pick now also disarms when the existing toolbar watcher observes the backpack frame hidden, so it no longer depends solely on the replaceable OnHide wrapper.
@@ -28,12 +29,15 @@
 - Tested this pass: backpack-close and bank-close persistent-mode disarm both work in-game. The 0.1.30-dev item inset is about 2 px too far right.
 - Tested this pass: backpack-close, bank-close, and world/instance-transition persistent-mode disarm all work in-game. On the tested instance transition the backpack is also forcibly closed, so the hidden-bag fallback already guarantees disarm there; the explicit `PLAYER_ENTERING_WORLD` disarm remains as a cheap safety net for alternate transition/order behaviour.
 - Untested this pass: revised item-grid inset/accent width and any resulting packing changes.
-- Deferred: packing optimisation unless future inventories show a real problem, Pick Lock workflow test, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
+- Deferred: packing optimisation unless future inventories show a real problem, Pick Lock workflow test, DE hover/cursor discoverability, possible toolbar refresh profiling.
 - Root cause confirmed from history: the 0.1.16 system-Quest migration used old `questGroupID` only to enable the new Quest system, leaving the old designated group and its assignments as normal manual overrides. Deleting that old group then converted those assignments to `GENERAL_OVERRIDE`, permanently outranking automatic Quest detection.
 - Completed in 0.1.33-dev: future direct legacy upgrades reuse the old designated Quest Subcategory as the system Quest Subcategory; deleting a normal Subcategory now removes its saved assignments instead of manufacturing General overrides; `IsQuestMetadata()` now accepts class ID 12 OR textual Quest type; `pfUI.bagtweaks.RepairLegacyQuestOverrides()` explicitly releases account/current-character General overrides that currently qualify for Quest automation. The repair is explicit because automatic cleanup could erase intentional modern General overrides.
 - Untested in-game: all 0.1.33-dev Quest migration/repair changes.
 - Toolbar icon direction finalized: use Lucide only. Locked choices are Search=`Search`, Sort=`ArrowUpDown`, View=`PanelsTopLeft`, Quest=`ScrollText`, Disenchant=`WandSparkles`, Pick Lock=`KeyRound`, Open=`PackageOpen`, Options=`Settings2`. User preferred Lucide over Tabler; do not mix families.
-- Exact next step: in a fresh chat, implement the finalized Lucide toolbar textures (`Search`, `ArrowUpDown`, `PanelsTopLeft`, `ScrollText`, `WandSparkles`, `KeyRound`, `PackageOpen`, `Settings2`) with stroke/padding tuned for tiny pfUI buttons and Vanilla WoW texture constraints. Preserve one-family consistency. After icon integration, test the 0.1.33-dev legacy Quest repair on the affected SavedVariables using `/run DEFAULT_CHAT_FRAME:AddMessage("Released "..pfUI.bagtweaks.RepairLegacyQuestOverrides().." legacy Quest overrides")`, then verify deleting a temporary user Subcategory containing a Quest item falls through to automatic Quest instead of staying in General.
+- Completed in 0.1.34-dev: the eight locked controls now use rasterized Lucide 32x32 RGBA TGA textures; icons are centered and sized from the pfUI toolbar height (clamped to 8-14 px), retain the existing grey/yellow hover treatment, and show the existing localized control label as a tooltip. `+` and discovered third-party controls remain text. Existing active overlays and click handlers are unchanged. Lucide/Feather attribution is stored beside the textures.
+- Asset verification: all eight committed TGA files are exactly 4,140 bytes and their Git blob hashes match the locally generated source files. This verifies repository-byte integrity, not Vanilla client rendering.
+- Untested in-game: all 0.1.34-dev toolbar texture rendering/hover/tooltips/active overlays and all 0.1.33-dev Quest migration/repair changes.
+- Exact next step: install 0.1.34-dev and first verify backpack/bank icons render crisp and centered, hover yellow, show the correct tooltips, preserve Quest/DE/Pick active overlays, and still hide conditional Sort/DE/Pick controls correctly. Then on the affected legacy SavedVariables run `/run DEFAULT_CHAT_FRAME:AddMessage("Released "..pfUI.bagtweaks.RepairLegacyQuestOverrides().." legacy Quest overrides")` once and verify the missing Quest items enter Quest. Finally, delete a temporary user Subcategory containing a Quest item and confirm it falls through to automatic Quest instead of staying in General.
 
 ## Goals
 
@@ -168,7 +172,7 @@ Previously confirmed on the pre-0.1.28 brues-code pfUI base:
 
 - Rogue Pick Lock workflow.
 - DE discoverability: targeting-style cursor / candidate-item hover feedback; keep Vanilla-style left-click targeting.
-- Implement finalized Lucide toolbar artwork: Search=`Search`, Sort=`ArrowUpDown`, View=`PanelsTopLeft`, Quest=`ScrollText`, DE=`WandSparkles`, Pick=`KeyRound`, Open=`PackageOpen`, Options=`Settings2`; tune stroke/padding for tiny pfUI buttons and Vanilla WoW textures.
+- In-game verify the finalized Lucide toolbar artwork on both backpack and bank, including tiny-size legibility, hover tint, tooltips, active overlays, and conditional button hiding.
 - Consider reducing the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Branches
