@@ -4,7 +4,7 @@
 
 - Repository: `Seraphic8x2244/pfUI_BagTweaks`.
 - Work from the `dev` branch. Fetch current files before editing; the user may have changed the repo externally.
-- Current development version: `0.1.32-dev`.
+- Current development version: `0.1.33-dev`.
 - Work directly on `dev`; do not open a PR unless asked.
 - `main` is the stable user branch. Do not develop directly on `main`.
 - Keep this handoff updated when behaviour, invariants, test status, or TODOs change.
@@ -14,10 +14,11 @@
 ## Current Status
 
 - Branch: `dev`.
-- Version: `0.1.32-dev`.
-- Latest functional commit: `08ae291` — set Subcategory item inset to `border * 2` (1 px right from 0.1.31-dev in the tested setup) and bump Lua to 0.1.32-dev.
-- Previous functional commit: `b5cd41d` — inset Subcategory item grids and add a reliable backpack-hidden persistent-mode disarm fallback.
-- Latest TOC version commit: `6569489` — sync TOC to 0.1.32-dev.
+- Version: `0.1.33-dev`.
+- Latest functional commit: `47bf529` — narrow the explicit legacy Quest repair to account-wide plus current-character overrides and ensure name metadata is available for active-objective matching.
+- Previous functional commit: `4187ce6` — repair legacy Quest migration/deletion handling, harden Quest metadata fallback, add explicit repair helper, and bump Lua to 0.1.33-dev.
+- Latest TOC version commit: `4cf31ec` — sync TOC to 0.1.33-dev.
+- Latest docs commit: `25598e9` — document assignment release on Subcategory deletion.
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
 - Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
 - Completed in 0.1.30-dev: Subcategory item grids were inset right by one pfUI spacing unit while the accent/header origin stayed fixed; Subcategory footprint/top line grew by the same inset; packing calculations included that extra width. Persistent DE/Pick now also disarms when the existing toolbar watcher observes the backpack frame hidden, so it no longer depends solely on the replaceable OnHide wrapper.
@@ -28,8 +29,10 @@
 - Tested this pass: backpack-close, bank-close, and world/instance-transition persistent-mode disarm all work in-game. On the tested instance transition the backpack is also forcibly closed, so the hidden-bag fallback already guarantees disarm there; the explicit `PLAYER_ENTERING_WORLD` disarm remains as a cheap safety net for alternate transition/order behaviour.
 - Untested this pass: revised item-grid inset/accent width and any resulting packing changes.
 - Deferred: packing optimisation unless future inventories show a real problem, Pick Lock workflow test, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
-- Newly identified migration issue: deleting an old/manual Quest subcategory rewrites its item assignments to `GENERAL_OVERRIDE`, which then blocks the newer built-in Quest classifier. A friend with legacy saved data reproduced missing Quest-category items after deleting the old Quest category; the same client stack without that history does not reproduce it. Also harden `IsQuestMetadata()` so a non-12 numeric classID cannot suppress a textual Quest item type.
-- Exact next step: inspect the pre-system-Quest history to identify legacy Quest markers/IDs, then implement the narrowest safe cleanup for legacy assignments plus the metadata fallback hardening. Avoid clearing intentional modern General overrides.
+- Root cause confirmed from history: the 0.1.16 system-Quest migration used old `questGroupID` only to enable the new Quest system, leaving the old designated group and its assignments as normal manual overrides. Deleting that old group then converted those assignments to `GENERAL_OVERRIDE`, permanently outranking automatic Quest detection.
+- Completed in 0.1.33-dev: future direct legacy upgrades reuse the old designated Quest Subcategory as the system Quest Subcategory; deleting a normal Subcategory now removes its saved assignments instead of manufacturing General overrides; `IsQuestMetadata()` now accepts class ID 12 OR textual Quest type; `pfUI.bagtweaks.RepairLegacyQuestOverrides()` explicitly releases account/current-character General overrides that currently qualify for Quest automation. The repair is explicit because automatic cleanup could erase intentional modern General overrides.
+- Untested in-game: all 0.1.33-dev Quest migration/repair changes.
+- Exact next step: on the affected legacy SavedVariables, load 0.1.33-dev with Quest enabled and run the explicit repair helper once; verify the previously missing Quest items enter Quest. Then test deleting a temporary user Subcategory containing a Quest item and confirm the item falls through to automatic Quest instead of staying in General.
 
 ## Goals
 
@@ -55,7 +58,7 @@
 - All user-facing strings belong in `locales.lua`.
 - Persist through `_G.pfUIBagTweaksDB`; pfUI module environments must not own SavedVariables.
 - Empty physical slots belong only to General.
-- Manual Subcategory assignment wins over automatic Quest assignment.
+- Manual Subcategory assignment wins over automatic Quest assignment. Explicitly moving an item to General also creates a General override; deleting a Subcategory must not create one.
 - Account/character assignment is item-ID based, so all copies follow the same Subcategory.
 - Backpack and bank share Categories, Subcategories, order, assignments, scope, visual sort, Quest state, and Empty Subcategories state.
 - Do not physically move items for Category/Subcategory layout or visual sorting.
@@ -86,6 +89,7 @@ Migration from schema 1:
 - Existing Categories become Subcategories without changing their IDs, scope, sorting, or item assignments.
 - Existing row order is flattened into one parent Category named `Categories`.
 - Legacy `rows`, `accountCategories`, `characterCategories`, `groups`, `nextGroupID`, `accountAssignments`, `charAssignments`, `assignments`, `questCategoryID`, and `questGroupID` are migration-only.
+- When a directly upgraded legacy DB still identifies a designated Quest group/category, that exact Subcategory is promoted to the system Quest Subcategory instead of leaving it behind as a manual-override source.
 
 ## Layout
 
@@ -108,7 +112,7 @@ Migration from schema 1:
 - The last remaining Category cannot be deleted.
 - Deleting a Category moves its Subcategories to another Category; assignments are preserved.
 - Subcategory menu retains Rename, Account Wide / Per Character, Sorting, Reverse, Delete.
-- Deleting a Subcategory returns its assigned items to General.
+- Deleting a Subcategory releases its saved assignments. Items then fall through to automatic rules such as Quest, otherwise General.
 - Drag a Subcategory before/after another Subcategory to reorder or move it between Categories.
 - Drag a Subcategory onto Category space to append it to that Category.
 
