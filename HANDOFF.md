@@ -22,9 +22,10 @@
 - Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
 - Completed in 0.1.30-dev: Subcategory item grids are inset right by one pfUI spacing unit while the accent/header origin stays fixed; Subcategory footprint/top line grows by the same inset; packing calculations include that extra width. Persistent DE/Pick now also disarms when the existing toolbar watcher observes the backpack frame hidden, so it no longer depends solely on the replaceable OnHide wrapper.
 - Tested this pass: temporary active-quest objective detection for ordinary item-class items works in-game.
-- Untested this pass: corrected item-grid inset/accent width and any resulting packing changes; backpack-close disarm fallback; bank-close disarm; world/instance-transition disarm.
+- Tested this pass: backpack-close and bank-close persistent-mode disarm both work in-game. The 0.1.30-dev item inset is about 2 px too far right.
+- Untested this pass: revised item-grid inset/accent width and any resulting packing changes; world/instance-transition disarm.
 - Deferred: packing optimisation unless future inventories show a real problem, Pick Lock workflow test, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
-- Exact next step: reload/test 0.1.30-dev. Visually confirm the first item column now clears the left grey accent and the top line still reaches the item block's right edge; then activate DE, close the backpack, and confirm the mode disarms. If those pass, test bank close and a world/instance transition.
+- Exact next step: reduce the extra Subcategory item inset from one full pfUI spacing unit (`border * 3`) to `border` (about 2 px left in the tested setup), keep the accent/header origin fixed, update width/packing calculations consistently, bump dev version, then retest visual alignment and world/instance-transition disarm.
 
 ## Goals
 
