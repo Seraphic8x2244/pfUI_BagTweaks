@@ -2561,95 +2561,6 @@ local function ToolbarMetrics(bag)
 end
 
 
-local function ToolbarLayoutButtonRows(frame, buttons, height, border, gap, topInset, overflowBase)
-  local count = table.getn(buttons)
-  if count == 0 then return 1 end
-
-  local closeWidth = frame.close and frame.close:GetWidth() or height
-  local primaryAvailable = frame:GetWidth() - border - border - closeWidth - gap
-  local overflowAvailable = frame:GetWidth() - border - border
-  if primaryAvailable < 1 then primaryAvailable = 1 end
-  if overflowAvailable < 1 then overflowAvailable = 1 end
-
-  local minWidth = TOOLBAR_MIN_BUTTON_WIDTH
-  if minWidth < height then minWidth = height end
-
-  local function Capacity(available)
-    local capacity = math.floor((available + gap) / (minWidth + gap))
-    if capacity < 1 then capacity = 1 end
-    return capacity
-  end
-
-  local primaryCapacity = Capacity(primaryAvailable)
-  local overflowCapacity = Capacity(overflowAvailable)
-  local rows = 1
-  local totalCapacity = primaryCapacity
-
-  while totalCapacity < count do
-    rows = rows + 1
-    totalCapacity = totalCapacity + overflowCapacity
-  end
-
-  local remaining = count
-  local index = 1
-  overflowBase = overflowBase or 0
-
-  for row = 1, rows do
-    local rowsLeft = rows - row + 1
-    local currentCapacity = row == rows and primaryCapacity or overflowCapacity
-    local laterCapacity = 0
-
-    if rowsLeft > 1 then
-      laterCapacity = primaryCapacity + math.max(0, rowsLeft - 2) * overflowCapacity
-    end
-
-    local rowCount = math.ceil(remaining / rowsLeft)
-    local minimumHere = remaining - laterCapacity
-    if minimumHere < 1 then minimumHere = 1 end
-    if rowCount < minimumHere then rowCount = minimumHere end
-    if rowCount > currentCapacity then rowCount = currentCapacity end
-
-    local available = row == rows and primaryAvailable or overflowAvailable
-    local usable = available - (rowCount - 1) * gap
-    local width = math.floor(usable / rowCount)
-    local remainder = usable - width * rowCount
-    local previous = nil
-
-    for n = 1, rowCount do
-      local button = buttons[index]
-      local buttonWidth = width
-
-      if remainder > 0 then
-        buttonWidth = buttonWidth + 1
-        remainder = remainder - 1
-      end
-
-      button:ClearAllPoints()
-      button:SetHeight(height)
-      button:SetWidth(buttonWidth)
-
-      if previous then
-        button:SetPoint("TOPLEFT", previous, "TOPRIGHT", gap, 0)
-      else
-        local y = -topInset
-        if row < rows then
-          y = overflowBase + (rows - row) * (height + gap) - topInset
-        end
-        button:SetPoint("TOPLEFT", frame, "TOPLEFT", border, y)
-      end
-
-      ToolbarHideIcon(button)
-      ToolbarSizeIcon(button, height, border)
-      previous = button
-      index = index + 1
-    end
-
-    remaining = remaining - rowCount
-  end
-
-  return rows
-end
-
 local function ToolbarCreateBackdrop(frame, border)
   if frame.bagtweaks_toolbar_backdrop then return end
 
@@ -2776,6 +2687,96 @@ local function ToolbarSizeIcon(button, height, border)
   icon:SetHeight(size)
   icon:SetPoint("CENTER", button, "CENTER", 0, 0)
 end
+
+local function ToolbarLayoutButtonRows(frame, buttons, height, border, gap, topInset, overflowBase)
+  local count = table.getn(buttons)
+  if count == 0 then return 1 end
+
+  local closeWidth = frame.close and frame.close:GetWidth() or height
+  local primaryAvailable = frame:GetWidth() - border - border - closeWidth - gap
+  local overflowAvailable = frame:GetWidth() - border - border
+  if primaryAvailable < 1 then primaryAvailable = 1 end
+  if overflowAvailable < 1 then overflowAvailable = 1 end
+
+  local minWidth = TOOLBAR_MIN_BUTTON_WIDTH
+  if minWidth < height then minWidth = height end
+
+  local function Capacity(available)
+    local capacity = math.floor((available + gap) / (minWidth + gap))
+    if capacity < 1 then capacity = 1 end
+    return capacity
+  end
+
+  local primaryCapacity = Capacity(primaryAvailable)
+  local overflowCapacity = Capacity(overflowAvailable)
+  local rows = 1
+  local totalCapacity = primaryCapacity
+
+  while totalCapacity < count do
+    rows = rows + 1
+    totalCapacity = totalCapacity + overflowCapacity
+  end
+
+  local remaining = count
+  local index = 1
+  overflowBase = overflowBase or 0
+
+  for row = 1, rows do
+    local rowsLeft = rows - row + 1
+    local currentCapacity = row == rows and primaryCapacity or overflowCapacity
+    local laterCapacity = 0
+
+    if rowsLeft > 1 then
+      laterCapacity = primaryCapacity + math.max(0, rowsLeft - 2) * overflowCapacity
+    end
+
+    local rowCount = math.ceil(remaining / rowsLeft)
+    local minimumHere = remaining - laterCapacity
+    if minimumHere < 1 then minimumHere = 1 end
+    if rowCount < minimumHere then rowCount = minimumHere end
+    if rowCount > currentCapacity then rowCount = currentCapacity end
+
+    local available = row == rows and primaryAvailable or overflowAvailable
+    local usable = available - (rowCount - 1) * gap
+    local width = math.floor(usable / rowCount)
+    local remainder = usable - width * rowCount
+    local previous = nil
+
+    for n = 1, rowCount do
+      local button = buttons[index]
+      local buttonWidth = width
+
+      if remainder > 0 then
+        buttonWidth = buttonWidth + 1
+        remainder = remainder - 1
+      end
+
+      button:ClearAllPoints()
+      button:SetHeight(height)
+      button:SetWidth(buttonWidth)
+
+      if previous then
+        button:SetPoint("TOPLEFT", previous, "TOPRIGHT", gap, 0)
+      else
+        local y = -topInset
+        if row < rows then
+          y = overflowBase + (rows - row) * (height + gap) - topInset
+        end
+        button:SetPoint("TOPLEFT", frame, "TOPLEFT", border, y)
+      end
+
+      ToolbarHideIcon(button)
+      ToolbarSizeIcon(button, height, border)
+      previous = button
+      index = index + 1
+    end
+
+    remaining = remaining - rowCount
+  end
+
+  return rows
+end
+
 
 local function ToolbarShowTooltip(button)
   if not button or not button.bagtweaks_toolbar_tooltip or not GameTooltip then return end
