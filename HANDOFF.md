@@ -4,7 +4,7 @@
 
 - Repository: `Seraphic8x2244/pfUI_BagTweaks`.
 - Work from the `dev` branch. Fetch current files before editing; the user may have changed the repo externally.
-- Current development version: `0.1.40-dev`.
+- Current development version: `0.1.41-dev`.
 - Work directly on `dev`; do not open a PR unless asked.
 - `main` is the stable user branch. Do not develop directly on `main`.
 - Keep this handoff updated when behaviour, invariants, test status, or TODOs change.
@@ -14,12 +14,12 @@
 ## Current Status
 
 - Branch: `dev`.
-- Version: `0.1.40-dev`.
-- Latest functional commits: `b937712` — move toolbar overflow rows downward inside the bag and reserve their exact height in BagTweaks relayout; `5e1347b` — add minimum-width toolbar wrapping and raise search spacing; `9e14a4f` — move the row-layout helper after its local icon dependencies for Vanilla-safe Lua lexical resolution. Latest asset rebuild commit: `74958e1` — regenerate Eye/EyeOff toolbar textures from scratch as fresh 32x32 uncompressed RGBA TGAs. Previous attempted eye repair commit: `bed6c82`; Options cog wiring commit: `6bb247f`; core redesign commit: `05a294d`.
+- Version: `0.1.41-dev`.
+- Latest functional commits: `5aba63f` — integrate the native Close button into BagTweaks toolbar sizing/visuals; `474dbc4` — preserve Close hover state across periodic relayout; `b937712` — move toolbar overflow rows downward inside the bag and reserve their exact height in BagTweaks relayout; `5e1347b` — add minimum-width toolbar wrapping and raise search spacing; `9e14a4f` — move the row-layout helper after its local icon dependencies for Vanilla-safe Lua lexical resolution. Latest asset rebuild commit: `74958e1` — regenerate Eye/EyeOff toolbar textures from scratch as fresh 32x32 uncompressed RGBA TGAs. Previous attempted eye repair commit: `bed6c82`; Options cog wiring commit: `6bb247f`; core redesign commit: `05a294d`.
 - Texture integrity commit: `caf6016` — repair the Lucide texture blobs so all eight committed 32x32 TGA assets exactly match the generated source files.
 - Icon integration commit: `849ecf8` — add the finalized Lucide toolbar textures, centered icon sizing, hover tint/tooltips, license attribution, and bump Lua/TOC to 0.1.34-dev.
 - Previous Quest functional commit: `47bf529` — narrow the explicit legacy Quest repair to account-wide plus current-character overrides and ensure name metadata is available for active-objective matching.
-- Latest TOC version commit: `fcab265` — sync TOC to 0.1.40-dev.
+- Latest TOC version commit: `660873d` — sync TOC to 0.1.41-dev.
 - Latest handoff/docs baseline before this update: `ba4f0ebd` — document the 0.1.38 Eye/EyeOff asset rebuild.
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
 - Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
@@ -51,8 +51,10 @@
 - Compatibility review: pfUI itself calculates bag height from a top-space term and supports saved movable anchors; BagTweaks now extends that existing top-space model rather than adding an external overlay. Non-movable bags retain their stabilized bottom anchor; movable bags continue to follow pfUI's saved anchor semantics.
 - Untested in-game in 0.1.40-dev: wrapped backpack/bank border/background coherence, exact category clearance beneath the second row, and behaviour when switching between widths/control sets that add or remove the overflow row.
 - In-game 0.1.40-dev result: downward internal wrapping, bag background/border, content displacement, and height behaviour look correct.
-- Current requested next pass: replace the native fixed-size pfUI Close/X appearance with a BagTweaks-managed close control using the same Lucide icon family, hover treatment, responsive sizing, and toolbar width rules while preserving pfUI's existing close action.
-- Exact next step: add a Lucide-style X toolbar asset, wire the existing close button through BagTweaks visual/layout management, bump the dev version, and test normal + wrapped toolbar geometry.
+- Completed in 0.1.41-dev: the existing pfUI Close button remains the click target/action but is now visually/layout-managed by BagTweaks. It uses a Lucide-style X, the same grey/gold hover treatment and tooltip behaviour as the toolbar, and shares the calculated width of controls on the primary toolbar row. The Close button stays anchored at the bag's top-right, including when other controls wrap downward.
+- Close asset: `textures/toolbar/x.tga`; final repair commit `6fc2b7f`. Verified repository payload is the same Vanilla-safe 32x32 uncompressed RGBA TGA size as the known-good toolbar assets: 4,140 bytes / 5,520 base64 characters. The earlier short first blob is superseded.
+- Untested in-game in 0.1.41-dev: Close icon rendering, hover/tooltip, click behaviour, and responsive width in both one-row and wrapped backpack/bank layouts.
+- Exact next step: test the 0.1.41 Close control in backpack and bank at normal and wrapped widths. Confirm X artwork, gold hover border/icon, tooltip, native close action, and alignment/width parity with the other primary-row controls.
 
 ## Goals
 
@@ -163,7 +165,7 @@ Bank:
 - Sort is hidden if the pfUI fork has no native sorter; DE/Pick remain availability-gated.
 - Toolbar buttons have an 18 px minimum width (or toolbar height if larger); overflow wraps downward inside the bag rather than shrinking below that floor. Each extra row increases the bag's reserved top space and total frame height by exactly one toolbar-row pitch.
 - Search sits 4 px outside the bag's top edge (2 px farther than 0.1.38-dev); because wrapped rows are internal, Search does not need an extra row-specific offset.
-- Discovered third-party bag controls stay before Options; Options stays immediately before Close.
+- Discovered third-party bag controls stay before Options; Options stays immediately before Close. Close preserves pfUI's native click action but uses BagTweaks' Lucide X, hover treatment, tooltip, and responsive primary-row width.
 - No BagTweaks options are currently exposed.
 
 ## Test Status
