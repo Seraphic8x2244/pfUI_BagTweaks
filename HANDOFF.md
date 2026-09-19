@@ -4,7 +4,7 @@
 
 - Repository: `Seraphic8x2244/pfUI_BagTweaks`.
 - Work from the `dev` branch. Fetch current files before editing; the user may have changed the repo externally.
-- Current development version: `0.1.36-dev`.
+- Current development version: `0.1.37-dev`.
 - Work directly on `dev`; do not open a PR unless asked.
 - `main` is the stable user branch. Do not develop directly on `main`.
 - Keep this handoff updated when behaviour, invariants, test status, or TODOs change.
@@ -14,12 +14,12 @@
 ## Current Status
 
 - Branch: `dev`.
-- Version: `0.1.36-dev`.
-- Latest functional commit: `6bb247f` — point Options at the cog-shaped Lucide Settings texture. Asset repair commit: `bed6c82` — repair truncated Eye/EyeOff TGAs and add the cog Settings artwork. Previous 0.1.35 toolbar functional commit: `7e8402e`; core redesign commit: `05a294d`.
+- Version: `0.1.37-dev`.
+- Latest functional commit: `5028d2d` — reorder toolbar controls by function. Asset repair commit: `bed6c82` — repair truncated Eye/EyeOff TGAs and add the cog Settings artwork. Options cog wiring commit: `6bb247f`; previous 0.1.35 toolbar functional commit: `7e8402e`; core redesign commit: `05a294d`.
 - Texture integrity commit: `caf6016` — repair the Lucide texture blobs so all eight committed 32x32 TGA assets exactly match the generated source files.
 - Icon integration commit: `849ecf8` — add the finalized Lucide toolbar textures, centered icon sizing, hover tint/tooltips, license attribution, and bump Lua/TOC to 0.1.34-dev.
 - Previous Quest functional commit: `47bf529` — narrow the explicit legacy Quest repair to account-wide plus current-character overrides and ensure name metadata is available for active-objective matching.
-- Latest TOC version commit: `5a4b061` — sync TOC to 0.1.36-dev.
+- Latest TOC version commit: `15ffbff` — sync TOC to 0.1.37-dev.
 - Latest docs commit before this handoff: `eea6a8f` — record 0.1.35 artwork cleanup.
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
 - Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
@@ -41,8 +41,8 @@
 - Completed in 0.1.35-dev: removed the View dropdown; exposed direct Bags, Keys, and Empty Subcategories controls; split the old `+` menu into direct New Category and New Subcategory buttons; moved KeyRound to Keys and LockKeyhole to Pick Lock; added Eye/EyeOff state artwork; retained current toolbar/button sizing; kept Sort/DE/Pick conditional visibility; placed discovered third-party controls before Options; preserved Options immediately before Close. New Subcategory opens directly when only one Category exists and retains the Category-choice menu when multiple Categories exist. New Lucide assets plus spare Lock/LockOpen were committed in `2414b85`; spare `Lock` and `LockOpen` were moved to `textures/artwork/` in `21e23ad` so only live toolbar assets remain under `textures/toolbar/`.
 - Untested in-game: the complete 0.1.35-dev toolbar redesign. The legacy Quest override repair cannot currently be reproduced on the available clients.
 - Completed in 0.1.36-dev: fixed malformed Eye/EyeOff texture files. Both were declared as uncompressed 32x32 RGBA TGAs but were physically truncated (Eye missing 120 bytes; EyeOff missing 156 bytes), causing Vanilla texture wrapping/bleed over the button border. Both are now complete 4,140-byte TGAs. Options now uses the cog-shaped Lucide `Settings` artwork; the previous slider-style `settings-2` asset was moved to `textures/artwork/`.
-- Planned reorder target: backpack `Sort -> Open -> Disenchant -> Pick Lock -> Search -> Empty Subcategories -> Quest -> Keys -> Bags -> New Category -> New Subcategory -> third-party extras -> Options -> Close`; bank mirrors the applicable subset as `Sort -> Search -> Empty Subcategories -> Quest -> Bags -> New Category -> New Subcategory -> Options -> Close`.
-- Exact next step: implement that reorder as the next dev build, preserving conditional visibility and existing control behaviour; then verify the Eye/EyeOff repair, cog Options artwork, and toolbar feel in-game.
+- Completed in 0.1.37-dev: reordered the backpack toolbar to `Sort -> Open -> Disenchant -> Pick Lock -> Search -> Empty Subcategories -> Quest -> Keys -> Bags -> New Category -> New Subcategory -> third-party extras -> Options -> Close`; bank mirrors the applicable subset as `Sort -> Search -> Empty Subcategories -> Quest -> Bags -> New Category -> New Subcategory -> Options -> Close`. Conditional visibility and existing control behaviour are unchanged.
+- Exact next step: install 0.1.37-dev and verify the new visual order, Eye/EyeOff repair, cog Options artwork, and worst-case toolbar width in-game.
 
 ## Goals
 
