@@ -50,7 +50,9 @@
 - Completed in 0.1.40-dev: wrapping now runs top-to-bottom inside the bag. The native top toolbar row stays in place; additional rows are placed beneath it. Each extra row reserves exactly one `(toolbar height + toolbar gap)` pitch in `RelayoutView()` via `frame.bagtweaks_toolbar_extra_height`, so category/general content is displaced below the toolbar and total frame height grows by the same amount. Search remains a constant 4 px outside the expanded bag frame. The old bank-specific upward overflow offset was removed.
 - Compatibility review: pfUI itself calculates bag height from a top-space term and supports saved movable anchors; BagTweaks now extends that existing top-space model rather than adding an external overlay. Non-movable bags retain their stabilized bottom anchor; movable bags continue to follow pfUI's saved anchor semantics.
 - Untested in-game in 0.1.40-dev: wrapped backpack/bank border/background coherence, exact category clearance beneath the second row, and behaviour when switching between widths/control sets that add or remove the overflow row.
-- Exact next step: test 0.1.40-dev at one wrapped and one unwrapped width on backpack and bank. Confirm the second row is inside the bag background, content is pushed down cleanly, total height returns when wrapping disappears, and the 4 px search gap still looks right.
+- In-game 0.1.40-dev result: downward internal wrapping, bag background/border, content displacement, and height behaviour look correct.
+- Current requested next pass: replace the native fixed-size pfUI Close/X appearance with a BagTweaks-managed close control using the same Lucide icon family, hover treatment, responsive sizing, and toolbar width rules while preserving pfUI's existing close action.
+- Exact next step: add a Lucide-style X toolbar asset, wire the existing close button through BagTweaks visual/layout management, bump the dev version, and test normal + wrapped toolbar geometry.
 
 ## Goals
 
