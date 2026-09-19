@@ -4,7 +4,7 @@
 
 - Repository: `Seraphic8x2244/pfUI_BagTweaks`.
 - Work from the `dev` branch. Fetch current files before editing; the user may have changed the repo externally.
-- Current development version: `0.1.30-dev`.
+- Current development version: `0.1.31-dev`.
 - Work directly on `dev`; do not open a PR unless asked.
 - `main` is the stable user branch. Do not develop directly on `main`.
 - Keep this handoff updated when behaviour, invariants, test status, or TODOs change.
@@ -14,18 +14,19 @@
 ## Current Status
 
 - Branch: `dev`.
-- Version: `0.1.30-dev`.
-- Latest functional commit: `b5cd41d` — inset Subcategory item grids and add a reliable backpack-hidden persistent-mode disarm fallback.
-- Previous functional commit: `458e4d3` — draw Subcategory accent on top and left.
-- Latest version commits: `25d1b80` / `6b6329c` — bump Lua/TOC to 0.1.30-dev.
+- Version: `0.1.31-dev`.
+- Latest functional commit: `2501d1d` — fine-tune Subcategory item inset from `border * 3` to `border` and bump Lua to 0.1.31-dev.
+- Previous functional commit: `b5cd41d` — inset Subcategory item grids and add a reliable backpack-hidden persistent-mode disarm fallback.
+- Latest TOC version commit: pending sync to 0.1.31-dev.
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
 - Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
-- Completed in 0.1.30-dev: Subcategory item grids are inset right by one pfUI spacing unit while the accent/header origin stays fixed; Subcategory footprint/top line grows by the same inset; packing calculations include that extra width. Persistent DE/Pick now also disarms when the existing toolbar watcher observes the backpack frame hidden, so it no longer depends solely on the replaceable OnHide wrapper.
+- Completed in 0.1.30-dev: Subcategory item grids were inset right by one pfUI spacing unit while the accent/header origin stayed fixed; Subcategory footprint/top line grew by the same inset; packing calculations included that extra width. Persistent DE/Pick now also disarms when the existing toolbar watcher observes the backpack frame hidden, so it no longer depends solely on the replaceable OnHide wrapper.
+- Completed in 0.1.31-dev: reduced that extra Subcategory item inset from `border * 3` to `border`, moving icons about 2 px left in the tested setup while preserving the accent/header origin and matching width/packing calculations.
 - Tested this pass: temporary active-quest objective detection for ordinary item-class items works in-game.
 - Tested this pass: backpack-close and bank-close persistent-mode disarm both work in-game. The 0.1.30-dev item inset is about 2 px too far right.
 - Untested this pass: revised item-grid inset/accent width and any resulting packing changes; world/instance-transition disarm.
 - Deferred: packing optimisation unless future inventories show a real problem, Pick Lock workflow test, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
-- Exact next step: reduce the extra Subcategory item inset from one full pfUI spacing unit (`border * 3`) to `border` (about 2 px left in the tested setup), keep the accent/header origin fixed, update width/packing calculations consistently, bump dev version, then retest visual alignment and world/instance-transition disarm.
+- Exact next step: reload/test 0.1.31-dev. Confirm the first item column now clears the left grey accent without looking over-inset and the top line still reaches the item block's right edge; then test persistent-mode disarm across a world/instance transition.
 
 ## Goals
 
