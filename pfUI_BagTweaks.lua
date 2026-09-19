@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.34-dev
+-- pfUI_BagTweaks 0.1.35-dev
 -- User-defined visual categories and subcategories for pfUI unified bags.
 -- Categories are full-width organisational containers; subcategories classify and sort items.
 -- Layout is visual only and never moves physical inventory slots.
@@ -2491,12 +2491,17 @@ local TOOLBAR_MENU_ROW_HEIGHT = 18
 local TOOLBAR_SEARCH_GAP = 2
 
 local TOOLBAR_ICON_TEXTURE = {
+  newcategory = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\square-plus",
+  newsubcategory = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\grid-2x2-plus",
   search = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\search",
   sort = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\arrow-up-down",
-  view = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\panels-top-left",
+  bags = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\backpack",
+  keys = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\key-round",
+  empty = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\eye",
+  empty_off = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\eye-off",
   quest = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\scroll-text",
   disenchant = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\wand-sparkles",
-  picklock = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\key-round",
+  picklock = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\lock-keyhole",
   open = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\package-open",
   options = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\settings-2",
 }
@@ -2709,17 +2714,39 @@ local function ToolbarSetActive(button, active)
 end
 
 local function ToolbarUpdateActiveVisuals()
-  ToolbarSetActive(toolbarState.buttons.search, toolbarState.searchOpen)
-
+  local bag = pfUI.bag and pfUI.bag.right
+  local bank = pfUI.bag and pfUI.bag.left
+  local bagsOn = bag and bag.bagslots and bag.bagslots:IsShown()
+  local bankBagsOn = bank and bank.bagslots and bank.bagslots:IsShown()
+  local keysOn = pfUI.bag and pfUI.bag.showKeyring
+  local emptyOn = true
   local questEnabled = false
+
+  if pfUI.bagtweaks and pfUI.bagtweaks.ShowEmptyCategories then
+    emptyOn = pfUI.bagtweaks.ShowEmptyCategories()
+  end
   if pfUI.bagtweaks and pfUI.bagtweaks.QuestEnabled then
     questEnabled = pfUI.bagtweaks.QuestEnabled()
   end
 
+  if toolbarState.buttons.empty then
+    ToolbarEnsureButtonVisual(toolbarState.buttons.empty, emptyOn and "empty" or "empty_off", L.EMPTY_CATEGORIES)
+  end
+  if bankToolbarState.buttons.empty then
+    ToolbarEnsureButtonVisual(bankToolbarState.buttons.empty, emptyOn and "empty" or "empty_off", L.EMPTY_CATEGORIES)
+  end
+
+  ToolbarSetActive(toolbarState.buttons.search, toolbarState.searchOpen)
+  ToolbarSetActive(toolbarState.buttons.bags, bagsOn)
+  ToolbarSetActive(toolbarState.buttons.keys, keysOn)
+  ToolbarSetActive(toolbarState.buttons.empty, emptyOn)
   ToolbarSetActive(toolbarState.buttons.quest, questEnabled)
   ToolbarSetActive(toolbarState.buttons.disenchant, toolbarState.activeMode == "disenchant")
   ToolbarSetActive(toolbarState.buttons.picklock, toolbarState.activeMode == "picklock")
+
   ToolbarSetActive(bankToolbarState.buttons.search, bankToolbarState.searchOpen)
+  ToolbarSetActive(bankToolbarState.buttons.bags, bankBagsOn)
+  ToolbarSetActive(bankToolbarState.buttons.empty, emptyOn)
   ToolbarSetActive(bankToolbarState.buttons.quest, questEnabled)
 end
 
@@ -2763,11 +2790,20 @@ local function ToolbarToggleSearch()
   end
 end
 
-local ToolbarShowAddMenu
+local ToolbarShowSubcategoryParentMenu
 
-local function ToolbarAdd()
+local function ToolbarNewCategory()
   ToolbarHideMenu()
-  if ToolbarShowAddMenu then ToolbarShowAddMenu(this) end
+  if pfUI.bagtweaks and pfUI.bagtweaks.ShowCategoryEditor then
+    pfUI.bagtweaks.ShowCategoryEditor(nil)
+  end
+end
+
+local function ToolbarNewSubcategory()
+  ToolbarHideMenu()
+  if ToolbarShowSubcategoryParentMenu then
+    ToolbarShowSubcategoryParentMenu(this)
+  end
 end
 
 local function ToolbarToggleQuest()
@@ -2976,94 +3012,61 @@ local function ToolbarShowMenu(owner, width, entries)
   menu:Show()
 end
 
-ToolbarShowAddMenu = function(owner)
+ToolbarShowSubcategoryParentMenu = function(owner)
   if not owner or not pfUI.bagtweaks then return end
 
-  local function AddSubcategory()
-    local categories = pfUI.bagtweaks.GetCategories and pfUI.bagtweaks.GetCategories() or {}
-
-    if table.getn(categories) <= 1 then
-      ToolbarHideMenu()
-      local id = categories[1] and categories[1].id or nil
-      if pfUI.bagtweaks.ShowSubcategoryEditor then
-        pfUI.bagtweaks.ShowSubcategoryEditor(nil, id)
-      end
-      return
+  local categories = pfUI.bagtweaks.GetCategories and pfUI.bagtweaks.GetCategories() or {}
+  if table.getn(categories) <= 1 then
+    local id = categories[1] and categories[1].id or nil
+    if pfUI.bagtweaks.ShowSubcategoryEditor then
+      pfUI.bagtweaks.ShowSubcategoryEditor(nil, id)
     end
-
-    local entries = {}
-    for i = 1, table.getn(categories) do
-      local categoryID = categories[i].id
-      table.insert(entries, {
-        text=categories[i].name,
-        action=function()
-          ToolbarHideMenu()
-          if pfUI.bagtweaks.ShowSubcategoryEditor then
-            pfUI.bagtweaks.ShowSubcategoryEditor(nil, categoryID)
-          end
-        end,
-      })
-    end
-
-    ToolbarHideMenu()
-    ToolbarShowMenu(owner, 170, entries)
+    return
   end
 
-  ToolbarShowMenu(owner, 170, {
-    { text=L.NEW_CATEGORY, action=function()
+  local entries = {}
+  for i = 1, table.getn(categories) do
+    local categoryID = categories[i].id
+    table.insert(entries, {
+      text=categories[i].name,
+      action=function()
         ToolbarHideMenu()
-        if pfUI.bagtweaks.ShowCategoryEditor then pfUI.bagtweaks.ShowCategoryEditor(nil) end
-      end },
-    { text=L.NEW_SUBCATEGORY, action=AddSubcategory },
-  })
+        if pfUI.bagtweaks.ShowSubcategoryEditor then
+          pfUI.bagtweaks.ShowSubcategoryEditor(nil, categoryID)
+        end
+      end,
+    })
+  end
+
+  ToolbarShowMenu(owner, 170, entries)
 end
 
 local function ToolbarToggleBagSlots()
+  ToolbarHideMenu()
   local bag = pfUI.bag and pfUI.bag.right
   local slots = bag and bag.bagslots
   if not slots then return end
   if slots:IsShown() then slots:Hide() else slots:Show() end
+  ToolbarUpdateActiveVisuals()
 end
 
 local function ToolbarToggleKeys()
+  ToolbarHideMenu()
   if not pfUI.bag then return end
   if pfUI.bag.showKeyring then pfUI.bag.showKeyring = nil
   else pfUI.bag.showKeyring = true end
 
   if pfUI.bag.CheckFullUpdate then pfUI.bag:CheckFullUpdate()
   elseif pfUI.bag.CreateBags then pfUI.bag:CreateBags() end
+  ToolbarUpdateActiveVisuals()
 end
 
 local function ToolbarToggleEmptyCategories()
+  ToolbarHideMenu()
   if pfUI.bagtweaks and pfUI.bagtweaks.ToggleEmptyCategories then
     pfUI.bagtweaks.ToggleEmptyCategories()
   end
-end
-
-local function ToolbarShowViewMenu(owner)
-  local bag = pfUI.bag and pfUI.bag.right
-  local bagsOn = bag and bag.bagslots and bag.bagslots:IsShown()
-  local keysOn = pfUI.bag and pfUI.bag.showKeyring
-  local emptyOn = true
-
-  if pfUI.bagtweaks and pfUI.bagtweaks.ShowEmptyCategories then
-    emptyOn = pfUI.bagtweaks.ShowEmptyCategories()
-  end
-
-  ToolbarShowMenu(owner, 145, {
-    { text=(bagsOn and "[x] " or "[ ] ") .. L.BAGS, action=function()
-        ToolbarToggleBagSlots()
-        ToolbarHideMenu()
-      end },
-    { text=(keysOn and "[x] " or "[ ] ") .. L.KEYS, action=function()
-        ToolbarToggleKeys()
-        ToolbarHideMenu()
-      end },
-    { text=(emptyOn and "[x] " or "[ ] ") .. L.EMPTY_CATEGORIES, action=function()
-        ToolbarToggleEmptyCategories()
-        ToolbarHideMenu()
-      end },
-  })
+  ToolbarUpdateActiveVisuals()
 end
 
 local function ToolbarOpenOptions()
@@ -3199,10 +3202,6 @@ end
 
 local function ToolbarClickSort()
   ToolbarNativeClick("sort")
-end
-
-local function ToolbarClickView()
-  ToolbarShowViewMenu(this)
 end
 
 local function ToolbarClickOpen()
@@ -3353,27 +3352,6 @@ local function BankToolbarToggleBagSlots()
   BankToolbarApplySearchState()
 end
 
-local function BankToolbarShowViewMenu(owner)
-  local bank = pfUI.bag and pfUI.bag.left
-  local bagsOn = bank and bank.bagslots and bank.bagslots:IsShown()
-  local emptyOn = true
-
-  if pfUI.bagtweaks and pfUI.bagtweaks.ShowEmptyCategories then
-    emptyOn = pfUI.bagtweaks.ShowEmptyCategories()
-  end
-
-  ToolbarShowMenu(owner, 145, {
-    { text=(bagsOn and "[x] " or "[ ] ") .. L.BAGS, action=function()
-        BankToolbarToggleBagSlots()
-        ToolbarHideMenu()
-      end },
-    { text=(emptyOn and "[x] " or "[ ] ") .. L.EMPTY_CATEGORIES, action=function()
-        ToolbarToggleEmptyCategories()
-        ToolbarHideMenu()
-      end },
-  })
-end
-
 local function BankToolbarNativeClick(which)
   ToolbarHideMenu()
   local func = bankToolbarState.native[which]
@@ -3435,10 +3413,6 @@ local function BankToolbarClickSort()
   BankToolbarNativeClick("sort")
 end
 
-local function BankToolbarClickView()
-  BankToolbarShowViewMenu(this)
-end
-
 local function BankToolbarLayout()
   local bank = pfUI.bag and pfUI.bag.left
   if not bank or not bank.close or not bank.GetWidth then return end
@@ -3446,14 +3420,18 @@ local function BankToolbarLayout()
   local height, border, gap, topInset = ToolbarMetrics(bank)
   BankToolbarSuppressNative(bank)
 
-  local add = BankToolbarMakeButton("add", "+", ToolbarAdd)
+  local newCategory = BankToolbarMakeButton("newcategory", L.NEW_CATEGORY, ToolbarNewCategory)
+  local newSubcategory = BankToolbarMakeButton("newsubcategory", L.NEW_SUBCATEGORY, ToolbarNewSubcategory)
   local search = BankToolbarMakeButton("search", L.TOOLBAR_SEARCH, BankToolbarToggleSearch)
   local sort = BankToolbarMakeButton("sort", L.TOOLBAR_SORT, BankToolbarClickSort)
-  local view = BankToolbarMakeButton("view", L.TOOLBAR_VIEW, BankToolbarClickView)
+  local bags = BankToolbarMakeButton("bags", L.BAGS, BankToolbarToggleBagSlots)
+  local empty = BankToolbarMakeButton("empty", L.EMPTY_CATEGORIES, ToolbarToggleEmptyCategories)
   local quest = BankToolbarMakeButton("quest", L.TOOLBAR_QUEST, ToolbarToggleQuest)
   local options = BankToolbarMakeButton("options", L.TOOLBAR_OPTIONS, ToolbarOpenOptions)
 
   local buttons = {}
+  if newCategory then table.insert(buttons, newCategory) end
+  if newSubcategory then table.insert(buttons, newSubcategory) end
   if search then table.insert(buttons, search) end
 
   if sort then
@@ -3465,35 +3443,22 @@ local function BankToolbarLayout()
     end
   end
 
-  if view then table.insert(buttons, view) end
+  if bags then table.insert(buttons, bags) end
+  if empty then table.insert(buttons, empty) end
   if quest then table.insert(buttons, quest) end
   if options then table.insert(buttons, options) end
 
-  local closeWidth = bank.close:GetWidth() or height
-  local addWidth = closeWidth
-
-  if add then
-    add:ClearAllPoints()
-    add:SetHeight(height)
-    add:SetWidth(addWidth)
-    add:SetPoint("TOPLEFT", bank, "TOPLEFT", border, -topInset)
-
-    if add.bagtweaks_toolbar_label then
-      add.bagtweaks_toolbar_label:ClearAllPoints()
-      add.bagtweaks_toolbar_label:SetPoint("CENTER", add, "CENTER", 0, 0)
-    end
-  end
-
   local count = table.getn(buttons)
   if count > 0 then
-    local available = bank:GetWidth() - border - border - closeWidth - gap - addWidth - gap
+    local closeWidth = bank.close:GetWidth() or height
+    local available = bank:GetWidth() - border - border - closeWidth - gap
     local gaps = (count - 1) * gap
     local usable = available - gaps
 
     if usable >= count then
       local base = math.floor(usable / count)
       local remainder = usable - base * count
-      local previous = add
+      local previous = nil
 
       for i = 1, count do
         local button = buttons[i]
@@ -3507,7 +3472,11 @@ local function BankToolbarLayout()
         button:ClearAllPoints()
         button:SetHeight(height)
         button:SetWidth(width)
-        button:SetPoint("TOPLEFT", previous, "TOPRIGHT", gap, 0)
+        if previous then
+          button:SetPoint("TOPLEFT", previous, "TOPRIGHT", gap, 0)
+        else
+          button:SetPoint("TOPLEFT", bank, "TOPLEFT", border, -topInset)
+        end
         ToolbarHideIcon(button)
         ToolbarSizeIcon(button, height, border)
         previous = button
@@ -3551,10 +3520,13 @@ local function ToolbarLayout()
   local height, border, gap, topInset = ToolbarMetrics(bag)
   ToolbarSuppressNative(bag)
 
-  local add = ToolbarMakeButton("add", "+", ToolbarAdd)
+  local newCategory = ToolbarMakeButton("newcategory", L.NEW_CATEGORY, ToolbarNewCategory)
+  local newSubcategory = ToolbarMakeButton("newsubcategory", L.NEW_SUBCATEGORY, ToolbarNewSubcategory)
   local search = ToolbarMakeButton("search", L.TOOLBAR_SEARCH, ToolbarToggleSearch)
   local sort = ToolbarMakeButton("sort", L.TOOLBAR_SORT, ToolbarClickSort)
-  local view = ToolbarMakeButton("view", L.TOOLBAR_VIEW, ToolbarClickView)
+  local bags = ToolbarMakeButton("bags", L.BAGS, ToolbarToggleBagSlots)
+  local keys = ToolbarMakeButton("keys", L.KEYS, ToolbarToggleKeys)
+  local empty = ToolbarMakeButton("empty", L.EMPTY_CATEGORIES, ToolbarToggleEmptyCategories)
   local quest = ToolbarMakeButton("quest", L.TOOLBAR_QUEST, ToolbarToggleQuest)
   local disenchant = ToolbarMakeButton("disenchant", L.TOOLBAR_DISENCHANT, ToolbarToggleDisenchantMode)
   local picklock = ToolbarMakeButton("picklock", L.TOOLBAR_PICKLOCK, ToolbarTogglePickLockMode)
@@ -3562,7 +3534,8 @@ local function ToolbarLayout()
   local options = ToolbarMakeButton("options", L.TOOLBAR_OPTIONS, ToolbarOpenOptions)
 
   local buttons = {}
-
+  if newCategory then table.insert(buttons, newCategory) end
+  if newSubcategory then table.insert(buttons, newSubcategory) end
   if search then table.insert(buttons, search) end
 
   if sort then
@@ -3574,7 +3547,9 @@ local function ToolbarLayout()
     end
   end
 
-  if view then table.insert(buttons, view) end
+  if bags then table.insert(buttons, bags) end
+  if keys then table.insert(buttons, keys) end
+  if empty then table.insert(buttons, empty) end
   if quest then table.insert(buttons, quest) end
 
   local deAvailable = bag.disenchant and (bag.disenchant:GetID() or 0) > 0
@@ -3600,25 +3575,11 @@ local function ToolbarLayout()
   end
 
   if open then table.insert(buttons, open) end
-  if options then table.insert(buttons, options) end
 
   local extras = ToolbarDiscoverExtras(bag, border)
   for i = 1, table.getn(extras) do table.insert(buttons, extras[i]) end
 
-  local closeWidth = bag.close:GetWidth() or height
-  local addWidth = closeWidth
-
-  if add then
-    add:ClearAllPoints()
-    add:SetHeight(height)
-    add:SetWidth(addWidth)
-    add:SetPoint("TOPLEFT", bag, "TOPLEFT", border, -topInset)
-
-    if add.bagtweaks_toolbar_label then
-      add.bagtweaks_toolbar_label:ClearAllPoints()
-      add.bagtweaks_toolbar_label:SetPoint("CENTER", add, "CENTER", 0, 0)
-    end
-  end
+  if options then table.insert(buttons, options) end
 
   local count = table.getn(buttons)
   if count == 0 then
@@ -3627,14 +3588,15 @@ local function ToolbarLayout()
     return
   end
 
-  local available = bag:GetWidth() - border - border - closeWidth - gap - addWidth - gap
+  local closeWidth = bag.close:GetWidth() or height
+  local available = bag:GetWidth() - border - border - closeWidth - gap
   local gaps = (count - 1) * gap
   local usable = available - gaps
   if usable < count then return end
 
   local base = math.floor(usable / count)
   local remainder = usable - base * count
-  local previous = add
+  local previous = nil
 
   for i = 1, count do
     local button = buttons[i]
