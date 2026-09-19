@@ -2642,13 +2642,15 @@ local function ToolbarEnsureIcon(button, key, tooltip)
   if button.bagtweaks_toolbar_label then button.bagtweaks_toolbar_label:Hide() end
 
   local icon = button.bagtweaks_toolbar_icon
+  local created = false
   if not icon then
     icon = button:CreateTexture(nil, "OVERLAY")
     button.bagtweaks_toolbar_icon = icon
+    created = true
   end
 
   icon:SetTexture(path)
-  icon:SetVertexColor(.82, .82, .82, 1)
+  if created then icon:SetVertexColor(.82, .82, .82, 1) end
   icon:Show()
   button.bagtweaks_toolbar_tooltip = tooltip
   ToolbarHideIcon(button)
