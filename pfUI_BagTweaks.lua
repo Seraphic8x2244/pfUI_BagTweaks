@@ -3345,6 +3345,7 @@ local function BankToolbarToggleSearch()
 end
 
 local function BankToolbarToggleBagSlots()
+  ToolbarHideMenu()
   local bank = pfUI.bag and pfUI.bag.left
   local slots = bank and bank.bagslots
   if not slots then return end
