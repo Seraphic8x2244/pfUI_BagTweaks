@@ -2356,7 +2356,7 @@ local function Initialize()
             local itemType, equipLoc, classID = InstantInfo(id)
             local name = ""
 
-            if id and (itemType == nil or classID == nil) then
+            if id then
               local fullName, fullType, fullEquipLoc, fullClassID = FullInfo(id, nil)
               name = string.lower(fullName or "")
               itemType = itemType or fullType
@@ -2382,7 +2382,7 @@ local function Initialize()
       end
 
       Release(db.accountSubcategories)
-      for _, subcategoryMap in pairs(db.characterSubcategories) do Release(subcategoryMap) end
+      Release(CharacterSubcategories(false))
 
       PruneCurrentCharacterSubcategories()
       Relayout()
