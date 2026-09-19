@@ -4,7 +4,7 @@
 
 - Repository: `Seraphic8x2244/pfUI_BagTweaks`.
 - Work from the `dev` branch. Fetch current files before editing; the user may have changed the repo externally.
-- Current development version: `0.1.31-dev`.
+- Current development version: `0.1.32-dev`.
 - Work directly on `dev`; do not open a PR unless asked.
 - `main` is the stable user branch. Do not develop directly on `main`.
 - Keep this handoff updated when behaviour, invariants, test status, or TODOs change.
@@ -14,20 +14,21 @@
 ## Current Status
 
 - Branch: `dev`.
-- Version: `0.1.31-dev`.
-- Latest functional commit: `2501d1d` — fine-tune Subcategory item inset from `border * 3` to `border` and bump Lua to 0.1.31-dev.
+- Version: `0.1.32-dev`.
+- Latest functional commit: `08ae291` — set Subcategory item inset to `border * 2` (1 px right from 0.1.31-dev in the tested setup) and bump Lua to 0.1.32-dev.
 - Previous functional commit: `b5cd41d` — inset Subcategory item grids and add a reliable backpack-hidden persistent-mode disarm fallback.
-- Latest TOC version commit: `f9582ac` — sync TOC to 0.1.31-dev.
+- Latest TOC version commit: `6569489` — sync TOC to 0.1.32-dev.
 - Completed this pass: account-wide parent Category model confirmed; automatic packing validated in-game and produced the desired wide Healing/Spellpower plus compact Tank/Melee/PvP arrangement; wider horizontal Subcategory separation; tighter/better-balanced vertical spacing; DE changed to left-click; persistent mode disarms on bag close, bank close, and world transition; right-edge divider replaced with the requested L-shaped grey accent (existing top underline plus matching left edge).
 - Tested this pass: L-shaped Subcategory accent renders correctly relative to the header; DE left-click targeting works. The 0.1.29-dev screenshot showed item frames overlapping the left accent, and backpack-close disarm failed because pfUI can replace the bag frame's OnHide script during CreateBags().
 - Completed in 0.1.30-dev: Subcategory item grids were inset right by one pfUI spacing unit while the accent/header origin stayed fixed; Subcategory footprint/top line grew by the same inset; packing calculations included that extra width. Persistent DE/Pick now also disarms when the existing toolbar watcher observes the backpack frame hidden, so it no longer depends solely on the replaceable OnHide wrapper.
-- Completed in 0.1.31-dev: reduced that extra Subcategory item inset from `border * 3` to `border`, moving icons about 2 px left in the tested setup while preserving the accent/header origin and matching width/packing calculations.
+- 0.1.31-dev moved the icons 2 px left from 0.1.30-dev and proved slightly too far left.
+- Completed in 0.1.32-dev: set the extra Subcategory item inset to `border * 2`, moving icons 1 px right from 0.1.31-dev / 1 px left from 0.1.30-dev while preserving the accent/header origin and matching width/packing calculations.
 - Tested this pass: temporary active-quest objective detection for ordinary item-class items works in-game.
 - Tested this pass: backpack-close and bank-close persistent-mode disarm both work in-game. The 0.1.30-dev item inset is about 2 px too far right.
 - Tested this pass: backpack-close, bank-close, and world/instance-transition persistent-mode disarm all work in-game. On the tested instance transition the backpack is also forcibly closed, so the hidden-bag fallback already guarantees disarm there; the explicit `PLAYER_ENTERING_WORLD` disarm remains as a cheap safety net for alternate transition/order behaviour.
 - Untested this pass: revised item-grid inset/accent width and any resulting packing changes.
 - Deferred: packing optimisation unless future inventories show a real problem, Pick Lock workflow test, DE hover/cursor discoverability, custom toolbar artwork, possible toolbar refresh profiling.
-- Exact next step: reload/test 0.1.31-dev and confirm the revised item inset visually: the first item column should clear the left grey accent without looking over-inset, and the top line should still reach the item block's right edge.
+- Exact next step: reload/test 0.1.32-dev and confirm the final item inset visually: the first item column should clear the left grey accent with balanced spacing, and the top line should still reach the item block's right edge.
 
 ## Goals
 
