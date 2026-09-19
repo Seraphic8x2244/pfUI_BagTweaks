@@ -53,8 +53,9 @@
 - In-game 0.1.40-dev result: downward internal wrapping, bag background/border, content displacement, and height behaviour look correct.
 - Completed in 0.1.41-dev: the existing pfUI Close button remains the click target/action but is now visually/layout-managed by BagTweaks. It uses a Lucide-style X, the same grey/gold hover treatment and tooltip behaviour as the toolbar, and shares the calculated width of controls on the primary toolbar row. The Close button stays anchored at the bag's top-right, including when other controls wrap downward.
 - Close asset: `textures/toolbar/x.tga`; final repair commit `6fc2b7f`. Verified repository payload is the same Vanilla-safe 32x32 uncompressed RGBA TGA size as the known-good toolbar assets: 4,140 bytes / 5,520 base64 characters. The earlier short first blob is superseded.
-- Untested in-game in 0.1.41-dev: Close icon rendering, hover/tooltip, click behaviour, and responsive width in both one-row and wrapped backpack/bank layouts.
-- Exact next step: test the 0.1.41 Close control in backpack and bank at normal and wrapped widths. Confirm X artwork, gold hover border/icon, tooltip, native close action, and alignment/width parity with the other primary-row controls.
+- Tested in-game in 0.1.41-dev: the Lucide Close/X integration looks correct; hover/tooltip, native close action, responsive sizing, and normal/wrapped toolbar geometry are all good. The 0.1.40 downward internal wrapping/background/height behaviour also remains good.
+- Promotion requested: publish 0.1.41 to `main` using the usual stable-release rules: strip the `-dev` suffix and do not include development handoff/docs on `main`.
+- Exact next step after promotion: continue new work from `dev`; `main` should represent stable 0.1.41.
 
 ## Goals
 
