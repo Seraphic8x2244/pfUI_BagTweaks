@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.33-dev
+-- pfUI_BagTweaks 0.1.34-dev
 -- User-defined visual categories and subcategories for pfUI unified bags.
 -- Categories are full-width organisational containers; subcategories classify and sort items.
 -- Layout is visual only and never moves physical inventory slots.
@@ -2490,6 +2490,17 @@ local TOOLBAR_UPDATE_INTERVAL = .20
 local TOOLBAR_MENU_ROW_HEIGHT = 18
 local TOOLBAR_SEARCH_GAP = 2
 
+local TOOLBAR_ICON_TEXTURE = {
+  search = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\search",
+  sort = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\arrow-up-down",
+  view = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\panels-top-left",
+  quest = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\scroll-text",
+  disenchant = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\wand-sparkles",
+  picklock = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\key-round",
+  open = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\package-open",
+  options = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\settings-2",
+}
+
 local toolbarState = {
   initialized = false,
   searchOpen = false,
@@ -2576,10 +2587,16 @@ local function ToolbarSetHover(frame, hover)
     if frame.bagtweaks_toolbar_label then
       frame.bagtweaks_toolbar_label:SetTextColor(1, 1, .25, 1)
     end
+    if frame.bagtweaks_toolbar_icon then
+      frame.bagtweaks_toolbar_icon:SetVertexColor(1, 1, .25, 1)
+    end
   else
     ToolbarSetBorderColor(frame, .25, .25, .25, 1)
     if frame.bagtweaks_toolbar_label then
       frame.bagtweaks_toolbar_label:SetTextColor(.82, .82, .82, 1)
+    end
+    if frame.bagtweaks_toolbar_icon then
+      frame.bagtweaks_toolbar_icon:SetVertexColor(.82, .82, .82, 1)
     end
   end
 end
@@ -2610,7 +2627,61 @@ local function ToolbarEnsureLabel(button, text)
   label:SetText(text)
   if created then label:SetTextColor(.82, .82, .82, 1) end
   label:Show()
+  if button.bagtweaks_toolbar_icon then button.bagtweaks_toolbar_icon:Hide() end
+  button.bagtweaks_toolbar_tooltip = nil
   ToolbarHideIcon(button)
+end
+
+local function ToolbarEnsureIcon(button, key, tooltip)
+  local path = TOOLBAR_ICON_TEXTURE[key]
+  if not path then
+    ToolbarEnsureLabel(button, tooltip)
+    return
+  end
+
+  if button.bagtweaks_toolbar_label then button.bagtweaks_toolbar_label:Hide() end
+
+  local icon = button.bagtweaks_toolbar_icon
+  if not icon then
+    icon = button:CreateTexture(nil, "OVERLAY")
+    button.bagtweaks_toolbar_icon = icon
+  end
+
+  icon:SetTexture(path)
+  icon:SetVertexColor(.82, .82, .82, 1)
+  icon:Show()
+  button.bagtweaks_toolbar_tooltip = tooltip
+  ToolbarHideIcon(button)
+end
+
+local function ToolbarEnsureButtonVisual(button, key, text)
+  if TOOLBAR_ICON_TEXTURE[key] then
+    ToolbarEnsureIcon(button, key, text)
+  else
+    ToolbarEnsureLabel(button, text)
+  end
+end
+
+local function ToolbarSizeIcon(button, height, border)
+  local icon = button and button.bagtweaks_toolbar_icon
+  if not icon then return end
+
+  local size = (tonumber(height) or 12) - (tonumber(border) or 1) * 2
+  if size > 14 then size = 14 end
+  if size < 8 then size = 8 end
+  if height and size > height then size = height end
+
+  icon:ClearAllPoints()
+  icon:SetWidth(size)
+  icon:SetHeight(size)
+  icon:SetPoint("CENTER", button, "CENTER", 0, 0)
+end
+
+local function ToolbarShowTooltip(button)
+  if not button or not button.bagtweaks_toolbar_tooltip or not GameTooltip then return end
+  GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+  GameTooltip:SetText(button.bagtweaks_toolbar_tooltip)
+  GameTooltip:Show()
 end
 
 local function ToolbarEnsureActiveOverlay(button)
@@ -3020,7 +3091,7 @@ end
 local function ToolbarMakeButton(key, text, onclick)
   local button = toolbarState.buttons[key]
   if button then
-    ToolbarEnsureLabel(button, text)
+    ToolbarEnsureButtonVisual(button, key, text)
     button:Show()
     return button
   end
@@ -3034,14 +3105,16 @@ local function ToolbarMakeButton(key, text, onclick)
 
   local _, border = ToolbarMetrics(bag)
   ToolbarCreateBackdrop(button, border)
-  ToolbarEnsureLabel(button, text)
+  ToolbarEnsureButtonVisual(button, key, text)
   ToolbarEnsureActiveOverlay(button)
   button:SetScript("OnClick", onclick)
   button:SetScript("OnEnter", function()
     ToolbarSetHover(this, true)
+    ToolbarShowTooltip(this)
   end)
   button:SetScript("OnLeave", function()
     ToolbarSetHover(this, false)
+    if GameTooltip then GameTooltip:Hide() end
   end)
 
   ToolbarSetHover(button, false)
@@ -3308,7 +3381,7 @@ end
 local function BankToolbarMakeButton(key, textValue, onclick)
   local button = bankToolbarState.buttons[key]
   if button then
-    ToolbarEnsureLabel(button, textValue)
+    ToolbarEnsureButtonVisual(button, key, textValue)
     button:Show()
     return button
   end
@@ -3322,11 +3395,17 @@ local function BankToolbarMakeButton(key, textValue, onclick)
 
   local _, border = ToolbarMetrics(bank)
   ToolbarCreateBackdrop(button, border)
-  ToolbarEnsureLabel(button, textValue)
+  ToolbarEnsureButtonVisual(button, key, textValue)
   ToolbarEnsureActiveOverlay(button)
   button:SetScript("OnClick", onclick)
-  button:SetScript("OnEnter", function() ToolbarSetHover(this, true) end)
-  button:SetScript("OnLeave", function() ToolbarSetHover(this, false) end)
+  button:SetScript("OnEnter", function()
+    ToolbarSetHover(this, true)
+    ToolbarShowTooltip(this)
+  end)
+  button:SetScript("OnLeave", function()
+    ToolbarSetHover(this, false)
+    if GameTooltip then GameTooltip:Hide() end
+  end)
 
   ToolbarSetHover(button, false)
   bankToolbarState.buttons[key] = button
@@ -3428,6 +3507,7 @@ local function BankToolbarLayout()
         button:SetWidth(width)
         button:SetPoint("TOPLEFT", previous, "TOPRIGHT", gap, 0)
         ToolbarHideIcon(button)
+        ToolbarSizeIcon(button, height, border)
         previous = button
       end
     end
@@ -3574,6 +3654,7 @@ local function ToolbarLayout()
     end
 
     ToolbarHideIcon(button)
+    ToolbarSizeIcon(button, height, border)
     previous = button
   end
 
