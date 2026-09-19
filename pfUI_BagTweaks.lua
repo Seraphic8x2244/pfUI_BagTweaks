@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.36-dev
+-- pfUI_BagTweaks 0.1.37-dev
 -- User-defined visual categories and subcategories for pfUI unified bags.
 -- Categories are full-width organisational containers; subcategories classify and sort items.
 -- Layout is visual only and never moves physical inventory slots.
@@ -3431,9 +3431,6 @@ local function BankToolbarLayout()
   local options = BankToolbarMakeButton("options", L.TOOLBAR_OPTIONS, ToolbarOpenOptions)
 
   local buttons = {}
-  if newCategory then table.insert(buttons, newCategory) end
-  if newSubcategory then table.insert(buttons, newSubcategory) end
-  if search then table.insert(buttons, search) end
 
   if sort then
     if bankToolbarState.native.sort then
@@ -3444,9 +3441,12 @@ local function BankToolbarLayout()
     end
   end
 
-  if bags then table.insert(buttons, bags) end
+  if search then table.insert(buttons, search) end
   if empty then table.insert(buttons, empty) end
   if quest then table.insert(buttons, quest) end
+  if bags then table.insert(buttons, bags) end
+  if newCategory then table.insert(buttons, newCategory) end
+  if newSubcategory then table.insert(buttons, newSubcategory) end
   if options then table.insert(buttons, options) end
 
   local count = table.getn(buttons)
@@ -3535,9 +3535,6 @@ local function ToolbarLayout()
   local options = ToolbarMakeButton("options", L.TOOLBAR_OPTIONS, ToolbarOpenOptions)
 
   local buttons = {}
-  if newCategory then table.insert(buttons, newCategory) end
-  if newSubcategory then table.insert(buttons, newSubcategory) end
-  if search then table.insert(buttons, search) end
 
   if sort then
     if toolbarState.native.sort then
@@ -3548,10 +3545,7 @@ local function ToolbarLayout()
     end
   end
 
-  if bags then table.insert(buttons, bags) end
-  if keys then table.insert(buttons, keys) end
-  if empty then table.insert(buttons, empty) end
-  if quest then table.insert(buttons, quest) end
+  if open then table.insert(buttons, open) end
 
   local deAvailable = bag.disenchant and (bag.disenchant:GetID() or 0) > 0
   if disenchant then
@@ -3575,7 +3569,13 @@ local function ToolbarLayout()
     end
   end
 
-  if open then table.insert(buttons, open) end
+  if search then table.insert(buttons, search) end
+  if empty then table.insert(buttons, empty) end
+  if quest then table.insert(buttons, quest) end
+  if keys then table.insert(buttons, keys) end
+  if bags then table.insert(buttons, bags) end
+  if newCategory then table.insert(buttons, newCategory) end
+  if newSubcategory then table.insert(buttons, newSubcategory) end
 
   local extras = ToolbarDiscoverExtras(bag, border)
   for i = 1, table.getn(extras) do table.insert(buttons, extras[i]) end
