@@ -54,8 +54,8 @@
 - Completed in 0.1.41-dev: the existing pfUI Close button remains the click target/action but is now visually/layout-managed by BagTweaks. It uses a Lucide-style X, the same grey/gold hover treatment and tooltip behaviour as the toolbar, and shares the calculated width of controls on the primary toolbar row. The Close button stays anchored at the bag's top-right, including when other controls wrap downward.
 - Close asset: `textures/toolbar/x.tga`; final repair commit `6fc2b7f`. Verified repository payload is the same Vanilla-safe 32x32 uncompressed RGBA TGA size as the known-good toolbar assets: 4,140 bytes / 5,520 base64 characters. The earlier short first blob is superseded.
 - Tested in-game in 0.1.41-dev: the Lucide Close/X integration looks correct; hover/tooltip, native close action, responsive sizing, and normal/wrapped toolbar geometry are all good. The 0.1.40 downward internal wrapping/background/height behaviour also remains good.
-- Promotion requested: publish 0.1.41 to `main` using the usual stable-release rules: strip the `-dev` suffix and do not include development handoff/docs on `main`.
-- Exact next step after promotion: continue new work from `dev`; `main` should represent stable 0.1.41.
+- Promoted to `main`: stable release `0.1.41` at commit `599b3ba` (`Release 0.1.41`). Stable Lua/TOC have no `-dev` suffix; `HANDOFF.md` and development docs are absent from the `main` tree. The Lucide Close/X asset is included.
+- Exact next step: continue new work from `dev`; `main` is the stable 0.1.41 baseline.
 
 ## Goals
 
