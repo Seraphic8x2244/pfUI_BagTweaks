@@ -7,6 +7,8 @@
 - Workflow: Migrated to the canonical `VanillaTemplate` development contract.
 
 ## Recent Commits
+- `25474f32f5e20d189c73f84caa6af3e10f30584a` — Release pfUI BagTweaks 0.1.42 to `main`.
+- `6f0c66752f59cf6e181303f32d390c4fb533e681` — Prepare pfUI BagTweaks 0.1.42 release.
 - Release preparation: migration smoke test confirmed good in game; promote as `0.1.42`.
 - `08b5d750903522eedc9d34dce0decdf59c6dd9de` — Restore the standard pfUI colour treatment in the addon-list title.
 - `e1f4fd7e2896de9a2b42ae69b6fec635edf5b225` — Migrate pfUI BagTweaks to canonical workflow.
@@ -15,7 +17,7 @@
 - `599b3babc16493e8b481ef18bb2fbe2dec1f7f5e` — Stable `main` release 0.1.41.
 
 ## Completed / Verified
-- Stable release `0.1.41` remains on `main`; active development remains on `dev`.
+- Stable release `0.1.42` is on `main` at `25474f3`; active development remains on `dev`.
 - Canonical workflow/name migration smoke test passed in game: addon loads correctly, coloured addon-list title is correct, pfUI branding is correct, existing SavedVariables remain intact, backpack/bank behaviour is good, and migrated artwork renders correctly.
 - Lucide Close/X integration, hover/tooltip, native close action, responsive sizing and normal/wrapped toolbar geometry were confirmed in game before the workflow migration.
 - Downward internal toolbar wrapping, bag background/border coherence and height behaviour were confirmed in game.
@@ -56,8 +58,7 @@
 - None required for the migration release.
 
 ## Planned / To-do
-- Promote the tested migrated state to `main` as stable `0.1.42`.
-- After promotion, continue new BagTweaks work from `dev`.
+- Continue new BagTweaks work from `dev`.
 
 ## Ideas / Backlog
 - Rogue Pick Lock workflow test.
@@ -70,4 +71,4 @@
 - Any unrelated refactor during the workflow migration.
 
 ## Exact Next Step
-Promote the tested migrated `dev` state to `main` as stable `0.1.42`, stripping development-only files and `-dev` metadata.
+Continue new BagTweaks work from `dev`; `main` is the stable 0.1.42 baseline.
