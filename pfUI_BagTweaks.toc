@@ -1,9 +1,9 @@
 ## Interface: 11200
-## Title: pfUI_BagTweaks
+## Title: |cff33ffccpf|cffffffffUI|r BagTweaks
 ## Notes: User-controlled bag presentation tweaks for pfUI.
-## Version: 0.1.41
+## Version: 0.1.42
 ## Dependencies: pfUI
 ## SavedVariables: pfUIBagTweaksDB
 
-locales.lua
+locales\enUS.lua
 pfUI_BagTweaks.lua
