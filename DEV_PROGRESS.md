@@ -7,6 +7,7 @@
 - Workflow: Migrated to the canonical `VanillaTemplate` development contract.
 
 ## Recent Commits
+- `08b5d750903522eedc9d34dce0decdf59c6dd9de` — Restore the standard pfUI colour treatment in the addon-list title.
 - `e1f4fd7e2896de9a2b42ae69b6fec635edf5b225` — Migrate pfUI BagTweaks to canonical workflow.
 - `7a2222089480eb0b923487fbc5842b258ebe45a6` — Adopt canonical development handoff.
 - `59659ad105137dc2efc50ef2aa1dafe3ade941e9` — Record 0.1.41 stable promotion.
@@ -25,6 +26,7 @@
   - `DEV_GUIDE.md` adopted unchanged from VanillaTemplate.
   - legacy `HANDOFF.md` replaced by concise `DEV_PROGRESS.md`.
   - visible addon branding normalized to `pfUI BagTweaks`; technical addon identity remains `pfUI_BagTweaks`.
+  - addon-list title retains the standard pfUI colour treatment: `|cff33ffccpf|cffffffffUI|r BagTweaks-dev`.
   - dev TOC title is `pfUI BagTweaks-dev`; version remains `0.1.41-dev`.
   - TOC is the sole version source; Lua reads `ADDON_VERSION` through `GetAddOnMetadata`.
   - localization moved from root `locales.lua` to `locales/enUS.lua`.
@@ -50,7 +52,7 @@
 
 ### Next Test
 - Install current `dev`.
-- Confirm addon-list title is `pfUI BagTweaks-dev`.
+- Confirm addon-list title renders as coloured `pfUI BagTweaks-dev`.
 - Confirm pfUI Thirdparty/options entry and header show `pfUI BagTweaks`.
 - Confirm localized labels resolve normally.
 - Confirm existing SavedVariables/categories/subcategories remain intact.
@@ -73,4 +75,4 @@
 - Any unrelated refactor during the workflow migration.
 
 ## Exact Next Step
-Install current `dev` at `e1f4fd7` and perform the migration smoke test, starting with addon-list/pfUI branding and toolbar artwork loading.
+Install current `dev` at `08b5d75` and perform the migration smoke test, starting with the coloured addon-list title, pfUI branding and toolbar artwork loading.
