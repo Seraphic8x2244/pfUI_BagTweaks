@@ -1,4 +1,4 @@
--- pfUI_BagTweaks locale strings
+-- pfUI BagTweaks locale strings
 -- English is the fallback locale. Add translated overrides here as needed.
 
 pfUIBagTweaks_L = pfUIBagTweaks_L or {}
@@ -45,8 +45,8 @@ L.ADD_TO_SUBCATEGORY_TOOLTIP = "Release/click to classify the selected item here
 L.MOVE_TO_GENERAL = "Move to General"
 L.MOVE_TO_GENERAL_TOOLTIP = "Release/click to keep the selected item in General"
 
-L.PLUGIN_NAME = "Bag Tweaks"
-L.PLUGIN_HEADER = "pfUI_BagTweaks"
+L.PLUGIN_NAME = "pfUI BagTweaks"
+L.PLUGIN_HEADER = "pfUI BagTweaks"
 
 L.BAGS = "Bags"
 L.KEYS = "Keys"

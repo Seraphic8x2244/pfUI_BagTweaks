@@ -1,4 +1,4 @@
-# pfUI_BagTweaks
+# pfUI BagTweaks
 
 A lightweight pfUI plugin for Vanilla WoW 1.12.1, developed and tested against brues-code pfUI, with compatibility code retained for Shagu pfUI where practical.
 

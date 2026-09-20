@@ -1,4 +1,4 @@
--- pfUI_BagTweaks 0.1.41-dev
+-- pfUI BagTweaks
 -- User-defined visual categories and subcategories for pfUI unified bags.
 -- Categories are full-width organisational containers; subcategories classify and sort items.
 -- Layout is visual only and never moves physical inventory slots.
@@ -8,6 +8,7 @@ if not pfUI then return end
 local L = pfUIBagTweaks_L or {}
 
 local ADDON_NAME = "pfUI_BagTweaks"
+local ADDON_VERSION = GetAddOnMetadata(ADDON_NAME, "Version")
 local initialized = false
 
 local function Initialize()
@@ -2494,20 +2495,20 @@ local TOOLBAR_SEARCH_GAP = 4
 local TOOLBAR_MIN_BUTTON_WIDTH = 18
 
 local TOOLBAR_ICON_TEXTURE = {
-  newcategory = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\square-plus",
-  newsubcategory = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\grid-2x2-plus",
-  search = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\search",
-  sort = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\arrow-up-down",
-  bags = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\backpack",
-  keys = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\key-round",
-  empty = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\eye",
-  empty_off = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\eye-off",
-  quest = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\scroll-text",
-  disenchant = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\wand-sparkles",
-  picklock = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\lock-keyhole",
-  open = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\package-open",
-  options = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\settings",
-  close = "Interface\\AddOns\\pfUI_BagTweaks\\textures\\toolbar\\x",
+  newcategory = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\square-plus",
+  newsubcategory = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\grid-2x2-plus",
+  search = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\search",
+  sort = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\arrow-up-down",
+  bags = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\backpack",
+  keys = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\key-round",
+  empty = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\eye",
+  empty_off = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\eye-off",
+  quest = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\scroll-text",
+  disenchant = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\wand-sparkles",
+  picklock = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\lock-keyhole",
+  open = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\package-open",
+  options = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\settings",
+  close = "Interface\\AddOns\\pfUI_BagTweaks\\artwork\\x",
 }
 
 local toolbarState = {
