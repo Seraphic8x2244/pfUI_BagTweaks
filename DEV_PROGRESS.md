@@ -2,11 +2,12 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.1.41-dev`
+- Version: `0.1.42-dev`
 - Goal: Smoke-test the completed VanillaTemplate workflow/name migration without changing existing bag behaviour.
 - Workflow: Migrated to the canonical `VanillaTemplate` development contract.
 
 ## Recent Commits
+- Release preparation: migration smoke test confirmed good in game; promote as `0.1.42`.
 - `08b5d750903522eedc9d34dce0decdf59c6dd9de` — Restore the standard pfUI colour treatment in the addon-list title.
 - `e1f4fd7e2896de9a2b42ae69b6fec635edf5b225` — Migrate pfUI BagTweaks to canonical workflow.
 - `7a2222089480eb0b923487fbc5842b258ebe45a6` — Adopt canonical development handoff.
@@ -15,6 +16,7 @@
 
 ## Completed / Verified
 - Stable release `0.1.41` remains on `main`; active development remains on `dev`.
+- Canonical workflow/name migration smoke test passed in game: addon loads correctly, coloured addon-list title is correct, pfUI branding is correct, existing SavedVariables remain intact, backpack/bank behaviour is good, and migrated artwork renders correctly.
 - Lucide Close/X integration, hover/tooltip, native close action, responsive sizing and normal/wrapped toolbar geometry were confirmed in game before the workflow migration.
 - Downward internal toolbar wrapping, bag background/border coherence and height behaviour were confirmed in game.
 - Regenerated Eye/EyeOff toolbar assets render correctly in game.
@@ -45,24 +47,17 @@
 ## Testing
 
 ### Last Test
-- Version/commit: pre-migration `0.1.41-dev`.
-- Passed: Close/X integration, hover/tooltip, native close action, responsive toolbar sizing, wrapped toolbar geometry, downward internal wrapping/background/height behaviour.
+- Version/commit: migrated `dev` at `3fa56a0` (release metadata only will move to `0.1.42-dev`).
+- Passed: addon loads correctly; coloured `pfUI BagTweaks-dev` addon-list title; pfUI branding; existing SavedVariables/categories; backpack/bank behaviour; toolbar, Eye/EyeOff and Close/X artwork from `artwork/`.
 - Failed: None reported.
-- Not tested: current canonical workflow/file-layout migration at `e1f4fd7`.
+- Not tested: legacy Quest migration/repair remains non-reproducible on available affected clients.
 
 ### Next Test
-- Install current `dev`.
-- Confirm addon-list title renders as coloured `pfUI BagTweaks-dev`.
-- Confirm pfUI Thirdparty/options entry and header show `pfUI BagTweaks`.
-- Confirm localized labels resolve normally.
-- Confirm existing SavedVariables/categories/subcategories remain intact.
-- Confirm backpack and bank open normally.
-- Confirm all toolbar icons, Eye/EyeOff and Close/X render correctly from the new flat `artwork/` path.
+- None required for the migration release.
 
 ## Planned / To-do
-- Complete the migration smoke test above.
-- After that, continue new BagTweaks work from `dev`.
-- Keep `main` untouched until a tested stable state is explicitly approved for promotion.
+- Promote the tested migrated state to `main` as stable `0.1.42`.
+- After promotion, continue new BagTweaks work from `dev`.
 
 ## Ideas / Backlog
 - Rogue Pick Lock workflow test.
@@ -75,4 +70,4 @@
 - Any unrelated refactor during the workflow migration.
 
 ## Exact Next Step
-Install current `dev` at `08b5d75` and perform the migration smoke test, starting with the coloured addon-list title, pfUI branding and toolbar artwork loading.
+Promote the tested migrated `dev` state to `main` as stable `0.1.42`, stripping development-only files and `-dev` metadata.
