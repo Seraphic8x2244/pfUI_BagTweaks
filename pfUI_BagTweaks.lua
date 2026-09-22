@@ -114,25 +114,28 @@ local function Initialize()
     local legacyDefinitions = legacySchema and (db.categories or db.groups or {}) or nil
     local legacyNextSubcategoryID = legacySchema and (db.nextCategoryID or db.nextGroupID) or nil
 
+    -- Only write defaults/migrations when the stored value actually needs it.
+    -- A normal login with an already-valid DB should leave the SavedVariables
+    -- structure untouched.
     if legacySchema then
       db.subcategories = legacyDefinitions or {}
       db.categories = {}
     else
-      db.subcategories = db.subcategories or {}
-      db.categories = db.categories or {}
+      if db.subcategories == nil then db.subcategories = {} end
+      if db.categories == nil then db.categories = {} end
     end
 
-    db.groups = nil
-    db.rows = nil
+    if db.groups ~= nil then db.groups = nil end
+    if db.rows ~= nil then db.rows = nil end
 
     local nextSubcategoryID = tonumber(db.nextSubcategoryID or legacyNextSubcategoryID)
     if not nextSubcategoryID or nextSubcategoryID < 1 then nextSubcategoryID = 1 end
-    db.nextSubcategoryID = nextSubcategoryID
-    db.nextGroupID = nil
+    if db.nextSubcategoryID ~= nextSubcategoryID then db.nextSubcategoryID = nextSubcategoryID end
+    if db.nextGroupID ~= nil then db.nextGroupID = nil end
 
     local nextCategoryID = tonumber(db.nextCategoryID)
     if legacySchema or not nextCategoryID or nextCategoryID < 1 then nextCategoryID = 1 end
-    db.nextCategoryID = nextCategoryID
+    if db.nextCategoryID ~= nextCategoryID then db.nextCategoryID = nextCategoryID end
 
     if db.generalSort == nil then db.generalSort = "bag" end
     if db.generalReverse == nil then db.generalReverse = false end
@@ -140,15 +143,15 @@ local function Initialize()
     if db.accountSubcategories == nil then
       db.accountSubcategories = db.accountCategories or db.accountAssignments or db.assignments or {}
     end
-    db.accountCategories = nil
-    db.accountAssignments = nil
-    db.assignments = nil
+    if db.accountCategories ~= nil then db.accountCategories = nil end
+    if db.accountAssignments ~= nil then db.accountAssignments = nil end
+    if db.assignments ~= nil then db.assignments = nil end
 
     if db.characterSubcategories == nil then
       db.characterSubcategories = db.characterCategories or db.charAssignments or {}
     end
-    db.characterCategories = nil
-    db.charAssignments = nil
+    if db.characterCategories ~= nil then db.characterCategories = nil end
+    if db.charAssignments ~= nil then db.charAssignments = nil end
 
     if db.showEmptyCategories == nil then db.showEmptyCategories = true end
 
@@ -246,7 +249,7 @@ local function Initialize()
         subcategory.id = id
         db.nextSubcategoryID = id + 1
       else
-        subcategory.id = id
+        if subcategory.id ~= id then subcategory.id = id end
         if id >= db.nextSubcategoryID then db.nextSubcategoryID = id + 1 end
       end
 
@@ -272,7 +275,7 @@ local function Initialize()
         legacyQuestEnabled = true
         legacyQuestSystem = subcategory
       end
-      subcategory.quest = nil
+      if subcategory.quest ~= nil then subcategory.quest = nil end
 
       if subcategory.system == "quest" and not questSystem then questSystem = subcategory end
     end
@@ -282,8 +285,8 @@ local function Initialize()
     -- so its saved assignments do not become higher-priority manual overrides.
     if not questSystem and legacyQuestSystem then questSystem = legacyQuestSystem end
 
-    db.questCategoryID = nil
-    db.questGroupID = nil
+    if db.questCategoryID ~= nil then db.questCategoryID = nil end
+    if db.questGroupID ~= nil then db.questGroupID = nil end
     if db.questEnabled == nil then
       db.questEnabled = legacyQuestEnabled
     elseif db.questEnabled ~= true and db.questEnabled ~= false then
@@ -301,9 +304,9 @@ local function Initialize()
       db.nextSubcategoryID = db.nextSubcategoryID + 1
       table.insert(db.subcategories, questSystem)
     else
-      questSystem.scope = "account"
-      questSystem.owner = nil
-      questSystem.system = "quest"
+      if questSystem.scope ~= "account" then questSystem.scope = "account" end
+      if questSystem.owner ~= nil then questSystem.owner = nil end
+      if questSystem.system ~= "quest" then questSystem.system = "quest" end
     end
 
     if legacySchema then
@@ -335,7 +338,7 @@ local function Initialize()
         subcategories=ordered,
       })
       db.nextCategoryID = db.nextCategoryID + 1
-      db.schemaVersion = 2
+      if db.schemaVersion ~= 2 then db.schemaVersion = 2 end
     end
 
     local function NormalizeCategories()
@@ -353,12 +356,12 @@ local function Initialize()
           db.nextCategoryID = id + 1
         end
 
-        category.id = id
+        if category.id ~= id then category.id = id end
         seenCategoryIDs[id] = true
         if not category.name or Trim(category.name) == "" then
           category.name = string.format(L.DEFAULT_CATEGORY, id)
         end
-        category.subcategories = category.subcategories or {}
+        if category.subcategories == nil then category.subcategories = {} end
       end
 
       if table.getn(db.categories) == 0 then
@@ -383,7 +386,17 @@ local function Initialize()
           end
         end
 
-        category.subcategories = clean
+        local stored = category.subcategories
+        local changed = table.getn(stored) ~= table.getn(clean)
+        if not changed then
+          for n = 1, table.getn(clean) do
+            if stored[n] ~= clean[n] then
+              changed = true
+              break
+            end
+          end
+        end
+        if changed then category.subcategories = clean end
       end
 
       local fallback = db.categories[1]
@@ -395,7 +408,7 @@ local function Initialize()
         end
       end
 
-      db.schemaVersion = 2
+      if db.schemaVersion ~= 2 then db.schemaVersion = 2 end
     end
 
     local function ActiveCategories(categorized)
