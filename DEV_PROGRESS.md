@@ -31,9 +31,10 @@
 - Static diff review passed; no bag layout, classification, sorting or toolbar paths were changed.
 
 ## Current Issues
-- User reported SavedVariables backup tooling detecting BagTweaks file edits despite no intentional BagTweaks changes.
-- 0.1.43-dev addresses addon-side no-op DB mutation.
-- WoW may still rewrite/touch a registered SavedVariables file during logout/reload even when serialized content is unchanged. If the backup tool reacts only to modification time/write events, that remaining behaviour is client-owned rather than BagTweaks-owned.
+- User supplied before/after SavedVariables files from the backup manager. They contain the same observed BagTweaks state but are serialized in different table-key order.
+- Examples include top-level sections moving position, fields inside subcategory records changing order, and account/character item-assignment keys being emitted in different order while retaining the same values.
+- This is textual serialization-order churn from unordered Lua tables, not evidence of a BagTweaks setting/category mutation.
+- 0.1.43-dev still correctly removes addon-side no-op normalization writes, but those guards cannot make WoW's table serialization order stable.
 
 ## Testing
 
@@ -44,15 +45,14 @@
 - Not tested: 0.1.43-dev SavedVariables fix; legacy Quest migration/repair remains non-reproducible on available affected clients.
 
 ### Next Test
-- On `0.1.43-dev`, make no BagTweaks changes.
-- Capture/compare the contents of `pfUIBagTweaksDB.lua` before and after a login/logout or `/reload`.
-- Confirm the serialized DB content is unchanged.
-- If backup software still flags it while file contents are identical, treat that as timestamp/write-event detection by the client rather than addon data churn.
-- Confirm one deliberate BagTweaks change still persists normally.
+- No further no-op mutation test is needed to explain the supplied raw-text diff: the observed change is table serialization order.
+- Confirm one deliberate BagTweaks change still persists normally on 0.1.43-dev.
+- If strict byte/text-stable SavedVariables are required, decide explicitly between changing the backup manager to compare Lua tables semantically or redesigning BagTweaks' persisted schema into a canonical ordered representation.
 
 ## Planned / To-do
-- User-test 0.1.43-dev no-op SavedVariables behaviour.
-- If an actual content diff remains, inspect that exact before/after diff and remove the remaining non-idempotent path without broad refactoring.
+- Keep the 0.1.43-dev idempotent-normalization fix.
+- Do not add further write guards for the supplied diff; they cannot control serializer key order.
+- Prefer semantic/canonical comparison in backup tooling over redesigning BagTweaks persistence solely for text-order stability.
 
 ## Ideas / Backlog
 - Rogue Pick Lock workflow test.
@@ -65,4 +65,4 @@
 - Unrelated refactors while fixing SavedVariables churn.
 
 ## Exact Next Step
-Install/test `0.1.43-dev` with no BagTweaks interaction and compare the SavedVariables file contents before/after. If the contents differ, use that exact diff to identify the remaining writer; if only the file timestamp changes, no further BagTweaks data-write fix is indicated.
+Treat the supplied before/after files as serialization-order-only churn. Keep 0.1.43-dev as-is and, if the backup manager must stop flagging this, change its comparison to canonical/semantic Lua-table comparison rather than raw line ordering.
