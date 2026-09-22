@@ -1,7 +1,7 @@
 ## Interface: 11200
 ## Title: |cff33ffccpf|cffffffffUI|r BagTweaks-dev
 ## Notes: User-controlled bag presentation tweaks for pfUI.
-## Version: 0.1.42-dev
+## Version: 0.1.43-dev
 ## Dependencies: pfUI
 ## SavedVariables: pfUIBagTweaksDB
 
