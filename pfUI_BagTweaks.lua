@@ -1291,6 +1291,25 @@ local function Initialize()
 
     pfUI.bagtweaks.InventoryTracker = InventoryTracker
 
+    -- Add Account Inventory after pfUI has populated a bag-item tooltip. Hooking
+    -- SetBagItem is more durable than replacing each slot's OnEnter script, which
+    -- other bag/tooltip code may replace after BagTweaks lays out the slot.
+    if GameTooltip and type(GameTooltip.SetBagItem) == "function" and not GameTooltip.bagtweaks_inventory_hooked then
+      local oldSetBagItem = GameTooltip.SetBagItem
+      GameTooltip.SetBagItem = function(self, bag, slot)
+        local result = oldSetBagItem(self, bag, slot)
+        if bag ~= nil and slot ~= nil then
+          local data = pfUI.bags and pfUI.bags[bag] and pfUI.bags[bag].slots and pfUI.bags[bag].slots[slot]
+          local frame = data and data.frame
+          if frame and self.IsOwned and self:IsOwned(frame) then
+            InventoryTracker:AppendTooltip(ItemID(bag, slot))
+          end
+        end
+        return result
+      end
+      GameTooltip.bagtweaks_inventory_hooked = true
+    end
+
     local function NameFromLink(link)
       if not link then return "" end
       local _, _, name = string.find(link, "%[([^%]]+)%]")
@@ -2596,7 +2615,6 @@ local function Initialize()
           if frame and not frame.bagtweaks_select_hooked then
             local oldMouseDown = frame:GetScript("OnMouseDown")
             local oldDragStart = frame:GetScript("OnDragStart")
-            local oldOnEnter = frame:GetScript("OnEnter")
             local b, s = bag, slot
 
             frame:SetScript("OnMouseDown", function()
@@ -2609,10 +2627,6 @@ local function Initialize()
               if oldDragStart then oldDragStart() else PickupContainerItem(b, s) end
             end)
 
-            frame:SetScript("OnEnter", function()
-              if oldOnEnter then oldOnEnter() end
-              InventoryTracker:AppendTooltip(ItemID(b, s))
-            end)
             frame.bagtweaks_select_hooked = true
           end
         end
