@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.2-dev`
-- Development code head: `31ac615a20d1b17d517e0ddae2695f62739958f1` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
+- Version: `0.5.3-dev`
+- Development code head: `679a78d349845b5355191cb2f0655b23a1dc27ed` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Account Inventory / multi-account tracking is implemented as three reversible `0.5.x-dev` checkpoints and is awaiting the user's later batch runtime test.
-- Current scope boundary: Preserve `0.1.44-dev` Auto resort behaviour and the new Account Inventory checkpoints unchanged while untested. Do not start open-all-containers-on-right-click yet; it remains the next feature after this checkpoint is reviewed/tested.
+- Goal: Continue live validation of Account Inventory and Auto resort. Native same-account tracking/aggregation is now runtime-confirmed; `0.5.3-dev` replaces the failed slot-OnEnter tooltip injection path and awaits immediate retest.
+- Current scope boundary: Fix the observed Account Inventory tooltip and Auto resort regressions as isolated reversible checkpoints. Do not start open-all-containers-on-right-click yet.
 
 ## Current Design / Development Contract
 
@@ -34,8 +34,8 @@
 - The supplied before/after SavedVariables differences were serialization-order churn, not evidence of a BagTweaks state mutation.
 - Keep the 0.1.43-dev no-op normalization guards; do not add further guards merely to chase raw key-order differences.
 - If byte/text-stable backup comparison is ever required, prefer semantic/canonical comparison in the backup tooling rather than redesigning BagTweaks persistence solely for textual ordering.
-- Multi-account-wide item tracking is implemented below as isolated `0.5.0-dev` native tracking, `0.5.1-dev` Nampower bridge and `0.5.2-dev` tooltip/options checkpoints. Auto resort scheduling remains unchanged.
-- The user will batch runtime-test these checkpoints later; implemented-but-untested status must remain explicit for each version so regressions can be isolated by stepping back through known commits.
+- Multi-account-wide item tracking is implemented below as isolated `0.5.0-dev` native tracking, `0.5.1-dev` Nampower bridge and `0.5.2-dev` tooltip/options checkpoints. `0.5.3-dev` is a targeted tooltip-injection correction after live testing proved collection/aggregation but no tooltip output.
+- Runtime testing is now in progress. Bind each result to the exact checkpoint and keep fixes isolated so regressions can be stepped back cleanly.
 - Open all containers on right click remains the next feature after Account Inventory review/runtime validation; exact interaction ownership/target surface still needs inspection before implementation, and it has not been started.
 
 ### Multi-Account Item Tracking — Agreed Design
@@ -209,25 +209,25 @@
 - Canonical vendored Lua 5.0 compiler check: **not run**. The canonical checker/source can be read through the GitHub connection but is not mounted in the executable environment; the shell has a C compiler but cannot clone/download GitHub content, and no system `lua`/`luac` is installed. Do not treat the static checks above as a compiler pass or in-game test.
 
 ## Current Issues
-- Account Inventory `0.5.0-dev` through `0.5.2-dev` is implemented but not runtime-tested in WoW 1.12.1.
-- The Nampower custom-file publish/read bridge, registry discovery, remote inclusion controls and cross-account tooltip totals require target-client validation.
-- Auto resort delay is still implemented but not runtime-validated; its code path is statically unchanged by Account Inventory.
+- `0.5.2-dev` Account Inventory collection/aggregation is partially runtime-validated, but its per-slot tooltip injection failed in the target client. `0.5.3-dev` implements a scoped tooltip-hook correction and awaits retest.
+- Cross-account publish/read and remote inclusion still require complete target-client validation.
+- Auto resort runtime gaps are confirmed: VendorTweaks autoselling bypasses protection; Disenchant and equip changes can still trigger immediate BagTweaks visual resort.
 - Raw SavedVariables backups may differ only in Lua table key order even when their BagTweaks state is semantically identical.
 
 ## Testing
 
 ### Last Runtime Test
-- Version/commit: `0.1.42` / stable release baseline
-- Passed: addon load, branding, existing SavedVariables/categories, backpack/bank behaviour and toolbar/artwork.
-- Failed: None reported.
-- Not tested: 0.1.43-dev SavedVariables no-op normalization delta; legacy Quest migration/repair remains non-reproducible on available affected clients.
+- Version/commit: `0.5.2-dev` / `31ac615a20d1b17d517e0ddae2695f62739958f1`
+- Passed: account-wide label persisted across characters; on account `Blackwavestwo` the opaque account ID remained stable across reload and across two characters; both character records were present; direct aggregation for Mining Pick item ID `2901` returned tracked total `2`, proving same-account collection and aggregation.
+- Failed: no Account Inventory lines appeared on pfUI bag-slot tooltips despite the correct tracked total.
+- Auto resort partial: manual vendoring delay works. VendorTweaks automatic selling is not protected. Disenchant itself works, but the BagTweaks visual resort occurs immediately. Equipping an item also causes an immediate visual resort.
+- Observation: multiple unpublished `Blackwaves` registry rows were seen after first-account setup. The user may have pressed Regenerate account identity multiple times; this is consistent with intentional tombstoning and has not been reproduced as spontaneous identity churn. `Blackwavestwo` identity remained stable.
 
 ### Next Runtime Test
-1. On `0.5.0-dev` / `c2457e53fb2b8b3b11a13557b3c12ca0299cfdb7`, test without relying on Nampower: log two characters on the same WoW account and confirm carried/keyring counts persist per character; open one bank and confirm bank data becomes known and remains last-known after closing it.
-2. On `0.5.1-dev` / `fab533e6213051e3b870c969114aae1d95276ea5`, confirm publish defaults off. With Nampower custom files available, enable publishing on account A and confirm account B discovers A but does not include it automatically.
-3. Still on `0.5.1-dev`, include A from B and confirm selected remote data refreshes when bags/bank are opened; disable publishing on A and confirm its tombstone/registry state prevents A from contributing after refresh.
-4. On `0.5.2-dev` / `31ac615a20d1b17d517e0ddae2695f62739958f1`, confirm tooltip grouping/count splits/total, `bank unscanned` handling, account label editing, include toggles and identity regeneration.
-5. On the final `0.5.2-dev` build, regression-test Auto resort values `0`, `3` and `10`, including rapid selling, container opening, Disenchant and Pick Lock, and confirm pfUI slot state remains immediate while only BagTweaks visual relayout is delayed.
+1. On `0.5.3-dev` / `679a78d349845b5355191cb2f0655b23a1dc27ed`, hover Mining Pick item ID `2901` on `Blackwavestwo`. Expected: Account Inventory appears and shows both tracked characters with total `2`.
+2. Still on `0.5.3-dev`, include the other published WoW account and confirm the same tooltip groups local and remote characters under their account labels.
+3. After tooltip validation, make the Auto resort fix its own next checkpoint: protect VendorTweaks `UseContainerItem` autoselling, remove/bypass any immediate BagTweaks relayout path during protected interactions, and include equip-driven bag changes in the same inactivity deadline.
+4. Re-test Auto resort values `0`, `3` and `10` for manual selling, VendorTweaks autoselling, container opening, Disenchant, Pick Lock and equipping; pfUI slot contents must remain immediate while BagTweaks visual reanchoring waits for inactivity.
 
 ## Planned / Next Work
 1. Batch runtime-test the three Account Inventory stepping stones and the inherited Auto resort checkpoint when the user is back at the target client.
@@ -249,4 +249,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Await the user's batch runtime test of `0.5.0-dev` → `0.5.1-dev` → `0.5.2-dev`, preserving the exact checkpoints above for fault isolation. Do not start open-all-containers-on-right-click until this Account Inventory checkpoint has been reviewed/tested or the user explicitly advances to that work.
+Have the user retest Mining Pick tooltip output on `0.5.3-dev` / `679a78d349845b5355191cb2f0655b23a1dc27ed`. If that passes, validate cross-account grouping next. Then implement the observed Auto resort fixes as a separate versioned checkpoint. Do not start open-all-containers-on-right-click yet.
