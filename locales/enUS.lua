@@ -47,6 +47,8 @@ L.MOVE_TO_GENERAL_TOOLTIP = "Release/click to keep the selected item in General"
 
 L.PLUGIN_NAME = "pfUI BagTweaks"
 L.PLUGIN_HEADER = "pfUI BagTweaks"
+L.AUTO_RESORT_DELAY = "Auto resort delay (seconds)"
+L.AUTO_RESORT_DELAY_TOOLTIP = "Delay automatic bag rearrangement after selling, opening or disenchanting items."
 
 L.BAGS = "Bags"
 L.KEYS = "Keys"
