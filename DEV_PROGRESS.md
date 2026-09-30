@@ -5,8 +5,8 @@
 - Version: `0.1.44-dev`
 - Development head: `3c6dba19240ec83de1fcf1551283b93c136303d2` (pre-preflight-documentation branch head; Auto resort delay remains the latest runtime-changing checkpoint)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Preserve `0.1.44-dev` as the Auto resort delay checkpoint, then implement multi-account-wide item tracking as the next separately versioned checkpoint while runtime testing is deferred until the user is home.
-- Current scope boundary: Keep each additional feature in its own versioned/committed stepping stone for fault isolation and reversibility. Next is multi-account-wide item tracking; after that, open-all-containers-on-right-click. Do not fold unrelated refactors into either checkpoint.
+- Goal: Preserve `0.1.44-dev` as the Auto resort delay checkpoint, then begin the Account Inventory feature line at `0.5.0-dev` while runtime testing is deferred until the user is home.
+- Current scope boundary: Keep each additional feature in its own versioned/committed stepping stone for fault isolation and reversibility. Account Inventory / multi-account-wide item tracking starts a deliberate `0.5.x` development line at `0.5.0-dev`; after that, open-all-containers-on-right-click. Do not fold unrelated refactors into either checkpoint.
 
 ## Current Design / Development Contract
 
@@ -226,7 +226,7 @@
 
 ## Planned / Next Work
 1. Preserve `0.1.44-dev` / Auto resort delay as an untested checkpoint for later batch runtime validation.
-2. Implement the agreed Nampower-backed multi-account item-tracking architecture as the next separately versioned checkpoint (`0.1.45-dev` if no intervening addon revision is required).
+2. Implement the agreed Account Inventory / Nampower-backed multi-account item-tracking architecture as the first build of the deliberate `0.5.x` development line: `0.5.0-dev`.
 3. Implement open all containers on right click as the following separately versioned checkpoint.
 4. Batch runtime-test the accumulated checkpoints, stepping back by exact version/commit if a regression is found.
 5. Rogue Pick Lock workflow test.
@@ -245,4 +245,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Implement the documented Multi-Account Item Tracking preflight contract as the next isolated addon revision (`0.1.45-dev` if no intervening runtime change occurs): native per-account SavedVariables snapshots first, optional Nampower publish/read bridge second, then the scoped tooltip/options UI. Preserve `0.1.44-dev` Auto resort behaviour unchanged and do not start open-all-containers-on-right-click in this checkpoint.
+Implement the documented Account Inventory / Multi-Account Item Tracking preflight contract as the next isolated addon revision and deliberate version-line change to `0.5.0-dev`: native per-account SavedVariables snapshots first, optional Nampower publish/read bridge second, then the scoped tooltip/options UI. Preserve `0.1.44-dev` Auto resort behaviour unchanged and do not start open-all-containers-on-right-click in this checkpoint.
