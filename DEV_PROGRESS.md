@@ -3,10 +3,10 @@
 ## Current
 - Branch: `dev`
 - Version: `0.1.44-dev`
-- Development head: `57a741cca2ce75c6785d612cdb4301866c567594` (pre-status-update branch head; Auto resort delay implementation complete)
+- Development head: `048d487bc3cd19ccb9faf4386425b54111be38a0` (pre-documentation-update branch head; Auto resort delay implementation complete and awaiting runtime test)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Runtime-validate the implemented Auto resort delay before starting the next planned feature.
-- Current scope boundary: Address the auto-sort interaction problem first. Do not broaden this work into unrelated bag layout, classification, persistence or toolbar refactors. Then implement multi-account-wide item tracking, followed by open-all-containers-on-right-click.
+- Goal: Preserve `0.1.44-dev` as the Auto resort delay checkpoint, then implement multi-account-wide item tracking as the next separately versioned checkpoint while runtime testing is deferred until the user is home.
+- Current scope boundary: Keep each additional feature in its own versioned/committed stepping stone for fault isolation and reversibility. Next is multi-account-wide item tracking; after that, open-all-containers-on-right-click. Do not fold unrelated refactors into either checkpoint.
 
 ## Current Design / Development Contract
 
@@ -34,8 +34,31 @@
 - The supplied before/after SavedVariables differences were serialization-order churn, not evidence of a BagTweaks state mutation.
 - Keep the 0.1.43-dev no-op normalization guards; do not add further guards merely to chase raw key-order differences.
 - If byte/text-stable backup comparison is ever required, prefer semantic/canonical comparison in the backup tooling rather than redesigning BagTweaks persistence solely for textual ordering.
-- Multi-account-wide item tracking is planned after the auto-resort interaction work; its exact persistence model and scope must be designed before implementation.
+- Multi-account-wide item tracking design is now agreed below. It must be implemented as its own versioned checkpoint after `0.1.44-dev`, without altering the Auto resort delay behaviour unless a concrete dependency requires it.
+- The user will batch runtime-test these checkpoints later; implemented-but-untested status must remain explicit for each version so regressions can be isolated by stepping back through known commits.
 - Open all containers on right click is planned immediately after multi-account-wide item tracking; exact interaction ownership/target surface still needs inspection before implementation.
+
+### Multi-Account Item Tracking — Agreed Design
+- Native WoW SavedVariables remain account-local. BagTweaks cannot use normal addon SavedVariables to directly read a sibling WoW account's `WTF\\Account\\<account>\\SavedVariables` data.
+- Cross-account inventory sharing will therefore use Nampower's custom-file capability in the shared WoW installation. This is an optional enhancement: without the required custom-file API, BagTweaks must continue working normally with its existing per-account SavedVariables behaviour.
+- Keep existing BagTweaks categories, subcategories, assignments and ordinary settings in `pfUIBagTweaksDB`. The custom-file system is for cross-account inventory/item tracking, not a wholesale replacement for SavedVariables.
+- Each WoW account gets a stable opaque BagTweaks account ID generated once and stored in that account's own `pfUIBagTweaksDB`. Do not depend on the WoW account login/folder name being exposed to addon Lua.
+- Each account owns a separate custom inventory database file keyed by that stable ID, e.g. `pfUI_BagTweaks_<accountID>.txt`.
+- Single-writer ownership is intentional: an account writes only its own inventory file. Other accounts may read it but must not rewrite it. This avoids multiple simultaneously running WoW clients contending over one shared inventory database.
+- BagTweaks compiles the displayed cross-account view at runtime from the selected per-account files; source databases remain independently owned.
+- A small shared account registry provides discovery metadata for known BagTweaks account IDs and friendly labels. The registry is discovery-only and must never be the authoritative inventory store.
+- Registry parsing must tolerate duplicate, stale or partial entries. Losing or duplicating a registry entry must not corrupt any per-account inventory database; an account can register itself again.
+- Do not execute shared custom-file contents as Lua. Use a deliberately simple, versioned data format and parse it defensively.
+- Account identity and user-selection preferences remain in the local account's SavedVariables. Shared custom files contain only the information intentionally published for cross-account inventory tracking.
+
+### Multi-Account Item Tracking — User Controls / Privacy
+- Each account has an editable friendly **Account label** for display, independent of its opaque internal account ID.
+- Provide a **Share/publish this account's inventory** control. Publishing controls whether this account writes/updates its cross-account inventory database.
+- Provide an **Included accounts** list for the current account. Only checked source accounts contribute to compiled item totals/views.
+- Publishing and inclusion are separate decisions: an account may publish its inventory without the current account including it, and the current account may include only a subset of discovered published accounts.
+- This separation is required for shared WoW installations where different people use different WoW accounts.
+- Do not automatically treat every discovered account database as part of one user's totals merely because it exists in the same installation.
+- Exact defaults for publish/include state and the exact tracked container set/presentation should be chosen during the implementation preflight rather than guessed.
 
 ### Auto Resort Delay — Agreed Design
 - Product rationale: prevent mis-clicks caused by BagTweaks moving another item into the screen position the user is about to click while they are rapidly selling, opening, unlocking or disenchanting inventory items.
@@ -130,13 +153,14 @@
 - Also confirm one deliberate BagTweaks setting/category change still persists normally on the 0.1.43-dev lineage.
 
 ## Planned / Next Work
-1. Runtime-test Auto resort delay at `0`, `3` and `10` seconds across selling, consecutive container opens, Disenchant and Pick Lock.
-2. Multi-account-wide item tracking.
-3. Open all containers on right click.
-4. Rogue Pick Lock workflow test.
-5. Disenchant targeting-cursor / candidate-item hover discoverability.
-6. Remaining direct-toolbar edge-case checks.
-7. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+1. Preserve `0.1.44-dev` / Auto resort delay as an untested checkpoint for later batch runtime validation.
+2. Implement the agreed Nampower-backed multi-account item-tracking architecture as the next separately versioned checkpoint (`0.1.45-dev` if no intervening addon revision is required).
+3. Implement open all containers on right click as the following separately versioned checkpoint.
+4. Batch runtime-test the accumulated checkpoints, stepping back by exact version/commit if a regression is found.
+5. Rogue Pick Lock workflow test.
+6. Disenchant targeting-cursor / candidate-item hover discoverability.
+7. Remaining direct-toolbar edge-case checks.
+8. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Packing optimisation unless future inventories show a real problem.
@@ -146,7 +170,7 @@
 ## Release / Promotion Notes
 - Main-only or release-only content to preserve: stable `.toc` Title/Version metadata; development contract/status files are not part of stable releases.
 - Known validation debt accepted for release: None currently.
-- External/runtime prerequisites: pfUI. Nampower, SuperWoW and ClassicAPI remain optional capability enhancements unless a future feature explicitly requires one.
+- External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test `0.1.44-dev` Auto resort delay using the documented `0`, `3` and `10` second checks. Do not start multi-account-wide tracking or open-all-containers-on-right-click until this slice is accepted.
+Before changing runtime code, inspect the current inventory collection surfaces and the exact Nampower custom-file API needed for the agreed per-account database/registry design. Then implement multi-account-wide item tracking as its own versioned checkpoint without modifying the untested `0.1.44-dev` Auto resort delay slice. Do not start open-all-containers-on-right-click in the same checkpoint.
