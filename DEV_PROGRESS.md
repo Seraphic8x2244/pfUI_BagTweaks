@@ -2,10 +2,10 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.1.43-dev`
-- Development head: `7c92f38f9844b836020fc86fbb0059146534f9bf` (pre-documentation-update branch head; documentation-only since the last addon/runtime-changing state `d7b2042927edb0f159f0b5f98fd1e1601586f65e`)
+- Version: `0.1.44-dev`
+- Development head: `57a741cca2ce75c6785d612cdb4301866c567594` (pre-status-update branch head; Auto resort delay implementation complete)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Add an interaction-aware delay/suppression to automatic visual sorting so item locations do not churn while the user is actively interacting with inventory items.
+- Goal: Runtime-validate the implemented Auto resort delay before starting the next planned feature.
 - Current scope boundary: Address the auto-sort interaction problem first. Do not broaden this work into unrelated bag layout, classification, persistence or toolbar refactors. Then implement multi-account-wide item tracking, followed by open-all-containers-on-right-click.
 
 ## Current Design / Development Contract
@@ -75,6 +75,10 @@
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
 
 ## Recent Relevant Commits
+- `57a741cca2ce75c6785d612cdb4301866c567594` — Bump BagTweaks to 0.1.44-dev for Auto resort delay runtime validation.
+- `2f2ba7cdc9c355c66ab6c06e80cb410cee3244eb` — Implement the inactivity-based Auto resort delay and protected interaction hooks.
+- `015ccdea2b2364a12057767454f49f64ba86c266` — Add Auto resort delay option/tooltip locale strings.
+- `0d8b539c7de11fb98a8dd0e549daaad42c7946ed` — Document the agreed Auto resort delay design.
 - `7c92f38f9844b836020fc86fbb0059146534f9bf` — Record initial interaction-hold design; superseded by the inactivity-delay design now documented below.
 - `3533868b96e7f78c548400ade88a10b5d02d9f9f` — Record open-all-containers right-click backlog item.
 - `ae65255ab1e1cdb2b16d647c93e41914bc71b208` — Adopt canonical VanillaTemplate development workflow.
@@ -90,16 +94,22 @@
 - Existing SavedVariables/categories, backpack/bank behaviour, toolbar, Eye/EyeOff and Close/X artwork were confirmed good for 0.1.42.
 
 ## Implemented / Awaiting Runtime Test
+- 0.1.44-dev adds `Auto resort delay` as a 0–10 second dropdown, default `3`; `0` preserves the existing immediate-next-frame automatic relayout behaviour.
+- Automatic `RequestRelayout()` work is now dirty/coalesced behind one inactivity deadline. Protected actions reset that deadline; repeated actions extend it; one relayout runs after the quiet period.
+- pfUI `UpdateBag` still runs before BagTweaks requests a relayout, so item icons, counts, empty-slot state and locks remain immediate while only BagTweaks frame reanchoring is delayed.
+- Protected interaction entry points are: right-click selling while the merchant is open; BagTweaks Open Container; successful persistent Disenchant targeting; and persistent Pick Lock target clicks. Unrelated `BAG_UPDATE` activity does not itself start a delay.
+- Direct BagTweaks layout changes and structural `CreateBags` relayouts still bypass the automatic scheduler and remain immediate.
 - 0.1.43-dev guards SavedVariables startup normalization so already-valid category/subcategory structures, IDs, Quest fields, legacy fields and schema version are only rewritten when a real migration/repair/normalization change is required.
 - One-time legacy migration and malformed-state repair behaviour are retained.
-- No bag layout, classification, sorting or toolbar paths were changed by the 0.1.43-dev SavedVariables fix.
 
 ## Static / Automated Checks
+- Static diff review of the 0.1.44-dev Auto resort delay implementation passed: automatic scheduling is isolated to `RequestRelayout()`; direct `Relayout()` / `CreateBags` paths remain immediate; protected hooks are limited to selling, Open Container, Disenchant and Pick Lock.
+- Static local-count inspection: the main pfUI module callback has 143 top-level local declarations after this change, below Lua 5.0.3's 200-local compiler limit. This is not a compiler pass.
+- Canonical Lua 5.0.3 compiler check: not run. The canonical checker is readable through the private `VanillaTemplate` GitHub connector but is not mounted in the executable environment; no system `lua`/`luac` is installed, and outbound network access is unavailable, so the vendored checker could not be built here.
 - Static diff review of the 0.1.43-dev SavedVariables fix passed.
-- Canonical Lua 5.0.3 compiler check: not recorded as run for the current 0.1.43-dev state.
 
 ## Current Issues
-- Automatic visual sorting can churn item locations while the user is actively interacting with inventory items, making it easier to click the wrong item during workflows such as vendoring or disenchanting.
+- Auto resort delay is implemented but not yet runtime-validated in WoW 1.12.1; interaction timing and the immediate pfUI slot-update invariant still require in-game confirmation.
 - Raw SavedVariables backups may differ only in Lua table key order even when their BagTweaks state is semantically identical.
 
 ## Testing
@@ -120,7 +130,7 @@
 - Also confirm one deliberate BagTweaks setting/category change still persists normally on the 0.1.43-dev lineage.
 
 ## Planned / Next Work
-1. Implement configurable Auto resort delay for selling, container opening, Disenchant and Pick Lock workflows.
+1. Runtime-test Auto resort delay at `0`, `3` and `10` seconds across selling, consecutive container opens, Disenchant and Pick Lock.
 2. Multi-account-wide item tracking.
 3. Open all containers on right click.
 4. Rogue Pick Lock workflow test.
@@ -139,4 +149,4 @@
 - External/runtime prerequisites: pfUI. Nampower, SuperWoW and ClassicAPI remain optional capability enhancements unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Implement the documented Auto resort delay as a 0–10 second inactivity timer (default 3) around the automatic `RequestRelayout()` path, wiring protected interaction resets for selling, the native Open Container action, persistent Disenchant and Pick Lock. Add the setting/tooltip to the BagTweaks options surface. Do not start multi-account-wide tracking or open-all-containers-on-right-click.
+Runtime-test `0.1.44-dev` Auto resort delay using the documented `0`, `3` and `10` second checks. Do not start multi-account-wide tracking or open-all-containers-on-right-click until this slice is accepted.
