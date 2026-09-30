@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.1.44-dev`
-- Development head: `3c6dba19240ec83de1fcf1551283b93c136303d2` (pre-preflight-documentation branch head; Auto resort delay remains the latest runtime-changing checkpoint)
+- Version: `0.5.2-dev`
+- Development code head: `31ac615a20d1b17d517e0ddae2695f62739958f1` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Preserve `0.1.44-dev` as the Auto resort delay checkpoint, then begin the Account Inventory feature line at `0.5.0-dev` while runtime testing is deferred until the user is home.
-- Current scope boundary: Keep each additional feature in its own versioned/committed stepping stone for fault isolation and reversibility. Account Inventory / multi-account-wide item tracking starts a deliberate `0.5.x` development line at `0.5.0-dev`; after that, open-all-containers-on-right-click. Do not fold unrelated refactors into either checkpoint.
+- Goal: Account Inventory / multi-account tracking is implemented as three reversible `0.5.x-dev` checkpoints and is awaiting the user's later batch runtime test.
+- Current scope boundary: Preserve `0.1.44-dev` Auto resort behaviour and the new Account Inventory checkpoints unchanged while untested. Do not start open-all-containers-on-right-click yet; it remains the next feature after this checkpoint is reviewed/tested.
 
 ## Current Design / Development Contract
 
@@ -34,16 +34,16 @@
 - The supplied before/after SavedVariables differences were serialization-order churn, not evidence of a BagTweaks state mutation.
 - Keep the 0.1.43-dev no-op normalization guards; do not add further guards merely to chase raw key-order differences.
 - If byte/text-stable backup comparison is ever required, prefer semantic/canonical comparison in the backup tooling rather than redesigning BagTweaks persistence solely for textual ordering.
-- Multi-account-wide item tracking design is now agreed below. It must be implemented as its own versioned checkpoint after `0.1.44-dev`, without altering the Auto resort delay behaviour unless a concrete dependency requires it.
+- Multi-account-wide item tracking is implemented below as isolated `0.5.0-dev` native tracking, `0.5.1-dev` Nampower bridge and `0.5.2-dev` tooltip/options checkpoints. Auto resort scheduling remains unchanged.
 - The user will batch runtime-test these checkpoints later; implemented-but-untested status must remain explicit for each version so regressions can be isolated by stepping back through known commits.
-- Open all containers on right click is planned immediately after multi-account-wide item tracking; exact interaction ownership/target surface still needs inspection before implementation.
+- Open all containers on right click remains the next feature after Account Inventory review/runtime validation; exact interaction ownership/target surface still needs inspection before implementation, and it has not been started.
 
 ### Multi-Account Item Tracking — Agreed Design
 - Native WoW SavedVariables remain account-local. BagTweaks cannot use normal addon SavedVariables to directly read a sibling WoW account's `WTF\\Account\\<account>\\SavedVariables` data.
 - Cross-account inventory sharing will therefore use Nampower's custom-file capability in the shared WoW installation. This is an optional enhancement: without the required custom-file API, BagTweaks must continue working normally with its existing per-account SavedVariables behaviour.
 - Keep existing BagTweaks categories, subcategories, assignments and ordinary settings in `pfUIBagTweaksDB`. The custom-file system is for cross-account inventory/item tracking, not a wholesale replacement for SavedVariables.
 - Each WoW account gets a stable opaque BagTweaks account ID generated once and stored in that account's own `pfUIBagTweaksDB`. Do not depend on the WoW account login/folder name being exposed to addon Lua.
-- Each account owns a separate custom inventory database file keyed by that stable ID, e.g. `pfUI_BagTweaks_<accountID>.txt`.
+- Each account owns a separate custom inventory database file keyed by that stable ID, e.g. `pfUI_BagTweaks_account_<accountID>.txt`.
 - Single-writer ownership is intentional: an account writes only its own inventory file. Other accounts may read it but must not rewrite it. This avoids multiple simultaneously running WoW clients contending over one shared inventory database.
 - BagTweaks compiles the displayed cross-account view at runtime from the selected per-account files; source databases remain independently owned.
 - A small shared account registry provides discovery metadata for known BagTweaks account IDs and friendly labels. The registry is discovery-only and must never be the authoritative inventory store.
@@ -63,7 +63,7 @@
 ### Multi-Account Item Tracking — Implementation Preflight
 #### Local authority and tracked data
 - Same-account tracking must remain native and work without Nampower. `pfUIBagTweaksDB` is the authoritative store for the current WoW account's tracked character snapshots; Nampower is only the bridge used to publish/read snapshots between WoW accounts.
-- Add a nested inventory-tracking data model rather than changing the existing category schema/version semantics. Proposed shape: `db.itemTracking = { version=1, accountID=..., accountLabel=..., publish="0", includedAccounts={}, characters={} }`.
+- Add a nested inventory-tracking data model rather than changing the existing category schema/version semantics. Implemented shape: `db.itemTracking = { version=1, accountID=..., accountLabel=..., publish="0", includedAccounts={}, characters={} }`.
 - Current-account character keys continue to be realm + character name, consistent with the existing BagTweaks character-key model.
 - Track BagTweaks/pfUI bag surfaces only for the first slice:
   - carried bags: IDs `0-4`;
@@ -97,8 +97,8 @@
 - The external `nampowerDB` library was reviewed as a reference for multi-file persistence, but it is not adopted for this slice: it serializes executable Lua / loads through `ExecuteCustomLuaFile`, introduces another dependency, and does not remove BagTweaks' need for its own account discovery/inclusion semantics.
 
 #### Published account file format
-- Proposed safe filename: `pfUI_BagTweaks_account_<accountID>.txt`.
-- Use a deterministic, line-oriented version-1 text format. Proposed records:
+- Implemented safe filename: `pfUI_BagTweaks_account_<accountID>.txt`.
+- Use a deterministic, line-oriented version-1 text format. Implemented records:
   - `BTINV<TAB>1`
   - `ACCOUNT<TAB>accountID<TAB>encodedLabel<TAB>published`
   - `CHAR<TAB>encodedRealm<TAB>encodedName<TAB>bankKnown`
@@ -170,17 +170,14 @@
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
 
 ## Recent Relevant Commits
+- `31ac615a20d1b17d517e0ddae2695f62739958f1` — Add Account Inventory tooltip and options UI (`0.5.2-dev`).
+- `fab533e6213051e3b870c969114aae1d95276ea5` — Add optional Nampower account inventory publish/read bridge (`0.5.1-dev`).
+- `c2457e53fb2b8b3b11a13557b3c12ca0299cfdb7` — Add native per-account SavedVariables inventory snapshots (`0.5.0-dev`).
+- `074243a84dffd1e03fd03e0125a1d188e243084f` — Set the Account Inventory development line to `0.5.0-dev` in the preflight contract.
 - `57a741cca2ce75c6785d612cdb4301866c567594` — Bump BagTweaks to 0.1.44-dev for Auto resort delay runtime validation.
 - `2f2ba7cdc9c355c66ab6c06e80cb410cee3244eb` — Implement the inactivity-based Auto resort delay and protected interaction hooks.
 - `015ccdea2b2364a12057767454f49f64ba86c266` — Add Auto resort delay option/tooltip locale strings.
 - `0d8b539c7de11fb98a8dd0e549daaad42c7946ed` — Document the agreed Auto resort delay design.
-- `7c92f38f9844b836020fc86fbb0059146534f9bf` — Record initial interaction-hold design; superseded by the inactivity-delay design now documented below.
-- `3533868b96e7f78c548400ade88a10b5d02d9f9f` — Record open-all-containers right-click backlog item.
-- `ae65255ab1e1cdb2b16d647c93e41914bc71b208` — Adopt canonical VanillaTemplate development workflow.
-- `d7b2042927edb0f159f0b5f98fd1e1601586f65e` — Record SavedVariables serialization-order finding.
-- `01f6564ba7aa8cbb3de80fb285bda1ed45894afb` — Record SavedVariables no-op fix for testing.
-- `300f2c3bbb3038bacf31c59b57ef5cb535ad8654` — Bump BagTweaks to 0.1.43-dev.
-- `4b0d0cfb4a7adbf13165259b046a00ad4f1a2de5` — Avoid no-op SavedVariables normalization.
 - `25474f32f5e20d189c73f84caa6af3e10f30584a` — Release pfUI BagTweaks 0.1.42 to `main`.
 
 ## Completed / User-Verified
@@ -189,22 +186,32 @@
 - Existing SavedVariables/categories, backpack/bank behaviour, toolbar, Eye/EyeOff and Close/X artwork were confirmed good for 0.1.42.
 
 ## Implemented / Awaiting Runtime Test
-- 0.1.44-dev adds `Auto resort delay` as a 0–10 second dropdown, default `3`; `0` preserves the existing immediate-next-frame automatic relayout behaviour.
-- Automatic `RequestRelayout()` work is now dirty/coalesced behind one inactivity deadline. Protected actions reset that deadline; repeated actions extend it; one relayout runs after the quiet period.
-- pfUI `UpdateBag` still runs before BagTweaks requests a relayout, so item icons, counts, empty-slot state and locks remain immediate while only BagTweaks frame reanchoring is delayed.
-- Protected interaction entry points are: right-click selling while the merchant is open; BagTweaks Open Container; successful persistent Disenchant targeting; and persistent Pick Lock target clicks. Unrelated `BAG_UPDATE` activity does not itself start a delay.
-- Direct BagTweaks layout changes and structural `CreateBags` relayouts still bypass the automatic scheduler and remain immediate.
-- 0.1.43-dev guards SavedVariables startup normalization so already-valid category/subcategory structures, IDs, Quest fields, legacy fields and schema version are only rewritten when a real migration/repair/normalization change is required.
-- One-time legacy migration and malformed-state repair behaviour are retained.
+- `0.5.0-dev` adds native same-WoW-account inventory snapshots under `db.itemTracking`: carried bags `0-4`, keyring `-2`, and last-known bank `-1,5-11` with an explicit `bankKnown` flag.
+- Native tracking reuses the existing pfUI `UpdateBag` and `CreateBags` ownership paths; it adds no competing bag-event scanner. The current character is initialized at `PLAYER_ENTERING_WORLD`.
+- `0.5.1-dev` adds the optional Nampower bridge. Native tracking remains functional when `ReadCustomFile` / `WriteCustomFile` are unavailable.
+- Cross-account files use inert deterministic `BTINV 1` text, one writer per opaque account ID, a tolerant append-only `BTREG1` registry, pcall-wrapped custom-file I/O, and a `published=0` tombstone when sharing is disabled.
+- Publishing defaults off. Remote accounts are discovered separately from inclusion and default to not included. Only selected, currently published, successfully parsed remote account files contribute counts.
+- A published account re-registers once on a later session even when its snapshot is unchanged; if the login snapshot changed, that change-triggered publish is reused rather than writing twice.
+- `0.5.2-dev` adds the scoped presentation: pfUI bag-slot tooltips only, grouped by account/character with carried/keyring/bank splits and tracked total, plus Account Inventory options for label, publish/share, identity regeneration and per-source inclusion.
+- Unscanned banks are not represented as known zero; tooltip detail explicitly marks `bank unscanned`.
+- Account identity regeneration tombstones the old published ID when the bridge is available before creating/publishing the replacement ID.
+- `0.1.44-dev` Auto resort remains awaiting runtime validation and is inherited unchanged by the `0.5.x` line.
+- `0.1.43-dev` SavedVariables no-op normalization guards remain inherited unchanged.
 
 ## Static / Automated Checks
-- Static diff review of the 0.1.44-dev Auto resort delay implementation passed: automatic scheduling is isolated to `RequestRelayout()`; direct `Relayout()` / `CreateBags` paths remain immediate; protected hooks are limited to selling, Open Container, Disenchant and Pick Lock.
-- Static local-count inspection: the main pfUI module callback has 143 top-level local declarations after this change, below Lua 5.0.3's 200-local compiler limit. This is not a compiler pass.
-- Canonical Lua 5.0.3 compiler check: not run. The canonical checker is readable through the private `VanillaTemplate` GitHub connector but is not mounted in the executable environment; no system `lua`/`luac` is installed, and outbound network access is unavailable, so the vendored checker could not be built here.
-- Static diff review of the 0.1.43-dev SavedVariables fix passed.
+- Branch/head verification passed before and after implementation; `dev` matched the requested `074243a84dffd1e03fd03e0125a1d188e243084f` handoff before writing and matched `31ac615a20d1b17d517e0ddae2695f62739958f1` after the final addon change.
+- Exact static comparison confirms the Auto resort scheduler block from `local relayoutDriver` through `pfUI.bagtweaks.Relayout = Relayout` is byte-identical between the requested handoff and `0.5.2-dev`.
+- Full compare from the handoff to `0.5.2-dev` changes only `pfUI_BagTweaks.lua`, `locales/enUS.lua` and the `.toc`; open-all-containers implementation markers are absent.
+- Static local-count inspection counted 149 top-level locals in the main pfUI module callback after Account Inventory, below Lua 5.0's 200-local compiler limit. The tracker helpers are nested inside the dedicated `InventoryTracker` subsystem as designed.
+- Static later-Lua-syntax scan of the final Lua found none of the checked post-5.0 constructs (`#` length operator, `goto`/labels, `//`, bitwise operators or variable attributes).
+- Nampower custom-file API/overwrite/append behaviour was checked against the current Nampower documentation/source before implementing the bridge.
+- No repository CI/workflow is present for this branch.
+- Canonical vendored Lua 5.0 compiler check: **not run**. The canonical checker/source can be read through the GitHub connection but is not mounted in the executable environment; the shell has a C compiler but cannot clone/download GitHub content, and no system `lua`/`luac` is installed. Do not treat the static checks above as a compiler pass or in-game test.
 
 ## Current Issues
-- Auto resort delay is implemented but not yet runtime-validated in WoW 1.12.1; interaction timing and the immediate pfUI slot-update invariant still require in-game confirmation.
+- Account Inventory `0.5.0-dev` through `0.5.2-dev` is implemented but not runtime-tested in WoW 1.12.1.
+- The Nampower custom-file publish/read bridge, registry discovery, remote inclusion controls and cross-account tooltip totals require target-client validation.
+- Auto resort delay is still implemented but not runtime-validated; its code path is statically unchanged by Account Inventory.
 - Raw SavedVariables backups may differ only in Lua table key order even when their BagTweaks state is semantically identical.
 
 ## Testing
@@ -216,23 +223,20 @@
 - Not tested: 0.1.43-dev SavedVariables no-op normalization delta; legacy Quest migration/repair remains non-reproducible on available affected clients.
 
 ### Next Runtime Test
-- After Auto resort delay is implemented, test values `0`, `3` and `10` seconds.
-- With the default `3` seconds, rapidly sell several items and confirm remaining clickable item frames do not shift between clicks; confirm one visual resort occurs about 3 seconds after the last protected interaction.
-- Repeat with consecutive container opens, consecutive Disenchants, and the Pick Lock/lockbox workflow.
-- Confirm repeated protected actions reset/extend the same deadline rather than allowing intermediate relayouts.
-- Confirm pfUI still updates item icons/counts/empty slots immediately during the grace period.
-- Confirm explicit BagTweaks category/sort changes still relayout immediately.
-- Also confirm one deliberate BagTweaks setting/category change still persists normally on the 0.1.43-dev lineage.
+1. On `0.5.0-dev` / `c2457e53fb2b8b3b11a13557b3c12ca0299cfdb7`, test without relying on Nampower: log two characters on the same WoW account and confirm carried/keyring counts persist per character; open one bank and confirm bank data becomes known and remains last-known after closing it.
+2. On `0.5.1-dev` / `fab533e6213051e3b870c969114aae1d95276ea5`, confirm publish defaults off. With Nampower custom files available, enable publishing on account A and confirm account B discovers A but does not include it automatically.
+3. Still on `0.5.1-dev`, include A from B and confirm selected remote data refreshes when bags/bank are opened; disable publishing on A and confirm its tombstone/registry state prevents A from contributing after refresh.
+4. On `0.5.2-dev` / `31ac615a20d1b17d517e0ddae2695f62739958f1`, confirm tooltip grouping/count splits/total, `bank unscanned` handling, account label editing, include toggles and identity regeneration.
+5. On the final `0.5.2-dev` build, regression-test Auto resort values `0`, `3` and `10`, including rapid selling, container opening, Disenchant and Pick Lock, and confirm pfUI slot state remains immediate while only BagTweaks visual relayout is delayed.
 
 ## Planned / Next Work
-1. Preserve `0.1.44-dev` / Auto resort delay as an untested checkpoint for later batch runtime validation.
-2. Implement the agreed Account Inventory / Nampower-backed multi-account item-tracking architecture as the first build of the deliberate `0.5.x` development line: `0.5.0-dev`.
-3. Implement open all containers on right click as the following separately versioned checkpoint.
-4. Batch runtime-test the accumulated checkpoints, stepping back by exact version/commit if a regression is found.
-5. Rogue Pick Lock workflow test.
-6. Disenchant targeting-cursor / candidate-item hover discoverability.
-7. Remaining direct-toolbar edge-case checks.
-8. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+1. Batch runtime-test the three Account Inventory stepping stones and the inherited Auto resort checkpoint when the user is back at the target client.
+2. If a regression appears, step back to the exact preceding version/commit above to isolate the first failing slice.
+3. After Account Inventory/Auto resort validation, inspect and design open all containers on right click against the existing Open control and Auto resort protection owner before changing runtime code.
+4. Rogue Pick Lock workflow test.
+5. Disenchant targeting-cursor / candidate-item hover discoverability.
+6. Remaining direct-toolbar edge-case checks.
+7. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Packing optimisation unless future inventories show a real problem.
@@ -245,4 +249,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Implement the documented Account Inventory / Multi-Account Item Tracking preflight contract as the next isolated addon revision and deliberate version-line change to `0.5.0-dev`: native per-account SavedVariables snapshots first, optional Nampower publish/read bridge second, then the scoped tooltip/options UI. Preserve `0.1.44-dev` Auto resort behaviour unchanged and do not start open-all-containers-on-right-click in this checkpoint.
+Await the user's batch runtime test of `0.5.0-dev` → `0.5.1-dev` → `0.5.2-dev`, preserving the exact checkpoints above for fault isolation. Do not start open-all-containers-on-right-click until this Account Inventory checkpoint has been reviewed/tested or the user explicitly advances to that work.
