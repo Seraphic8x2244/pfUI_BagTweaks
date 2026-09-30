@@ -1015,10 +1015,7 @@ local function Initialize()
 
       function tracker:SetPublish(enabled)
         local store = self:EnsureStore()
-        local value = enabled and "1" or "0"
-        if store.publish == value then return true end
-
-        store.publish = value
+        store.publish = enabled and "1" or "0"
         if not self:HasBridge() then return false, "unavailable" end
         return self:PublishLocal(enabled and true or false)
       end
@@ -1028,7 +1025,7 @@ local function Initialize()
         label = tostring(label or "")
         label = string.gsub(label, "^%s+", "")
         label = string.gsub(label, "%s+$", "")
-        if label == "" or label == store.accountLabel then return false end
+        if label == "" then return false end
         store.accountLabel = label
         if store.publish == "1" and self:HasBridge() then self:PublishLocal(true) end
         return true
@@ -1058,7 +1055,147 @@ local function Initialize()
 
         store.accountID = NewAccountID()
         if store.publish == "1" and self:HasBridge() then self:PublishLocal(true) end
+        self:RefreshRemoteAccounts()
         return store.accountID
+      end
+
+      local function CharacterItemSummary(record, itemID)
+        if type(record) ~= "table" then return nil end
+        local carried = SafeCount(record.carried and record.carried[itemID])
+        local keyring = SafeCount(record.keyring and record.keyring[itemID])
+        local bank = SafeCount(record.bank and record.bank[itemID])
+        local total = carried + keyring + bank
+        if total <= 0 then return nil end
+        return {
+          carried = carried,
+          keyring = keyring,
+          bank = bank,
+          bankKnown = record.bankKnown == true,
+          total = total,
+        }
+      end
+
+      local function DisplayCharacterName(record)
+        local name = tostring(record.name or "")
+        local realm = tostring(record.realm or "")
+        if realm ~= "" and realm ~= (GetRealmName and tostring(GetRealmName() or "") or "") then
+          return name .. " - " .. realm
+        end
+        return name
+      end
+
+      function tracker:BuildAccountItemGroup(label, characters, itemID)
+        local group = { label=label or "", characters={}, total=0 }
+        local keys = SortedKeys(characters or {}, false)
+
+        for i = 1, table.getn(keys) do
+          local record = characters[keys[i]]
+          local summary = CharacterItemSummary(record, itemID)
+          if summary then
+            summary.name = DisplayCharacterName(record)
+            table.insert(group.characters, summary)
+            group.total = group.total + summary.total
+          end
+        end
+
+        if group.total <= 0 then return nil end
+        return group
+      end
+
+      function tracker:GetTrackedItemGroups(itemID)
+        itemID = tonumber(itemID)
+        if not itemID then return {}, 0 end
+
+        local store = self:EnsureStore()
+        local groups = {}
+        local total = 0
+
+        local localGroup = self:BuildAccountItemGroup(store.accountLabel or "", store.characters, itemID)
+        if localGroup then
+          table.insert(groups, localGroup)
+          total = total + localGroup.total
+        end
+
+        local remoteIDs = SortedKeys(self.registryAccounts or {}, false)
+        for i = 1, table.getn(remoteIDs) do
+          local accountID = remoteIDs[i]
+          local meta = self.registryAccounts[accountID]
+          local remote = self.remoteAccounts and self.remoteAccounts[accountID] or nil
+          if accountID ~= store.accountID and meta and meta.published and
+             (store.includedAccounts[accountID] == "1" or store.includedAccounts[accountID] == true) and
+             remote and remote.available and remote.published and type(remote.characters) == "table" then
+            local group = self:BuildAccountItemGroup(remote.label or meta.label or accountID, remote.characters, itemID)
+            if group then
+              table.insert(groups, group)
+              total = total + group.total
+            end
+          end
+        end
+
+        return groups, total
+      end
+
+      function tracker:AppendTooltip(itemID)
+        if not GameTooltip or not itemID then return end
+        local groups, total = self:GetTrackedItemGroups(itemID)
+        if total <= 0 then return end
+
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(L.ACCOUNT_TRACKING_TOOLTIP_HEADER or "Account Inventory")
+
+        for i = 1, table.getn(groups) do
+          local group = groups[i]
+          GameTooltip:AddLine(group.label, 1, .82, 0)
+          for n = 1, table.getn(group.characters) do
+            local item = group.characters[n]
+            local parts = {}
+            if item.carried > 0 then table.insert(parts, string.format(L.ACCOUNT_BAGS_COUNT or "Bags %d", item.carried)) end
+            if item.keyring > 0 then table.insert(parts, string.format(L.ACCOUNT_KEYS_COUNT or "Keys %d", item.keyring)) end
+            if item.bank > 0 then table.insert(parts, string.format(L.ACCOUNT_BANK_COUNT or "Bank %d", item.bank)) end
+            if not item.bankKnown then table.insert(parts, L.ACCOUNT_BANK_UNSCANNED or "bank unscanned") end
+
+            local details = table.concat(parts, ", ")
+            local line = string.format(L.ACCOUNT_CHARACTER_COUNT or "%s: %d tracked", item.name, item.total)
+            if details ~= "" then line = line .. " (" .. details .. ")" end
+            GameTooltip:AddLine("  " .. line, .85, .85, .85)
+          end
+        end
+
+        GameTooltip:AddLine(string.format(L.ACCOUNT_TRACKED_TOTAL or "Tracked total: %d", total), .3, 1, .8)
+        GameTooltip:Show()
+      end
+
+      function tracker:GetRemoteOptions()
+        local store = self:EnsureStore()
+        local options = {}
+        local ids = SortedKeys(self.registryAccounts or {}, false)
+
+        for i = 1, table.getn(ids) do
+          local accountID = ids[i]
+          if accountID ~= store.accountID then
+            local meta = self.registryAccounts[accountID]
+            local remote = self.remoteAccounts and self.remoteAccounts[accountID] or nil
+            local label = meta.label ~= "" and meta.label or accountID
+            local status
+            if not meta.published then
+              status = L.ACCOUNT_STATUS_UNPUBLISHED or "unpublished"
+            elseif (store.includedAccounts[accountID] == "1" or store.includedAccounts[accountID] == true) and remote and not remote.available then
+              status = L.ACCOUNT_STATUS_UNAVAILABLE or "unavailable"
+            end
+
+            table.insert(options, {
+              id = accountID,
+              label = label,
+              status = status,
+            })
+          end
+        end
+
+        table.sort(options, function(a, b)
+          if a.label == b.label then return a.id < b.id end
+          return a.label < b.label
+        end)
+        return options
       end
 
       function tracker:LocalChanged()
@@ -2459,6 +2596,7 @@ local function Initialize()
           if frame and not frame.bagtweaks_select_hooked then
             local oldMouseDown = frame:GetScript("OnMouseDown")
             local oldDragStart = frame:GetScript("OnDragStart")
+            local oldOnEnter = frame:GetScript("OnEnter")
             local b, s = bag, slot
 
             frame:SetScript("OnMouseDown", function()
@@ -2469,6 +2607,11 @@ local function Initialize()
             frame:SetScript("OnDragStart", function()
               selectedItemID = ItemID(b, s)
               if oldDragStart then oldDragStart() else PickupContainerItem(b, s) end
+            end)
+
+            frame:SetScript("OnEnter", function()
+              if oldOnEnter then oldOnEnter() end
+              InventoryTracker:AppendTooltip(ItemID(b, s))
             end)
             frame.bagtweaks_select_hooked = true
           end
@@ -3096,6 +3239,57 @@ local function Initialize()
         autoResort:SetScript("OnLeave", function()
           if GameTooltip then GameTooltip:Hide() end
         end)
+      end
+
+      local tracker = pfUI.bagtweaks and pfUI.bagtweaks.InventoryTracker
+      if tracker then
+        local store = tracker:EnsureStore()
+        tracker:RefreshRemoteAccounts()
+
+        pfUI.gui.CreateConfig(nil, L.ACCOUNT_TRACKING_HEADER, nil, nil, "header")
+
+        local bridgeText
+        if tracker:HasBridge() then bridgeText = L.ACCOUNT_BRIDGE_AVAILABLE
+        else bridgeText = L.ACCOUNT_BRIDGE_UNAVAILABLE end
+        pfUI.gui.CreateConfig(nil, bridgeText, nil, nil, "header")
+
+        pfUI.gui.CreateConfig(function()
+          tracker:SetAccountLabel(store.accountLabel)
+        end, L.ACCOUNT_LABEL, store, "accountLabel", nil, nil, nil, nil, "string")
+
+        local publish = pfUI.gui.CreateConfig(function()
+          tracker:SetPublish(store.publish == "1")
+        end, L.ACCOUNT_PUBLISH, store, "publish", "checkbox")
+
+        if publish then
+          publish:EnableMouse(1)
+          publish:SetScript("OnEnter", function()
+            if not GameTooltip then return end
+            GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+            GameTooltip:SetText(L.ACCOUNT_PUBLISH_TOOLTIP)
+            GameTooltip:Show()
+          end)
+          publish:SetScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+          end)
+        end
+
+        pfUI.gui.CreateConfig(nil, L.ACCOUNT_REGENERATE_ID, nil, nil, "button", function()
+          tracker:RegenerateAccountID()
+        end)
+
+        local remotes = tracker:GetRemoteOptions()
+        if table.getn(remotes) > 0 then
+          pfUI.gui.CreateConfig(nil, L.ACCOUNT_INCLUDE_HEADER, nil, nil, "header")
+          for i = 1, table.getn(remotes) do
+            local remote = remotes[i]
+            local caption = string.format(L.ACCOUNT_INCLUDE_SOURCE, remote.label)
+            if remote.status then caption = caption .. " (" .. remote.status .. ")" end
+            pfUI.gui.CreateConfig(function()
+              tracker:SetIncluded(remote.id, store.includedAccounts[remote.id] == "1")
+            end, caption, store.includedAccounts, remote.id, "checkbox")
+          end
+        end
       end
     end)
   end
