@@ -3177,11 +3177,10 @@ local function Initialize()
 
     pfUI.bag.CreateBags = function(self, object)
       oldCreateBags(self, object)
-      if object == "bank" then
-        RelayoutView("bank")
-      else
-        RelayoutView("backpack")
-      end
+      -- CreateBags is also reached during inventory mutations (for example
+      -- Disenchant). Route its visual rebuild through the same scheduler as
+      -- UpdateBag so an active Auto resort deadline cannot be bypassed.
+      RequestRelayout()
       pcall(InventoryTracker.OnCreateBags, InventoryTracker, object)
     end
 
