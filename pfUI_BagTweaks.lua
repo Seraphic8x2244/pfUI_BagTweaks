@@ -588,6 +588,226 @@ local function Initialize()
       return tonumber(id)
     end
 
+    -- Account Inventory: native same-account snapshots. Cross-account transport and
+    -- presentation are layered on this local authority in later 0.5.x checkpoints.
+    local InventoryTracker = (function()
+      local tracker = {
+        bankOpen = false,
+      }
+
+      local CARRIED_BAGS = { 0, 1, 2, 3, 4 }
+      local BANK_BAGS = { -1, 5, 6, 7, 8, 9, 10, 11 }
+
+      local function SafeCount(value)
+        local count = tonumber(value) or 0
+        if count < 0 then count = 0 end
+        return math.floor(count)
+      end
+
+      local function MapsEqual(a, b)
+        a = a or {}
+        b = b or {}
+
+        for id, count in pairs(a) do
+          if SafeCount(b[id]) ~= SafeCount(count) then return false end
+        end
+        for id, count in pairs(b) do
+          if SafeCount(a[id]) ~= SafeCount(count) then return false end
+        end
+        return true
+      end
+
+      local function ScanBags(bags, keyring)
+        local result = {}
+
+        for i = 1, table.getn(bags) do
+          local bag = bags[i]
+          local slots
+          if keyring and bag == -2 and GetKeyRingSize then
+            slots = GetKeyRingSize()
+          else
+            slots = GetContainerNumSlots(bag)
+          end
+
+          slots = tonumber(slots) or 0
+          for slot = 1, slots do
+            local id = ItemID(bag, slot)
+            if id then
+              local _, count = GetContainerItemInfo(bag, slot)
+              count = SafeCount(count)
+              if count <= 0 then count = 1 end
+              result[id] = (result[id] or 0) + count
+            end
+          end
+        end
+
+        return result
+      end
+
+      local function NewAccountID()
+        local now = 0
+        if time then now = tonumber(time()) or 0
+        elseif GetTime then now = math.floor(tonumber(GetTime()) or 0) end
+
+        local r1 = math.random(0, 99999999)
+        local r2 = math.random(0, 99999999)
+        return string.format("bt%dr%08d%08d", now, r1, r2)
+      end
+
+      local function CharacterIdentity()
+        local realm = GetRealmName and GetRealmName() or ""
+        local name = UnitName and UnitName("player") or ""
+        realm = tostring(realm or "")
+        name = tostring(name or "")
+        return realm .. "\031" .. name, realm, name
+      end
+
+      function tracker:EnsureStore()
+        if type(db.itemTracking) ~= "table" then db.itemTracking = {} end
+        local store = db.itemTracking
+
+        if store.version ~= 1 then store.version = 1 end
+        if type(store.includedAccounts) ~= "table" then store.includedAccounts = {} end
+        if type(store.characters) ~= "table" then store.characters = {} end
+        if store.publish ~= "1" and store.publish ~= "0" then store.publish = "0" end
+
+        if type(store.accountID) ~= "string" or store.accountID == "" then
+          store.accountID = NewAccountID()
+        end
+
+        if type(store.accountLabel) ~= "string" or store.accountLabel == "" then
+          local _, _, name = CharacterIdentity()
+          if name ~= "" then
+            store.accountLabel = string.format(L.ACCOUNT_DEFAULT_LABEL or "Account (%s)", name)
+          else
+            store.accountLabel = L.ACCOUNT_DEFAULT_LABEL_FALLBACK or "Account"
+          end
+        end
+
+        self.store = store
+        return store
+      end
+
+      function tracker:EnsureCharacter()
+        local store = self:EnsureStore()
+        local key, realm, name = CharacterIdentity()
+        if key == "\031" then return nil, false end
+
+        local record = store.characters[key]
+        local created = false
+        if type(record) ~= "table" then
+          record = {}
+          store.characters[key] = record
+          created = true
+        end
+
+        if record.realm ~= realm then record.realm = realm; created = true end
+        if record.name ~= name then record.name = name; created = true end
+        if type(record.carried) ~= "table" then record.carried = {}; created = true end
+        if type(record.keyring) ~= "table" then record.keyring = {}; created = true end
+        if type(record.bank) ~= "table" then record.bank = {}; created = true end
+        if record.bankKnown ~= true then
+          if record.bankKnown ~= false then created = true end
+          record.bankKnown = false
+        end
+
+        self.characterKey = key
+        self.character = record
+        return record, created
+      end
+
+      function tracker:IsBankOpen()
+        if self.bankOpen then return true end
+        if G.BankFrame and G.BankFrame.IsShown and G.BankFrame:IsShown() then return true end
+        if pfUI.bag and pfUI.bag.left and pfUI.bag.left.IsShown and pfUI.bag.left:IsShown() then return true end
+        return false
+      end
+
+      function tracker:LocalChanged()
+        -- Optional Nampower publishing is attached in the next checkpoint.
+      end
+
+      function tracker:RescanCurrent(scanCarried, scanKeyring, scanBank)
+        local record, changed = self:EnsureCharacter()
+        if not record then return false end
+
+        if scanCarried then
+          local counts = ScanBags(CARRIED_BAGS, false)
+          if not MapsEqual(record.carried, counts) then
+            record.carried = counts
+            changed = true
+          end
+        end
+
+        if scanKeyring then
+          local counts = ScanBags({ -2 }, true)
+          if not MapsEqual(record.keyring, counts) then
+            record.keyring = counts
+            changed = true
+          end
+        end
+
+        if scanBank and self:IsBankOpen() then
+          local counts = ScanBags(BANK_BAGS, false)
+          if not MapsEqual(record.bank, counts) then
+            record.bank = counts
+            changed = true
+          end
+          if record.bankKnown ~= true then
+            record.bankKnown = true
+            changed = true
+          end
+        end
+
+        if changed then self:LocalChanged() end
+        return changed
+      end
+
+      function tracker:OnBagUpdated(bag)
+        bag = tonumber(bag)
+        if not bag then return end
+
+        if bag >= 0 and bag <= 4 then
+          self:RescanCurrent(true, false, false)
+        elseif bag == -2 then
+          self:RescanCurrent(false, true, false)
+        elseif (bag == -1 or (bag >= 5 and bag <= 11)) and self:IsBankOpen() then
+          self:RescanCurrent(false, false, true)
+        end
+      end
+
+      function tracker:OnCreateBags(object)
+        if object == "bank" and self:IsBankOpen() then
+          self:RescanCurrent(false, false, true)
+        end
+      end
+
+      function tracker:InitializeCurrent()
+        self:EnsureStore()
+        self:RescanCurrent(true, true, false)
+      end
+
+      local events = CreateFrame("Frame")
+      events:RegisterEvent("PLAYER_ENTERING_WORLD")
+      events:RegisterEvent("BANKFRAME_OPENED")
+      events:RegisterEvent("BANKFRAME_CLOSED")
+      events:SetScript("OnEvent", function()
+        if event == "PLAYER_ENTERING_WORLD" then
+          tracker.bankOpen = false
+          tracker:InitializeCurrent()
+        elseif event == "BANKFRAME_OPENED" then
+          tracker.bankOpen = true
+        elseif event == "BANKFRAME_CLOSED" then
+          tracker.bankOpen = false
+        end
+      end)
+      tracker.events = events
+
+      return tracker
+    end)()
+
+    pfUI.bagtweaks.InventoryTracker = InventoryTracker
+
     local function NameFromLink(link)
       if not link then return "" end
       local _, _, name = string.find(link, "%[([^%]]+)%]")
@@ -2441,12 +2661,14 @@ local function Initialize()
       else
         RelayoutView("backpack")
       end
+      pcall(InventoryTracker.OnCreateBags, InventoryTracker, object)
     end
 
     if oldUpdateBag then
       pfUI.bag.UpdateBag = function(self, bag)
         oldUpdateBag(self, bag)
         if bag and bag >= -2 and bag <= 11 then RequestRelayout() end
+        pcall(InventoryTracker.OnBagUpdated, InventoryTracker, bag)
       end
     end
 
