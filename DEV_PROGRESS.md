@@ -77,10 +77,11 @@
 ## Planned / Next Work
 1. Auto-sort interaction delay/suppression while actively vendoring, disenchanting or performing similar item interactions.
 2. Multi-account-wide item tracking.
-3. Rogue Pick Lock workflow test.
-4. Disenchant targeting-cursor / candidate-item hover discoverability.
-5. Remaining direct-toolbar edge-case checks.
-6. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+3. Open all containers on right click.
+4. Rogue Pick Lock workflow test.
+5. Disenchant targeting-cursor / candidate-item hover discoverability.
+6. Remaining direct-toolbar edge-case checks.
+7. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Packing optimisation unless future inventories show a real problem.
