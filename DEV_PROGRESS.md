@@ -37,6 +37,12 @@
 - Auto-sort delay/suppression should protect active item interactions such as vendoring and disenchanting from visual item-location churn. The trigger and timing mechanism are not yet chosen and must be based on the actual event/interaction paths rather than an arbitrary delay.
 - Multi-account-wide item tracking is planned after the auto-sort interaction work; its exact persistence model and scope must be designed before implementation.
 - Open all containers on right click is planned immediately after multi-account-wide item tracking; exact interaction ownership/target surface still needs inspection before implementation.
+- Automatic visual churn path confirmed: pfUI coalesces `BAG_UPDATE`, calls `pfUI.bag:UpdateBag`, BagTweaks' wrapper calls `RequestRelayout()`, and the deferred `RelayoutView()` recollects/sorts items and reanchors their slot frames.
+- Interaction protection will suppress only the deferred automatic `RequestRelayout()` path. pfUI's own slot/icon updates remain immediate, and deliberate/direct BagTweaks relayouts plus structural `CreateBags` rebuilds remain untouched.
+- `RequestRelayout()` will keep a dirty flag plus independent hold reasons. While any hold is active it records dirty state without scheduling frame movement; releasing the final hold schedules one coalesced relayout. The deferred OnUpdate must re-check holds before moving frames.
+- Vendoring hold window: begin on `MERCHANT_SHOW`, end on `MERCHANT_CLOSED`. These events are already used by the target pfUI fork; no guessed timeout is required.
+- Disenchant hold window: begin when BagTweaks persistent Disenchant mode is entered and end whenever that mode is exited or replaced. The existing `SPELLCAST_*` events are cast lifecycle signals, but are intentionally not the hold boundary because releasing between sequential disenchant casts would reintroduce item churn.
+- Initial suppression reasons are only `merchant` and BagTweaks-managed persistent `disenchant`. Do not generalize this into all item clicks, all spells, or arbitrary post-action delays without a demonstrated need.
 
 ## Recent Relevant Commits
 - `3533868b96e7f78c548400ade88a10b5d02d9f9f` — Record open-all-containers right-click backlog item.
@@ -97,4 +103,4 @@
 - External/runtime prerequisites: pfUI. Nampower, SuperWoW and ClassicAPI remain optional capability enhancements unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Inspect the current automatic visual-sort/rebuild path and the inventory interaction events used during vendoring and disenchanting, then design the narrowest interaction-aware suppression/resume mechanism before changing runtime code.
+Implement the documented interaction-aware relayout hold in the automatic `RequestRelayout()` path only: merchant session hold plus BagTweaks persistent Disenchant-mode hold, with one coalesced relayout when the final hold releases. Do not start multi-account-wide tracking or open-all-containers-on-right-click.
