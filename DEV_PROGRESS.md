@@ -3,10 +3,10 @@
 ## Current
 - Branch: `dev`
 - Version: `0.1.43-dev`
-- Development head: `d7b2042927edb0f159f0b5f98fd1e1601586f65e` (last addon/runtime-changing development state; the workflow-migration commit after this is documentation-only)
+- Development head: `3533868b96e7f78c548400ade88a10b5d02d9f9f` (current pre-handoff branch head; documentation-only since the last addon/runtime-changing state `d7b2042927edb0f159f0b5f98fd1e1601586f65e`)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
 - Goal: Add an interaction-aware delay/suppression to automatic visual sorting so item locations do not churn while the user is actively interacting with inventory items.
-- Current scope boundary: Address the auto-sort interaction problem first. Do not broaden this work into unrelated bag layout, classification, persistence or toolbar refactors. Multi-account-wide item tracking is the next planned feature after this task.
+- Current scope boundary: Address the auto-sort interaction problem first. Do not broaden this work into unrelated bag layout, classification, persistence or toolbar refactors. Then implement multi-account-wide item tracking, followed by open-all-containers-on-right-click.
 
 ## Current Design / Development Contract
 
@@ -36,8 +36,11 @@
 - If byte/text-stable backup comparison is ever required, prefer semantic/canonical comparison in the backup tooling rather than redesigning BagTweaks persistence solely for textual ordering.
 - Auto-sort delay/suppression should protect active item interactions such as vendoring and disenchanting from visual item-location churn. The trigger and timing mechanism are not yet chosen and must be based on the actual event/interaction paths rather than an arbitrary delay.
 - Multi-account-wide item tracking is planned after the auto-sort interaction work; its exact persistence model and scope must be designed before implementation.
+- Open all containers on right click is planned immediately after multi-account-wide item tracking; exact interaction ownership/target surface still needs inspection before implementation.
 
 ## Recent Relevant Commits
+- `3533868b96e7f78c548400ade88a10b5d02d9f9f` — Record open-all-containers right-click backlog item.
+- `ae65255ab1e1cdb2b16d647c93e41914bc71b208` — Adopt canonical VanillaTemplate development workflow.
 - `d7b2042927edb0f159f0b5f98fd1e1601586f65e` — Record SavedVariables serialization-order finding.
 - `01f6564ba7aa8cbb3de80fb285bda1ed45894afb` — Record SavedVariables no-op fix for testing.
 - `300f2c3bbb3038bacf31c59b57ef5cb535ad8654` — Bump BagTweaks to 0.1.43-dev.
