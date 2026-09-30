@@ -597,6 +597,8 @@ local function Initialize()
 
       local CARRIED_BAGS = { 0, 1, 2, 3, 4 }
       local BANK_BAGS = { -1, 5, 6, 7, 8, 9, 10, 11 }
+      local REGISTRY_FILE = "pfUI_BagTweaks_accounts.txt"
+      local ACCOUNT_FILE_PREFIX = "pfUI_BagTweaks_account_"
 
       local function SafeCount(value)
         local count = tonumber(value) or 0
@@ -723,8 +725,347 @@ local function Initialize()
         return false
       end
 
+      local function EncodeText(value)
+        value = tostring(value or "")
+        return string.gsub(value, "([^%w%-%._])", function(char)
+          return string.format("%%%02X", string.byte(char))
+        end)
+      end
+
+      local function DecodeText(value)
+        value = tostring(value or "")
+        return string.gsub(value, "%%(%x%x)", function(hex)
+          return string.char(tonumber(hex, 16) or 32)
+        end)
+      end
+
+      local function SplitTabs(line)
+        local fields = {}
+        local start = 1
+        while true do
+          local pos = string.find(line, "\t", start, true)
+          if not pos then
+            table.insert(fields, string.sub(line, start))
+            break
+          end
+          table.insert(fields, string.sub(line, start, pos - 1))
+          start = pos + 1
+        end
+        return fields
+      end
+
+      local function SafeAccountID(id)
+        id = tostring(id or "")
+        if id == "" then return nil end
+        if not string.find(id, "^[%w_%-]+$") then return nil end
+        return id
+      end
+
+      local function SortedKeys(map, numeric)
+        local result = {}
+        for key in pairs(map or {}) do table.insert(result, key) end
+        table.sort(result, function(a, b)
+          if numeric then return (tonumber(a) or 0) < (tonumber(b) or 0) end
+          return tostring(a) < tostring(b)
+        end)
+        return result
+      end
+
+      local function UnionItemIDs(record)
+        local seen = {}
+        for id, count in pairs(record.carried or {}) do if SafeCount(count) > 0 then seen[tonumber(id) or id] = true end end
+        for id, count in pairs(record.keyring or {}) do if SafeCount(count) > 0 then seen[tonumber(id) or id] = true end end
+        for id, count in pairs(record.bank or {}) do if SafeCount(count) > 0 then seen[tonumber(id) or id] = true end end
+        return SortedKeys(seen, true)
+      end
+
+      function tracker:HasBridge()
+        return type(G.ReadCustomFile) == "function" and type(G.WriteCustomFile) == "function"
+      end
+
+      function tracker:ReadFile(filename)
+        if not self:HasBridge() then return nil, "unavailable" end
+        local ok, content = pcall(G.ReadCustomFile, filename)
+        if not ok then return nil, tostring(content or "read failed") end
+        if content == nil then return nil, "missing" end
+        if type(content) ~= "string" then return nil, "invalid" end
+        return content, nil
+      end
+
+      function tracker:WriteFile(filename, content, mode)
+        if not self:HasBridge() then return false, "unavailable" end
+        local ok, err = pcall(G.WriteCustomFile, filename, content, mode or "w")
+        if not ok then return false, tostring(err or "write failed") end
+        return true, nil
+      end
+
+      function tracker:AccountFilename(accountID)
+        accountID = SafeAccountID(accountID)
+        if not accountID then return nil end
+        return ACCOUNT_FILE_PREFIX .. accountID .. ".txt"
+      end
+
+      function tracker:RegistryRecord(accountID, label, published)
+        return "BTREG1\t" .. accountID .. "\t" .. EncodeText(label) .. "\t" .. (published and "1" or "0") .. "\n"
+      end
+
+      function tracker:AppendRegistry(accountID, label, published)
+        accountID = SafeAccountID(accountID)
+        if not accountID then return false end
+        return self:WriteFile(REGISTRY_FILE, self:RegistryRecord(accountID, label, published), "a")
+      end
+
+      function tracker:SerializeAccount(accountID, label, published, characters)
+        local lines = {
+          "BTINV\t1",
+          "ACCOUNT\t" .. accountID .. "\t" .. EncodeText(label) .. "\t" .. (published and "1" or "0"),
+        }
+
+        if published then
+          local charKeys = SortedKeys(characters or {}, false)
+          for i = 1, table.getn(charKeys) do
+            local record = characters[charKeys[i]]
+            if type(record) == "table" then
+              table.insert(lines, "CHAR\t" .. EncodeText(record.realm or "") .. "\t" .. EncodeText(record.name or "") .. "\t" .. (record.bankKnown and "1" or "0"))
+              local itemIDs = UnionItemIDs(record)
+              for n = 1, table.getn(itemIDs) do
+                local id = tonumber(itemIDs[n])
+                if id and id > 0 then
+                  local carried = SafeCount(record.carried and record.carried[id])
+                  local keyring = SafeCount(record.keyring and record.keyring[id])
+                  local bank = SafeCount(record.bank and record.bank[id])
+                  table.insert(lines, string.format("ITEM\t%d\t%d\t%d\t%d", id, carried, keyring, bank))
+                end
+              end
+              table.insert(lines, "ENDCHAR")
+            end
+          end
+        end
+
+        return table.concat(lines, "\n") .. "\n"
+      end
+
+      function tracker:PublishLocal(forcePublished)
+        local store = self:EnsureStore()
+        local accountID = SafeAccountID(store.accountID)
+        local filename = accountID and self:AccountFilename(accountID)
+        if not filename then return false, "invalid account id" end
+
+        local published
+        if forcePublished == nil then published = store.publish == "1"
+        else published = forcePublished and true or false end
+
+        local body = self:SerializeAccount(accountID, store.accountLabel or "", published, published and store.characters or {})
+        local ok, err = self:WriteFile(filename, body, "w")
+        if not ok then
+          self.lastBridgeError = err
+          return false, err
+        end
+
+        local registryOK, registryErr = self:AppendRegistry(accountID, store.accountLabel or "", published)
+        if not registryOK then self.lastBridgeError = registryErr else self.lastBridgeError = nil end
+        return registryOK, registryErr
+      end
+
+      function tracker:ParseRegistry(content)
+        local accounts = {}
+        if type(content) ~= "string" then return accounts end
+
+        for line in string.gfind(content, "[^\r\n]+") do
+          local fields = SplitTabs(line)
+          if fields[1] == "BTREG1" then
+            local accountID = SafeAccountID(fields[2])
+            local published = fields[4]
+            if accountID and (published == "0" or published == "1") then
+              accounts[accountID] = {
+                id = accountID,
+                label = DecodeText(fields[3] or ""),
+                published = published == "1",
+              }
+            end
+          end
+        end
+
+        return accounts
+      end
+
+      function tracker:ParseAccount(content, expectedID)
+        if type(content) ~= "string" then return nil end
+        local account
+        local current
+        local sawHeader = false
+
+        for line in string.gfind(content, "[^\r\n]+") do
+          local fields = SplitTabs(line)
+
+          if not sawHeader then
+            if fields[1] ~= "BTINV" or fields[2] ~= "1" then return nil end
+            sawHeader = true
+          elseif not account then
+            if fields[1] ~= "ACCOUNT" then return nil end
+            local accountID = SafeAccountID(fields[2])
+            if not accountID or accountID ~= expectedID then return nil end
+            if fields[4] ~= "0" and fields[4] ~= "1" then return nil end
+            account = {
+              id = accountID,
+              label = DecodeText(fields[3] or ""),
+              published = fields[4] == "1",
+              available = true,
+              characters = {},
+            }
+            if not account.published then return account end
+          elseif fields[1] == "CHAR" then
+            if current then return nil end
+            if fields[4] ~= "0" and fields[4] ~= "1" then return nil end
+            current = {
+              realm = DecodeText(fields[2] or ""),
+              name = DecodeText(fields[3] or ""),
+              bankKnown = fields[4] == "1",
+              carried = {},
+              keyring = {},
+              bank = {},
+            }
+          elseif fields[1] == "ITEM" and current then
+            local id = tonumber(fields[2])
+            local carried = tonumber(fields[3])
+            local keyring = tonumber(fields[4])
+            local bank = tonumber(fields[5])
+            if id and id > 0 and carried and carried >= 0 and keyring and keyring >= 0 and bank and bank >= 0 then
+              id = math.floor(id)
+              current.carried[id] = math.floor(carried)
+              current.keyring[id] = math.floor(keyring)
+              current.bank[id] = math.floor(bank)
+            end
+          elseif fields[1] == "ENDCHAR" and current then
+            local key = tostring(current.realm or "") .. "\031" .. tostring(current.name or "")
+            if key ~= "\031" then account.characters[key] = current end
+            current = nil
+          end
+        end
+
+        if current then return nil end
+        return account
+      end
+
+      function tracker:RefreshRegistry()
+        local store = self:EnsureStore()
+        self.registryAccounts = {}
+        self.remoteAccounts = self.remoteAccounts or {}
+
+        if not self:HasBridge() then return false end
+        local content = self:ReadFile(REGISTRY_FILE)
+        if content then self.registryAccounts = self:ParseRegistry(content) end
+
+        for accountID, meta in pairs(self.registryAccounts) do
+          if accountID ~= store.accountID then
+            local remote = self.remoteAccounts[accountID] or {}
+            remote.id = accountID
+            remote.label = meta.label
+            remote.published = meta.published
+            remote.available = false
+            remote.characters = nil
+            self.remoteAccounts[accountID] = remote
+          end
+        end
+
+        return true
+      end
+
+      function tracker:RefreshSelectedRemoteAccounts()
+        local store = self:EnsureStore()
+        self.remoteAccounts = self.remoteAccounts or {}
+        if not self:HasBridge() then return false end
+
+        for accountID, meta in pairs(self.registryAccounts or {}) do
+          if accountID ~= store.accountID then
+            local remote = self.remoteAccounts[accountID] or {
+              id = accountID,
+              label = meta.label,
+              published = meta.published,
+            }
+
+            if meta.published and (store.includedAccounts[accountID] == "1" or store.includedAccounts[accountID] == true) then
+              local filename = self:AccountFilename(accountID)
+              local content = filename and self:ReadFile(filename)
+              local parsed = content and self:ParseAccount(content, accountID) or nil
+              if parsed and parsed.published then
+                remote = parsed
+              else
+                remote.available = false
+                remote.characters = nil
+              end
+            else
+              remote.available = false
+              remote.characters = nil
+            end
+
+            remote.label = meta.label ~= "" and meta.label or remote.label
+            remote.published = meta.published
+            self.remoteAccounts[accountID] = remote
+          end
+        end
+
+        return true
+      end
+
+      function tracker:RefreshRemoteAccounts()
+        self:RefreshRegistry()
+        return self:RefreshSelectedRemoteAccounts()
+      end
+
+      function tracker:SetPublish(enabled)
+        local store = self:EnsureStore()
+        local value = enabled and "1" or "0"
+        if store.publish == value then return true end
+
+        store.publish = value
+        if not self:HasBridge() then return false, "unavailable" end
+        return self:PublishLocal(enabled and true or false)
+      end
+
+      function tracker:SetAccountLabel(label)
+        local store = self:EnsureStore()
+        label = tostring(label or "")
+        label = string.gsub(label, "^%s+", "")
+        label = string.gsub(label, "%s+$", "")
+        if label == "" or label == store.accountLabel then return false end
+        store.accountLabel = label
+        if store.publish == "1" and self:HasBridge() then self:PublishLocal(true) end
+        return true
+      end
+
+      function tracker:SetIncluded(accountID, enabled)
+        local store = self:EnsureStore()
+        accountID = SafeAccountID(accountID)
+        if not accountID or accountID == store.accountID then return false end
+        if enabled then store.includedAccounts[accountID] = "1"
+        else store.includedAccounts[accountID] = nil end
+        self:RefreshSelectedRemoteAccounts()
+        return true
+      end
+
+      function tracker:RegenerateAccountID()
+        local store = self:EnsureStore()
+        local oldID = SafeAccountID(store.accountID)
+        if oldID and self:HasBridge() then
+          local oldFile = self:AccountFilename(oldID)
+          if oldFile then
+            local tombstone = self:SerializeAccount(oldID, store.accountLabel or "", false, {})
+            self:WriteFile(oldFile, tombstone, "w")
+            self:AppendRegistry(oldID, store.accountLabel or "", false)
+          end
+        end
+
+        store.accountID = NewAccountID()
+        if store.publish == "1" and self:HasBridge() then self:PublishLocal(true) end
+        return store.accountID
+      end
+
       function tracker:LocalChanged()
-        -- Optional Nampower publishing is attached in the next checkpoint.
+        local store = self:EnsureStore()
+        if store.publish == "1" and self:HasBridge() then
+          self:PublishLocal(true)
+        end
       end
 
       function tracker:RescanCurrent(scanCarried, scanKeyring, scanBank)
@@ -780,11 +1121,16 @@ local function Initialize()
         if object == "bank" and self:IsBankOpen() then
           self:RescanCurrent(false, false, true)
         end
+        if object == "bank" or object == nil or object == "backpack" then
+          self:RefreshRemoteAccounts()
+        end
       end
 
       function tracker:InitializeCurrent()
-        self:EnsureStore()
-        self:RescanCurrent(true, true, false)
+        local store = self:EnsureStore()
+        local changed = self:RescanCurrent(true, true, false)
+        if not changed and store.publish == "1" and self:HasBridge() then self:PublishLocal(true) end
+        self:RefreshRemoteAccounts()
       end
 
       local events = CreateFrame("Frame")
