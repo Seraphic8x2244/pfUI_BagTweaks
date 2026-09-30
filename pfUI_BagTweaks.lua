@@ -3102,7 +3102,12 @@ local function Initialize()
       end
     end
 
-    pfUI.bagtweaks.Relayout = Relayout
+    -- External/toolbar relayout requests are automatic presentation work and
+    -- must honor any active Auto resort deadline. Explicit category/settings
+    -- operations inside this module continue to call the local Relayout directly.
+    pfUI.bagtweaks.Relayout = function()
+      RequestRelayout()
+    end
     pfUI.bagtweaks.ShowCategoryEditor = ShowParentCategoryNameDialog
     pfUI.bagtweaks.ShowSubcategoryEditor = ShowSubcategoryNameDialog
     pfUI.bagtweaks.GetCategories = function()
@@ -4618,7 +4623,11 @@ if type(OriginalContainerFrameItemButton_OnClick_BagTweaks) == "function" then
       end
     end
 
-    if button == "RightButton" and MerchantFrame and MerchantFrame:IsShown() and
+    -- Any ordinary right-click use from carried inventory may mutate the bag
+    -- contents: selling, equipping, opening a container, consuming an item, etc.
+    -- Arming protection is harmless when no BAG_UPDATE follows and makes those
+    -- inventory-changing paths share the same inactivity-based visual delay.
+    if button == "RightButton" and
        not IsShiftKeyDown() and not IsControlKeyDown() and not IsAltKeyDown() then
       local bag, slot = ToolbarGetClickedBagSlot()
       if bag ~= nil and slot ~= nil and GetContainerItemLink(bag, slot) and
