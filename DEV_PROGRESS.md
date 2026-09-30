@@ -3,7 +3,7 @@
 ## Current
 - Branch: `dev`
 - Version: `0.1.44-dev`
-- Development head: `048d487bc3cd19ccb9faf4386425b54111be38a0` (pre-documentation-update branch head; Auto resort delay implementation complete and awaiting runtime test)
+- Development head: `3c6dba19240ec83de1fcf1551283b93c136303d2` (pre-preflight-documentation branch head; Auto resort delay remains the latest runtime-changing checkpoint)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
 - Goal: Preserve `0.1.44-dev` as the Auto resort delay checkpoint, then implement multi-account-wide item tracking as the next separately versioned checkpoint while runtime testing is deferred until the user is home.
 - Current scope boundary: Keep each additional feature in its own versioned/committed stepping stone for fault isolation and reversibility. Next is multi-account-wide item tracking; after that, open-all-containers-on-right-click. Do not fold unrelated refactors into either checkpoint.
@@ -58,7 +58,79 @@
 - Publishing and inclusion are separate decisions: an account may publish its inventory without the current account including it, and the current account may include only a subset of discovered published accounts.
 - This separation is required for shared WoW installations where different people use different WoW accounts.
 - Do not automatically treat every discovered account database as part of one user's totals merely because it exists in the same installation.
-- Exact defaults for publish/include state and the exact tracked container set/presentation should be chosen during the implementation preflight rather than guessed.
+- Preflight resolved the defaults and first presentation as documented below.
+
+### Multi-Account Item Tracking — Implementation Preflight
+#### Local authority and tracked data
+- Same-account tracking must remain native and work without Nampower. `pfUIBagTweaksDB` is the authoritative store for the current WoW account's tracked character snapshots; Nampower is only the bridge used to publish/read snapshots between WoW accounts.
+- Add a nested inventory-tracking data model rather than changing the existing category schema/version semantics. Proposed shape: `db.itemTracking = { version=1, accountID=..., accountLabel=..., publish="0", includedAccounts={}, characters={} }`.
+- Current-account character keys continue to be realm + character name, consistent with the existing BagTweaks character-key model.
+- Track BagTweaks/pfUI bag surfaces only for the first slice:
+  - carried bags: IDs `0-4`;
+  - keyring: ID `-2`;
+  - bank: IDs `-1, 5-11`.
+- Equipped items are deliberately out of the first tracking slice because they are not part of BagTweaks' bag/bank presentation surface. They can be added later without changing the cross-account file protocol.
+- Store aggregate item counts per character and storage scope, not physical slot locations. Character records therefore keep separate `carried`, `keyring` and `bank` item-count maps plus a `bankKnown` flag.
+- Bank data is last-known state. Never replace a saved bank snapshot with zero/empty data while the bank is closed. Until a character's bank has been successfully scanned, `bankKnown=false`.
+- Use native container APIs / BagTweaks' existing `ItemID` path for collection. Do not make inventory scanning itself depend on Nampower's `GetBagItems`; this keeps same-account tracking functional without the DLL.
+
+#### Collection/update ownership
+- Reuse BagTweaks' existing wrappers around pfUI bag ownership rather than adding a competing inventory event pipeline.
+- After pfUI's original `UpdateBag(bag)` runs, update the current character's aggregate snapshot:
+  - a change to `0-4` or `-2` causes a carried/keyring rescan;
+  - a change to `-1, 5-11` causes a bank rescan only while the bank is actually open.
+- Reuse the existing `CreateBags` wrapper to capture the complete bank snapshot after `CreateBags("bank")` when the bank frame is shown. pfUI calls this path on bank open, giving a deterministic full-bank capture point. The hidden/close path must not clear bank data.
+- Initialize the current character/account identity and first carried/keyring snapshot at `PLAYER_ENTERING_WORLD`, when realm/name are reliably available.
+- Only mark/publish data when the aggregate snapshot actually changed.
+- Do not add an arbitrary persistence debounce for the first implementation. pfUI already coalesces `BAG_UPDATE`; a changed local snapshot may publish immediately. Optimise write frequency later only if profiling or observed behaviour justifies it.
+
+#### Nampower custom-file contract
+- Capability-detect the functions rather than hard-coding a Nampower version: cross-account mode requires callable `ReadCustomFile` and `WriteCustomFile`; `CustomFileExists` and `GetNampowerVersion` are optional diagnostics/optimisations.
+- Wrap every custom-file operation in `pcall`. `WriteCustomFile` has no success return value and raises a Lua error on failure; `ReadCustomFile` returns `nil` for a missing file and raises for other failures.
+- Nampower restricts filenames to the shared `CustomData` directory and rejects path separators / invalid Windows filename characters. BagTweaks-generated filenames and account IDs must therefore use a safe restricted character set.
+- Use normal overwrite mode (`"w"`) for each per-account inventory file. Current Nampower writes truncating files via a temporary `.tmp` file followed by `MoveFileEx(..., MOVEFILE_REPLACE_EXISTING)`, giving crash-resistant atomic replacement.
+- The temporary filename is deterministic, so the single-writer-per-account rule remains important. Distinct accounts must never share the same active account ID/file.
+- Nampower exposes no documented file-enumeration API. A shared registry is therefore still required for discovery.
+- Registry writes use append mode (`"a"`), which writes directly rather than through the atomic temp/replace path. Treat the registry as append-only, non-authoritative metadata and make its parser tolerant of duplicate, stale, malformed or partial lines.
+- Registry records are self-versioning, e.g. `BTREG1<TAB>accountID<TAB>encodedLabel<TAB>published`. The last valid record for an account ID wins. Re-registering on a later session repairs a lost/partial registry append.
+- Do not use `ExecuteCustomLuaFile`. The cross-account format remains inert text parsed by BagTweaks.
+- The external `nampowerDB` library was reviewed as a reference for multi-file persistence, but it is not adopted for this slice: it serializes executable Lua / loads through `ExecuteCustomLuaFile`, introduces another dependency, and does not remove BagTweaks' need for its own account discovery/inclusion semantics.
+
+#### Published account file format
+- Proposed safe filename: `pfUI_BagTweaks_account_<accountID>.txt`.
+- Use a deterministic, line-oriented version-1 text format. Proposed records:
+  - `BTINV<TAB>1`
+  - `ACCOUNT<TAB>accountID<TAB>encodedLabel<TAB>published`
+  - `CHAR<TAB>encodedRealm<TAB>encodedName<TAB>bankKnown`
+  - `ITEM<TAB>itemID<TAB>carriedCount<TAB>keyringCount<TAB>bankCount`
+  - `ENDCHAR`
+- Emit characters and item IDs in deterministic sorted order. This is not required by the parser but makes files stable and easier to inspect/debug.
+- Encode free-text fields (account label, realm, character name) rather than allowing tabs/newlines to enter the record grammar. Parser input is untrusted: reject invalid versions/IDs/counts and ignore malformed records without executing content.
+- Publishing exports the current account's complete local SavedVariables snapshot to its own account file. Other accounts only read it.
+- Disabling publish after an account has previously published must overwrite its account file with a valid `published=0` tombstone containing no inventory, then append a registry state record. Nampower has no delete-file API, so leaving the old inventory file untouched would incorrectly expose stale data.
+
+#### Account identity and privacy defaults
+- Generate the opaque account ID once, lazily when tracking identity is first needed, and persist it in this WoW account's SavedVariables. It must not depend on an exposed login/account-folder name.
+- Provide a recovery action to regenerate the shared account identity without touching categories or other BagTweaks settings. This is needed if a user manually copies BagTweaks SavedVariables between WoW-account folders and accidentally duplicates the opaque ID; before changing IDs, tombstone the old published file when possible.
+- Default friendly label: a neutral label derived from the first character seen on the account (for example `Account (Revenga)`), editable by the user.
+- Local same-account tracking is automatic.
+- **Publish/share this account's inventory defaults OFF.**
+- The current/local account is included in tracked tooltip results by default.
+- Newly discovered remote accounts default to **not included**. The user must explicitly opt each source into compiled totals.
+- Registry entries marked unpublished or with missing/invalid account files remain discoverable as stale/unavailable metadata but never contribute inventory counts.
+
+#### Read/refresh and presentation
+- Load/parse the registry and selected remote sources at `PLAYER_ENTERING_WORLD`.
+- Refresh selected remote account files when the backpack or bank is opened, reusing the existing bag `CreateBags` lifecycle rather than polling on a timer. This gives a fresh cross-account view during normal bag use without arbitrary background I/O.
+- The pfUI GUI page is lazily populated on first show, so refresh the registry before building the Account Tracking controls. A newly published account discovered after that page has already been built may require reopening after `/reload` in the first implementation; do not add a polling/rebuild system solely for this edge case.
+- First presentation surface: append a BagTweaks tracking section to pfUI bag-item tooltips by wrapping the existing pfUI slot frame `OnEnter` handlers during BagTweaks' existing slot-hook pass. Do not globally replace all game item tooltips.
+- Tooltip data is compiled from the local account plus only explicitly included, currently published remote accounts. Show only characters with a positive tracked count for the hovered item, grouped by friendly account label; retain carried/keyring/bank split where non-zero and include a compiled tracked total.
+- Treat bank values as last-known. The UI must not silently represent an unscanned bank as a known zero; exact wording can be concise (for example a tracked total rather than claiming a complete live total).
+
+#### Lua 5.0.3 / structure
+- The existing pfUI BagTweaks module callback is already at 143 top-level local declarations. Multi-account tracking is large enough that scattering helper locals into that callback risks the Lua 5.0.3 200-local limit.
+- Keep the existing single-main-Lua-file architecture, but implement tracking behind one self-contained `InventoryTracker` table/factory (or equivalent nested subsystem) so its helper locals compile inside a separate nested function/prototype and only a small number of locals are added to the parent module.
+- Re-run the local-count inspection after implementation and run the canonical Lua 5.0.3 compiler checker whenever the executable environment permits it.
 
 ### Auto Resort Delay — Agreed Design
 - Product rationale: prevent mis-clicks caused by BagTweaks moving another item into the screen position the user is about to click while they are rapidly selling, opening, unlocking or disenchanting inventory items.
@@ -173,4 +245,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Before changing runtime code, inspect the current inventory collection surfaces and the exact Nampower custom-file API needed for the agreed per-account database/registry design. Then implement multi-account-wide item tracking as its own versioned checkpoint without modifying the untested `0.1.44-dev` Auto resort delay slice. Do not start open-all-containers-on-right-click in the same checkpoint.
+Implement the documented Multi-Account Item Tracking preflight contract as the next isolated addon revision (`0.1.45-dev` if no intervening runtime change occurs): native per-account SavedVariables snapshots first, optional Nampower publish/read bridge second, then the scoped tooltip/options UI. Preserve `0.1.44-dev` Auto resort behaviour unchanged and do not start open-all-containers-on-right-click in this checkpoint.
