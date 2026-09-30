@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.3-dev`
-- Development code head: `679a78d349845b5355191cb2f0655b23a1dc27ed` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
+- Version: `0.5.4-dev`
+- Development code head: `f2b4d7f34c1885f8e4eff2f6711f32e9b2bbf2d0` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Continue live validation of Account Inventory and Auto resort. Native same-account tracking/aggregation is now runtime-confirmed; `0.5.3-dev` replaces the failed slot-OnEnter tooltip injection path and awaits immediate retest.
-- Current scope boundary: Fix the observed Account Inventory tooltip and Auto resort regressions as isolated reversible checkpoints. Do not start open-all-containers-on-right-click yet.
+- Goal: Perform a deliberate clean-start Account Inventory test with the `0.5.3-dev` tooltip fix retained, all local Account Inventory state reset once per WoW account, the shared discovery registry reset once per installation, and the exposed identity-regeneration control removed.
+- Current scope boundary: Validate the clean-start Account Inventory/tooltips first, then fix the observed Auto resort regressions as a separate reversible checkpoint. Do not start open-all-containers-on-right-click yet.
 
 ## Current Design / Development Contract
 
@@ -35,7 +35,10 @@
 - Keep the 0.1.43-dev no-op normalization guards; do not add further guards merely to chase raw key-order differences.
 - If byte/text-stable backup comparison is ever required, prefer semantic/canonical comparison in the backup tooling rather than redesigning BagTweaks persistence solely for textual ordering.
 - Multi-account-wide item tracking is implemented below as isolated `0.5.0-dev` native tracking, `0.5.1-dev` Nampower bridge and `0.5.2-dev` tooltip/options checkpoints. `0.5.3-dev` is a targeted tooltip-injection correction after live testing proved collection/aggregation but no tooltip output.
-- Runtime testing is now in progress. Bind each result to the exact checkpoint and keep fixes isolated so regressions can be stepped back cleanly.
+- `0.5.4-dev` is an intentionally destructive Account Inventory clean-start checkpoint requested during first live validation. On the first `PLAYER_ENTERING_WORLD` per WoW account, it discards only that account's `db.itemTracking` data (identity, friendly label, publish/inclusion choices and character snapshots), creates a fresh identity/store and immediately rescans the current character. Other BagTweaks settings/categories are preserved.
+- The same build uses a shared reset marker so the Nampower discovery registry is truncated only once for this clean-start epoch across the installation. The previous current account file is tombstoned when its old ID is known. Old historical custom files are non-authoritative and no longer discoverable after the registry reset.
+- The normal Settings UI no longer exposes **Regenerate account identity**, and the runtime regeneration method/localized caption were removed. If identity recovery is ever needed again, design a guarded/confirmed recovery path rather than exposing a routine-looking destructive button.
+- Runtime testing is in progress. Bind each result to the exact checkpoint and keep fixes isolated so regressions can be stepped back cleanly.
 - Open all containers on right click remains the next feature after Account Inventory review/runtime validation; exact interaction ownership/target surface still needs inspection before implementation, and it has not been started.
 
 ### Multi-Account Item Tracking — Agreed Design
@@ -55,6 +58,7 @@
 - Each account has an editable friendly **Account label** for display, independent of its opaque internal account ID.
 - Provide a **Share/publish this account's inventory** control. Publishing controls whether this account writes/updates its cross-account inventory database.
 - Provide an **Included accounts** list for the current account. Only checked source accounts contribute to compiled item totals/views.
+- Account identity is generated automatically and is not a routine user control. The earlier exposed **Regenerate account identity** button was removed in `0.5.4-dev` after first-run testing showed it was easy to mistake for a harmless refresh/reset action.
 - Publishing and inclusion are separate decisions: an account may publish its inventory without the current account including it, and the current account may include only a subset of discovered published accounts.
 - This separation is required for shared WoW installations where different people use different WoW accounts.
 - Do not automatically treat every discovered account database as part of one user's totals merely because it exists in the same installation.
@@ -209,8 +213,9 @@
 - Canonical vendored Lua 5.0 compiler check: **not run**. The canonical checker/source can be read through the GitHub connection but is not mounted in the executable environment; the shell has a C compiler but cannot clone/download GitHub content, and no system `lua`/`luac` is installed. Do not treat the static checks above as a compiler pass or in-game test.
 
 ## Current Issues
-- `0.5.2-dev` Account Inventory collection/aggregation is partially runtime-validated, but its per-slot tooltip injection failed in the target client. `0.5.3-dev` implements a scoped tooltip-hook correction and awaits retest.
-- Cross-account publish/read and remote inclusion still require complete target-client validation.
+- `0.5.2-dev` proved same-account collection/aggregation but failed to display tooltip lines. `0.5.3-dev` changed the tooltip injection path but was superseded before direct runtime retest; `0.5.4-dev` carries that same tooltip fix into the requested clean-start test.
+- `0.5.4-dev` intentionally destroys prior Account Inventory state on first load per WoW account. Character snapshots therefore need to be rebuilt by revisiting characters; banks remain unknown until opened.
+- Cross-account publish/read and remote inclusion still require complete target-client validation after the clean reset.
 - Auto resort runtime gaps are confirmed: VendorTweaks autoselling bypasses protection; Disenchant and equip changes can still trigger immediate BagTweaks visual resort.
 - Raw SavedVariables backups may differ only in Lua table key order even when their BagTweaks state is semantically identical.
 
@@ -224,10 +229,12 @@
 - Observation: multiple unpublished `Blackwaves` registry rows were seen after first-account setup. The user may have pressed Regenerate account identity multiple times; this is consistent with intentional tombstoning and has not been reproduced as spontaneous identity churn. `Blackwavestwo` identity remained stable.
 
 ### Next Runtime Test
-1. On `0.5.3-dev` / `679a78d349845b5355191cb2f0655b23a1dc27ed`, hover Mining Pick item ID `2901` on `Blackwavestwo`. Expected: Account Inventory appears and shows both tracked characters with total `2`.
-2. Still on `0.5.3-dev`, include the other published WoW account and confirm the same tooltip groups local and remote characters under their account labels.
-3. After tooltip validation, make the Auto resort fix its own next checkpoint: protect VendorTweaks `UseContainerItem` autoselling, remove/bypass any immediate BagTweaks relayout path during protected interactions, and include equip-driven bag changes in the same inactivity deadline.
-4. Re-test Auto resort values `0`, `3` and `10` for manual selling, VendorTweaks autoselling, container opening, Disenchant, Pick Lock and equipping; pfUI slot contents must remain immediate while BagTweaks visual reanchoring waits for inactivity.
+1. Load `0.5.4-dev` / `f2b4d7f34c1885f8e4eff2f6711f32e9b2bbf2d0` on the first WoW account. Confirm Account Inventory has reset to a fresh default label/current-character-only snapshot, publishing is off, Included account sources is empty, and **Regenerate account identity** is absent. Existing BagTweaks categories/settings must remain intact.
+2. Rename that account as desired, enable publishing, then visit each character that should be tracked. Because this build deliberately wipes the previous snapshots, each character must be logged once again to repopulate its carried/keyring data; open its bank once if bank counts are wanted.
+3. Hover the known Mining Pick item ID `2901` after two characters holding one each have been revisited. Expected: the retained `0.5.3-dev` tooltip fix displays both local characters and tracked total `2`.
+4. Load `0.5.4-dev` on the second WoW account. Confirm its local Account Inventory resets independently without clearing the first account's newly published registry entry; rename/publish it and confirm the first account appears exactly once as a remote source.
+5. Include the remote source and confirm the tooltip groups local and remote character counts under their account labels.
+6. After clean-start/tooltips pass, make the Auto resort fix its own next checkpoint: protect VendorTweaks autoselling, prevent immediate protected relayout bypasses, and include equip-driven bag changes in the inactivity deadline.
 
 ## Planned / Next Work
 1. Batch runtime-test the three Account Inventory stepping stones and the inherited Auto resort checkpoint when the user is back at the target client.
@@ -249,4 +256,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Have the user retest Mining Pick tooltip output on `0.5.3-dev` / `679a78d349845b5355191cb2f0655b23a1dc27ed`. If that passes, validate cross-account grouping next. Then implement the observed Auto resort fixes as a separate versioned checkpoint. Do not start open-all-containers-on-right-click yet.
+Have the user load `0.5.4-dev` / `f2b4d7f34c1885f8e4eff2f6711f32e9b2bbf2d0` on both WoW accounts in turn, rebuild at least two character snapshots on one account, and validate the retained tooltip fix plus clean cross-account discovery. Then implement the observed Auto resort fixes as a separate versioned checkpoint. Do not start open-all-containers-on-right-click yet.
