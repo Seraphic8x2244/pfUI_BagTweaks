@@ -57,7 +57,6 @@ L.ACCOUNT_BRIDGE_UNAVAILABLE = "Cross-account sharing: Nampower unavailable (loc
 L.ACCOUNT_LABEL = "Account label"
 L.ACCOUNT_PUBLISH = "Publish/share this account's inventory"
 L.ACCOUNT_PUBLISH_TOOLTIP = "Share this WoW account's tracked bag and bank snapshots through Nampower custom files. Off by default."
-L.ACCOUNT_REGENERATE_ID = "Regenerate account identity"
 L.ACCOUNT_INCLUDE_HEADER = "Included account sources"
 L.ACCOUNT_INCLUDE_SOURCE = "Include %s"
 L.ACCOUNT_STATUS_UNPUBLISHED = "unpublished"

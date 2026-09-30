@@ -598,6 +598,8 @@ local function Initialize()
       local CARRIED_BAGS = { 0, 1, 2, 3, 4 }
       local BANK_BAGS = { -1, 5, 6, 7, 8, 9, 10, 11 }
       local REGISTRY_FILE = "pfUI_BagTweaks_accounts.txt"
+      local RESET_FILE = "pfUI_BagTweaks_reset.txt"
+      local RESET_EPOCH = "0.5.4-cleanstart-1"
       local ACCOUNT_FILE_PREFIX = "pfUI_BagTweaks_account_"
 
       local function SafeCount(value)
@@ -781,6 +783,39 @@ local function Initialize()
 
       function tracker:HasBridge()
         return type(G.ReadCustomFile) == "function" and type(G.WriteCustomFile) == "function"
+      end
+
+      function tracker:ResetAccountInventoryOnce()
+        if db.itemTrackingResetEpoch == RESET_EPOCH then return false end
+
+        local oldStore = type(db.itemTracking) == "table" and db.itemTracking or nil
+        local oldID = oldStore and SafeAccountID(oldStore.accountID) or nil
+        local oldLabel = oldStore and tostring(oldStore.accountLabel or "") or ""
+
+        if self:HasBridge() then
+          if oldID then
+            local oldFile = self:AccountFilename(oldID)
+            if oldFile then
+              local tombstone = self:SerializeAccount(oldID, oldLabel, false, {})
+              self:WriteFile(oldFile, tombstone, "w")
+            end
+          end
+
+          local resetMarker = self:ReadFile(RESET_FILE)
+          if resetMarker ~= RESET_EPOCH then
+            self:WriteFile(REGISTRY_FILE, "", "w")
+            self:WriteFile(RESET_FILE, RESET_EPOCH, "w")
+          end
+        end
+
+        db.itemTracking = nil
+        db.itemTrackingResetEpoch = RESET_EPOCH
+        self.store = nil
+        self.characterKey = nil
+        self.character = nil
+        self.registryAccounts = {}
+        self.remoteAccounts = {}
+        return true
       end
 
       function tracker:ReadFile(filename)
@@ -1041,24 +1076,6 @@ local function Initialize()
         return true
       end
 
-      function tracker:RegenerateAccountID()
-        local store = self:EnsureStore()
-        local oldID = SafeAccountID(store.accountID)
-        if oldID and self:HasBridge() then
-          local oldFile = self:AccountFilename(oldID)
-          if oldFile then
-            local tombstone = self:SerializeAccount(oldID, store.accountLabel or "", false, {})
-            self:WriteFile(oldFile, tombstone, "w")
-            self:AppendRegistry(oldID, store.accountLabel or "", false)
-          end
-        end
-
-        store.accountID = NewAccountID()
-        if store.publish == "1" and self:HasBridge() then self:PublishLocal(true) end
-        self:RefreshRemoteAccounts()
-        return store.accountID
-      end
-
       local function CharacterItemSummary(record, itemID)
         if type(record) ~= "table" then return nil end
         local carried = SafeCount(record.carried and record.carried[itemID])
@@ -1264,6 +1281,7 @@ local function Initialize()
       end
 
       function tracker:InitializeCurrent()
+        self:ResetAccountInventoryOnce()
         local store = self:EnsureStore()
         local changed = self:RescanCurrent(true, true, false)
         if not changed and store.publish == "1" and self:HasBridge() then self:PublishLocal(true) end
@@ -3287,10 +3305,6 @@ local function Initialize()
             if GameTooltip then GameTooltip:Hide() end
           end)
         end
-
-        pfUI.gui.CreateConfig(nil, L.ACCOUNT_REGENERATE_ID, nil, nil, "button", function()
-          tracker:RegenerateAccountID()
-        end)
 
         local remotes = tracker:GetRemoteOptions()
         if table.getn(remotes) > 0 then
