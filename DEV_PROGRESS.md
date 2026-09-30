@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.4-dev`
-- Development code head: `f2b4d7f34c1885f8e4eff2f6711f32e9b2bbf2d0` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
+- Version: `0.5.5-dev`
+- Development code head: `22c0e6f70a5c68b37acf0b575e06b1d3d574b95e` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Perform a deliberate clean-start Account Inventory test with the `0.5.3-dev` tooltip fix retained, all local Account Inventory state reset once per WoW account, the shared discovery registry reset once per installation, and the exposed identity-regeneration control removed.
-- Current scope boundary: Validate the clean-start Account Inventory/tooltips first, then fix the observed Auto resort regressions as a separate reversible checkpoint. Do not start open-all-containers-on-right-click yet.
+- Goal: Continue live validation after `0.5.4-dev` confirmed Account Inventory tooltip output. `0.5.5-dev` is a narrow Auto resort fix for the confirmed Disenchant immediate-resort bypass.
+- Current scope boundary: Validate the Disenchant scheduler fix first, then address the remaining VendorTweaks autosell/equip Auto resort gaps as separate reversible work. Do not start open-all-containers-on-right-click yet.
 
 ## Current Design / Development Contract
 
@@ -39,6 +39,7 @@
 - The same build uses a shared reset marker so the Nampower discovery registry is truncated only once for this clean-start epoch across the installation. The previous current account file is tombstoned when its old ID is known. Old historical custom files are non-authoritative and no longer discoverable after the registry reset.
 - The normal Settings UI no longer exposes **Regenerate account identity**, and the runtime regeneration method/localized caption were removed. If identity recovery is ever needed again, design a guarded/confirmed recovery path rather than exposing a routine-looking destructive button.
 - Runtime testing is in progress. Bind each result to the exact checkpoint and keep fixes isolated so regressions can be stepped back cleanly.
+- `0.5.5-dev` routes pfUI `CreateBags`-triggered BagTweaks relayouts through the existing `RequestRelayout()` scheduler instead of calling `RelayoutView()` immediately. This removes the confirmed bypass that let protected Disenchant interactions visually resort before the configured inactivity deadline.
 - Open all containers on right click remains the next feature after Account Inventory review/runtime validation; exact interaction ownership/target surface still needs inspection before implementation, and it has not been started.
 
 ### Multi-Account Item Tracking — Agreed Design
@@ -216,17 +217,18 @@
 - `0.5.2-dev` proved same-account collection/aggregation but failed to display tooltip lines. `0.5.3-dev` changed the tooltip injection path but was superseded before direct runtime retest; `0.5.4-dev` carries that same tooltip fix into the requested clean-start test.
 - `0.5.4-dev` intentionally destroys prior Account Inventory state on first load per WoW account. Character snapshots therefore need to be rebuilt by revisiting characters; banks remain unknown until opened.
 - Cross-account publish/read and remote inclusion still require complete target-client validation after the clean reset.
-- Auto resort runtime gaps are confirmed: VendorTweaks autoselling bypasses protection; Disenchant and equip changes can still trigger immediate BagTweaks visual resort.
+- Auto resort runtime gaps: `0.5.5-dev` implements the targeted fix for the confirmed Disenchant immediate-relayout bypass and awaits runtime retest. VendorTweaks autoselling still bypasses protection, and equip changes are still not covered.
 - Raw SavedVariables backups may differ only in Lua table key order even when their BagTweaks state is semantically identical.
 
 ## Testing
 
 ### Last Runtime Test
-- Version/commit: `0.5.2-dev` / `31ac615a20d1b17d517e0ddae2695f62739958f1`
-- Passed: account-wide label persisted across characters; on account `Blackwavestwo` the opaque account ID remained stable across reload and across two characters; both character records were present; direct aggregation for Mining Pick item ID `2901` returned tracked total `2`, proving same-account collection and aggregation.
-- Failed: no Account Inventory lines appeared on pfUI bag-slot tooltips despite the correct tracked total.
-- Auto resort partial: manual vendoring delay works. VendorTweaks automatic selling is not protected. Disenchant itself works, but the BagTweaks visual resort occurs immediately. Equipping an item also causes an immediate visual resort.
-- Observation: multiple unpublished `Blackwaves` registry rows were seen after first-account setup. The user may have pressed Regenerate account identity multiple times; this is consistent with intentional tombstoning and has not been reproduced as spontaneous identity churn. `Blackwavestwo` identity remained stable.
+- Version/commit: `0.5.4-dev` / `f2b4d7f34c1885f8e4eff2f6711f32e9b2bbf2d0`
+- Passed: the new Account Inventory tooltip hook displays on pfUI bag items in the target client. Screenshot confirmation on Mining Pick showed `Account Inventory`, current account/character, `Bags: 1`, `bank unscanned` and tracked total `1` immediately after the clean reset.
+- Passed/inherited from earlier validation: same-account character collection/aggregation had already returned Mining Pick total `2` across two characters before the clean reset.
+- Not yet completed on the clean-start build: rebuilding multiple characters after the deliberate wipe and validating cross-account inclusion/grouping.
+- Failed on `0.5.4-dev`: Disenchant still visually auto-resorted immediately despite the Auto resort protection being armed. Inspection confirmed pfUI `CreateBags` was still calling BagTweaks `RelayoutView()` directly and bypassing the scheduler.
+- Other known Auto resort gaps remain: VendorTweaks automatic selling is not yet protected; equipping an item can cause immediate visual resort.
 
 ### Next Runtime Test
 1. Load `0.5.4-dev` / `f2b4d7f34c1885f8e4eff2f6711f32e9b2bbf2d0` on the first WoW account. Confirm Account Inventory has reset to a fresh default label/current-character-only snapshot, publishing is off, Included account sources is empty, and **Regenerate account identity** is absent. Existing BagTweaks categories/settings must remain intact.
@@ -256,4 +258,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Have the user load `0.5.4-dev` / `f2b4d7f34c1885f8e4eff2f6711f32e9b2bbf2d0` on both WoW accounts in turn, rebuild at least two character snapshots on one account, and validate the retained tooltip fix plus clean cross-account discovery. Then implement the observed Auto resort fixes as a separate versioned checkpoint. Do not start open-all-containers-on-right-click yet.
+Have the user runtime-test Disenchant on `0.5.5-dev` / `22c0e6f70a5c68b37acf0b575e06b1d3d574b95e` at delay values `3` and `0`. If the Disenchant delay passes, implement the VendorTweaks autosell/equip protections as the next separate versioned checkpoint. Continue clean-start Account Inventory cross-account validation independently; do not start open-all-containers-on-right-click yet.
