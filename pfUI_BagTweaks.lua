@@ -154,6 +154,7 @@ local function Initialize()
     if db.charAssignments ~= nil then db.charAssignments = nil end
 
     if db.showEmptyCategories == nil then db.showEmptyCategories = true end
+    if db.autoResortDelay == nil then db.autoResortDelay = "3" end
 
     local legacyQuestSubcategoryID = tonumber(db.questCategoryID or db.questGroupID)
     local legacyQuestEnabled = legacyQuestSubcategoryID ~= nil
@@ -2321,22 +2322,43 @@ local function Initialize()
 
     local relayoutDriver
     local relayoutPending = false
+    local autoResortDeadline = 0
 
     local function RequestRelayout()
-      if relayoutPending then return end
       relayoutPending = true
 
       if not relayoutDriver then
         relayoutDriver = CreateFrame("Frame")
         relayoutDriver:SetScript("OnUpdate", function()
+          if not relayoutPending then
+            this:Hide()
+            return
+          end
+
+          local now = GetTime and GetTime() or 0
+          if autoResortDeadline > now then return end
+
           this:Hide()
           relayoutPending = false
+          autoResortDeadline = 0
           if Relayout then Relayout() end
         end)
         relayoutDriver:Hide()
       end
 
       relayoutDriver:Show()
+    end
+
+    pfUI.bagtweaks.ProtectAutoResort = function()
+      local delay = tonumber(db.autoResortDelay) or 3
+      if delay < 0 then delay = 0 end
+      if delay > 10 then delay = 10 end
+
+      if delay <= 0 then
+        autoResortDeadline = 0
+      else
+        autoResortDeadline = (GetTime and GetTime() or 0) + delay
+      end
     end
 
     pfUI.bagtweaks.Relayout = Relayout
@@ -2485,6 +2507,28 @@ local function Initialize()
 
     pfUI.gui.CreateGUIEntry(thirdParty, L.PLUGIN_NAME, function()
       pfUI.gui.CreateConfig(nil, L.PLUGIN_HEADER, nil, nil, "header")
+
+      local autoResort = pfUI.gui.CreateConfig(
+        function() end,
+        L.AUTO_RESORT_DELAY,
+        _G.pfUIBagTweaksDB,
+        "autoResortDelay",
+        "dropdown",
+        { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10" }
+      )
+
+      if autoResort then
+        autoResort:EnableMouse(1)
+        autoResort:SetScript("OnEnter", function()
+          if not GameTooltip then return end
+          GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+          GameTooltip:SetText(L.AUTO_RESORT_DELAY_TOOLTIP)
+          GameTooltip:Show()
+        end)
+        autoResort:SetScript("OnLeave", function()
+          if GameTooltip then GameTooltip:Hide() end
+        end)
+      end
     end)
   end
 end
@@ -3088,6 +3132,9 @@ local function ToolbarTryDisenchantClick(button)
   if not ToolbarInvokeNativeMode("disenchant") then return false end
 
   if SpellIsTargeting and SpellIsTargeting() then
+    if pfUI.bagtweaks and pfUI.bagtweaks.ProtectAutoResort then
+      pfUI.bagtweaks.ProtectAutoResort()
+    end
     PickupContainerItem(bag, slot)
     return true
   end
@@ -3350,6 +3397,9 @@ local function ToolbarClickSort()
 end
 
 local function ToolbarClickOpen()
+  if pfUI.bagtweaks and pfUI.bagtweaks.ProtectAutoResort then
+    pfUI.bagtweaks.ProtectAutoResort()
+  end
   ToolbarNativeClick("open")
 end
 
@@ -3767,6 +3817,28 @@ local OriginalContainerFrameItemButton_OnClick_BagTweaks = ContainerFrameItemBut
 if type(OriginalContainerFrameItemButton_OnClick_BagTweaks) == "function" then
   function ContainerFrameItemButton_OnClick(button, ignoreShift)
     if ToolbarTryDisenchantClick(button) then return end
+
+    if toolbarState.activeMode == "picklock" and button == "LeftButton" and
+       not IsShiftKeyDown() and not IsControlKeyDown() and not IsAltKeyDown() and
+       SpellIsTargeting and SpellIsTargeting() then
+      local bag, slot = ToolbarGetClickedBagSlot()
+      if bag ~= nil and slot ~= nil and GetContainerItemLink(bag, slot) and
+         (bag == -2 or (bag >= 0 and bag <= 4)) and
+         pfUI.bagtweaks and pfUI.bagtweaks.ProtectAutoResort then
+        pfUI.bagtweaks.ProtectAutoResort()
+      end
+    end
+
+    if button == "RightButton" and MerchantFrame and MerchantFrame:IsShown() and
+       not IsShiftKeyDown() and not IsControlKeyDown() and not IsAltKeyDown() then
+      local bag, slot = ToolbarGetClickedBagSlot()
+      if bag ~= nil and slot ~= nil and GetContainerItemLink(bag, slot) and
+         (bag == -2 or (bag >= 0 and bag <= 4)) and
+         pfUI.bagtweaks and pfUI.bagtweaks.ProtectAutoResort then
+        pfUI.bagtweaks.ProtectAutoResort()
+      end
+    end
+
     return OriginalContainerFrameItemButton_OnClick_BagTweaks(button, ignoreShift)
   end
 end
