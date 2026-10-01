@@ -3065,6 +3065,7 @@ local function Initialize()
     local relayoutPending = false
     local autoResortDeadline = 0
     local autoResortArmed = false
+    local autoResortHold = false
 
     local function AutoResortDelay()
       local delay = tonumber(db.autoResortDelay) or 3
@@ -3077,17 +3078,21 @@ local function Initialize()
       relayoutPending = true
 
       -- Protection is armed by the user action, but the inactivity delay begins
-      -- when the resulting inventory mutation is actually observed. This matters
-      -- for cast-time actions such as Disenchant/Lockpicking: starting the clock
-      -- on click lets the delay expire before BAG_UPDATE arrives.
-      if inventoryMutation and autoResortArmed then
-        local delay = AutoResortDelay()
-        if delay <= 0 then
-          autoResortDeadline = 0
-        else
-          autoResortDeadline = (GetTime and GetTime() or 0) + delay
+      -- when the resulting inventory mutation is actually observed. Once a
+      -- protected delay is active, further inventory mutations extend it so the
+      -- visual resort happens only after the final mutation in the burst.
+      if inventoryMutation then
+        local now = GetTime and GetTime() or 0
+        if autoResortArmed or autoResortDeadline > now then
+          local delay = AutoResortDelay()
+          if delay <= 0 then
+            autoResortDeadline = 0
+          else
+            autoResortDeadline = now + delay
+          end
+          autoResortArmed = false
+          autoResortHold = false
         end
-        autoResortArmed = false
       end
 
       if not relayoutDriver then
@@ -3097,6 +3102,11 @@ local function Initialize()
             this:Hide()
             return
           end
+
+          -- A new cast-based protected action pauses an already-pending resort
+          -- until that action mutates inventory or explicitly fails/interrupts.
+          -- The resulting mutation then starts a fresh full delay.
+          if autoResortHold then return end
 
           local now = GetTime and GetTime() or 0
           if autoResortDeadline > now then return end
@@ -3112,8 +3122,14 @@ local function Initialize()
       relayoutDriver:Show()
     end
 
-    pfUI.bagtweaks.ProtectAutoResort = function()
+    pfUI.bagtweaks.ProtectAutoResort = function(holdUntilMutation)
       autoResortArmed = true
+      if holdUntilMutation then autoResortHold = true end
+    end
+
+    pfUI.bagtweaks.CancelAutoResortProtection = function()
+      autoResortArmed = false
+      autoResortHold = false
     end
 
     -- External/toolbar relayout requests are automatic presentation work and
@@ -3941,7 +3957,7 @@ local function ToolbarTryDisenchantClick(button)
 
   if SpellIsTargeting and SpellIsTargeting() then
     if pfUI.bagtweaks and pfUI.bagtweaks.ProtectAutoResort then
-      pfUI.bagtweaks.ProtectAutoResort()
+      pfUI.bagtweaks.ProtectAutoResort(true)
     end
     PickupContainerItem(bag, slot)
     return true
@@ -4633,7 +4649,7 @@ if type(OriginalContainerFrameItemButton_OnClick_BagTweaks) == "function" then
       if bag ~= nil and slot ~= nil and GetContainerItemLink(bag, slot) and
          (bag == -2 or (bag >= 0 and bag <= 4)) and
          pfUI.bagtweaks and pfUI.bagtweaks.ProtectAutoResort then
-        pfUI.bagtweaks.ProtectAutoResort()
+        pfUI.bagtweaks.ProtectAutoResort(true)
       end
     end
 
@@ -4671,8 +4687,14 @@ toolbarWatcher:SetScript("OnEvent", function()
   elseif event == "SPELLCAST_START" then
     ToolbarOnSpellStarted()
     return
-  elseif event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
+  elseif event == "SPELLCAST_STOP" then
     ToolbarOnSpellFinished()
+    return
+  elseif event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
+    ToolbarOnSpellFinished()
+    if pfUI.bagtweaks and pfUI.bagtweaks.CancelAutoResortProtection then
+      pfUI.bagtweaks.CancelAutoResortProtection()
+    end
     return
   elseif event == "BANKFRAME_CLOSED" then
     BankToolbarClose()
