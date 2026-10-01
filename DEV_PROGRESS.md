@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.6-dev`
-- Development code head: `21feada179f58858b821ed77651fd84744b05326` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
+- Version: `0.5.7-dev`
+- Development code head: `020ba73b787e4ad8db7928094c465d3ffc6875bc` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Continue live Auto resort debugging. `0.5.5-dev` failed: Disenchant still visually resorted instantly on first and second casts, and manual lockbox opening also appeared immediate. `0.5.6-dev` closes two remaining bypasses: exported/toolbar relayouts now go through the scheduler, and ordinary right-click carried-item use now arms Auto resort protection.
-- Current scope boundary: Validate `0.5.6-dev` for Disenchant, manual lockbox opening and equipping before touching VendorTweaks programmatic autosell. Do not start open-all-containers-on-right-click yet.
+- Goal: Continue live Auto resort debugging. `0.5.6-dev` still failed to delay Disenchant. `0.5.7-dev` changes the timing model so protection is armed by the user action but the configured inactivity delay starts only when the resulting inventory mutation is actually observed.
+- Current scope boundary: Validate the corrected mutation-relative timing for Disenchant and manual item use before touching VendorTweaks programmatic autosell. Do not start open-all-containers-on-right-click yet.
 
 ## Current Design / Development Contract
 
@@ -40,7 +40,8 @@
 - The normal Settings UI no longer exposes **Regenerate account identity**, and the runtime regeneration method/localized caption were removed. If identity recovery is ever needed again, design a guarded/confirmed recovery path rather than exposing a routine-looking destructive button.
 - Runtime testing is in progress. Bind each result to the exact checkpoint and keep fixes isolated so regressions can be stepped back cleanly.
 - `0.5.5-dev` routed pfUI `CreateBags`-triggered BagTweaks relayouts through the existing `RequestRelayout()` scheduler instead of calling `RelayoutView()` immediately. Runtime testing showed this was insufficient: first and second Disenchant casts still resorted instantly.
-- `0.5.6-dev` additionally makes the public `pfUI.bagtweaks.Relayout()` path scheduler-owned so automatic toolbar requests cannot bypass an active deadline. Normal right-click item use in carried inventory now arms protection generically; this covers manual container opening, equipping and consumable/use paths whenever they actually mutate bag contents.
+- `0.5.6-dev` additionally made the public `pfUI.bagtweaks.Relayout()` path scheduler-owned and armed protection for ordinary right-click carried-item use. Runtime testing still showed Disenchant reordering immediately.
+- `0.5.7-dev` corrects the timing semantics: `ProtectAutoResort()` now arms the next inventory mutation instead of immediately starting the countdown. The protected `UpdateBag` path consumes that arm and sets the deadline from the BAG_UPDATE processing time. This prevents cast-time actions such as Disenchant/Lockpicking from using up the whole delay before the inventory has changed. Non-inventory automatic relayout requests do not consume the arm.
 - Open all containers on right click remains the next feature after Account Inventory review/runtime validation; exact interaction ownership/target surface still needs inspection before implementation, and it has not been started.
 
 ### Multi-Account Item Tracking — Agreed Design
@@ -218,18 +219,18 @@
 - `0.5.2-dev` proved same-account collection/aggregation but failed to display tooltip lines. `0.5.3-dev` changed the tooltip injection path but was superseded before direct runtime retest; `0.5.4-dev` carries that same tooltip fix into the requested clean-start test.
 - `0.5.4-dev` intentionally destroys prior Account Inventory state on first load per WoW account. Character snapshots therefore need to be rebuilt by revisiting characters; banks remain unknown until opened.
 - Cross-account publish/read and remote inclusion still require complete target-client validation after the clean reset.
-- Auto resort runtime gaps: `0.5.5-dev` failed to delay Disenchant. `0.5.6-dev` adds scheduler ownership for exported/toolbar relayouts and generic right-click protection for manual container use/equipping; these await runtime retest. VendorTweaks autoselling still bypasses protection because it uses `UseContainerItem` programmatically.
+- Auto resort runtime gaps: `0.5.6-dev` still failed to delay Disenchant. `0.5.7-dev` changes protection from click-relative timing to inventory-mutation-relative timing and awaits runtime retest. VendorTweaks autoselling still bypasses protection because it uses `UseContainerItem` programmatically.
 - Raw SavedVariables backups may differ only in Lua table key order even when their BagTweaks state is semantically identical.
 
 ## Testing
 
 ### Last Runtime Test
-- Version/commit: `0.5.5-dev` / `22c0e6f70a5c68b37acf0b575e06b1d3d574b95e`
-- Passed/inherited: Account Inventory tooltip output from `0.5.4-dev` remains working.
-- Failed: Disenchant still visually resorted immediately on the first and second casts with Auto resort delay enabled. This disproved the theory that the remaining issue was only pfUI's first full-update/CreateBags path after login.
-- Failed/observed: manually opening a lockbox also appeared to trigger immediate visual resort.
-- Interpretation: additional automatic BagTweaks relayout entry points were still bypassing the inactivity deadline, and ordinary right-click item use outside merchant handling was not arming protection.
-- VendorTweaks automatic selling remains an unaddressed separate programmatic-use path.
+- Version/commit: `0.5.6-dev` / `21feada179f58858b821ed77651fd84744b05326`
+- Passed/inherited: Account Inventory tooltip output remains working.
+- Failed: persistent Disenchant still visually reordered immediately with Auto resort delay enabled.
+- Prior observation still relevant: manual lockbox opening had also appeared immediate before `0.5.6-dev`; it has not yet been independently rechecked after the generic right-click protection change.
+- Diagnosis change: earlier work focused on relayout bypasses, but the remaining Disenchant failure is consistent with the delay beginning too early. Protection was armed at the item click, while the Disenchant cast itself consumes roughly the configured 3-second delay before BAG_UPDATE is processed.
+- VendorTweaks automatic selling remains an unaddressed programmatic-use path.
 
 ### Next Runtime Test
 1. Load `0.5.4-dev` / `f2b4d7f34c1885f8e4eff2f6711f32e9b2bbf2d0` on the first WoW account. Confirm Account Inventory has reset to a fresh default label/current-character-only snapshot, publishing is off, Included account sources is empty, and **Regenerate account identity** is absent. Existing BagTweaks categories/settings must remain intact.
@@ -259,4 +260,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Have the user runtime-test `0.5.6-dev` / `21feada179f58858b821ed77651fd84744b05326` for persistent Disenchant, a second same-session Disenchant, manual right-click lockbox opening and right-click equipping at delay `3`, then verify delay `0`. If those pass, implement VendorTweaks programmatic autosell protection as the next isolated versioned checkpoint. Continue Account Inventory cross-account validation independently; do not start open-all-containers-on-right-click yet.
+Have the user runtime-test `0.5.7-dev` / `020ba73b787e4ad8db7928094c465d3ffc6875bc` for persistent Disenchant at delay `3`, then manual lockbox opening and equipping. If those pass, verify delay `0` and implement VendorTweaks programmatic autosell protection as the next isolated versioned checkpoint. Continue Account Inventory cross-account validation independently; do not start open-all-containers-on-right-click yet.
