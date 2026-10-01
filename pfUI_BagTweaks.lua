@@ -3064,9 +3064,31 @@ local function Initialize()
     local relayoutDriver
     local relayoutPending = false
     local autoResortDeadline = 0
+    local autoResortArmed = false
 
-    local function RequestRelayout()
+    local function AutoResortDelay()
+      local delay = tonumber(db.autoResortDelay) or 3
+      if delay < 0 then delay = 0 end
+      if delay > 10 then delay = 10 end
+      return delay
+    end
+
+    local function RequestRelayout(inventoryMutation)
       relayoutPending = true
+
+      -- Protection is armed by the user action, but the inactivity delay begins
+      -- when the resulting inventory mutation is actually observed. This matters
+      -- for cast-time actions such as Disenchant/Lockpicking: starting the clock
+      -- on click lets the delay expire before BAG_UPDATE arrives.
+      if inventoryMutation and autoResortArmed then
+        local delay = AutoResortDelay()
+        if delay <= 0 then
+          autoResortDeadline = 0
+        else
+          autoResortDeadline = (GetTime and GetTime() or 0) + delay
+        end
+        autoResortArmed = false
+      end
 
       if not relayoutDriver then
         relayoutDriver = CreateFrame("Frame")
@@ -3091,15 +3113,7 @@ local function Initialize()
     end
 
     pfUI.bagtweaks.ProtectAutoResort = function()
-      local delay = tonumber(db.autoResortDelay) or 3
-      if delay < 0 then delay = 0 end
-      if delay > 10 then delay = 10 end
-
-      if delay <= 0 then
-        autoResortDeadline = 0
-      else
-        autoResortDeadline = (GetTime and GetTime() or 0) + delay
-      end
+      autoResortArmed = true
     end
 
     -- External/toolbar relayout requests are automatic presentation work and
@@ -3192,7 +3206,7 @@ local function Initialize()
     if oldUpdateBag then
       pfUI.bag.UpdateBag = function(self, bag)
         oldUpdateBag(self, bag)
-        if bag and bag >= -2 and bag <= 11 then RequestRelayout() end
+        if bag and bag >= -2 and bag <= 11 then RequestRelayout(true) end
         pcall(InventoryTracker.OnBagUpdated, InventoryTracker, bag)
       end
     end
