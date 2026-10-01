@@ -3064,7 +3064,6 @@ local function Initialize()
     local relayoutDriver
     local relayoutPending = false
     local autoResortDeadline = 0
-    local autoResortArmed = false
     local autoResortHold = false
 
     local function AutoResortDelay()
@@ -3077,22 +3076,18 @@ local function Initialize()
     local function RequestRelayout(inventoryMutation)
       relayoutPending = true
 
-      -- Protection is armed by the user action, but the inactivity delay begins
-      -- when the resulting inventory mutation is actually observed. Once a
-      -- protected delay is active, further inventory mutations extend it so the
-      -- visual resort happens only after the final mutation in the burst.
+      -- Auto resort is inactivity-based for every observed bag-content mutation.
+      -- Each mutation restarts the full delay, so splitting/moving stacks,
+      -- equipping, selling, opening containers and addon-driven inventory changes
+      -- all coalesce without needing a growing list of action-specific hooks.
       if inventoryMutation then
-        local now = GetTime and GetTime() or 0
-        if autoResortArmed or autoResortDeadline > now then
-          local delay = AutoResortDelay()
-          if delay <= 0 then
-            autoResortDeadline = 0
-          else
-            autoResortDeadline = now + delay
-          end
-          autoResortArmed = false
-          autoResortHold = false
+        local delay = AutoResortDelay()
+        if delay <= 0 then
+          autoResortDeadline = 0
+        else
+          autoResortDeadline = (GetTime and GetTime() or 0) + delay
         end
+        autoResortHold = false
       end
 
       if not relayoutDriver then
@@ -3103,9 +3098,9 @@ local function Initialize()
             return
           end
 
-          -- A new cast-based protected action pauses an already-pending resort
-          -- until that action mutates inventory or explicitly fails/interrupts.
-          -- The resulting mutation then starts a fresh full delay.
+          -- Cast-based actions can hold an older pending resort while the cast is
+          -- in progress; the resulting bag mutation releases the hold and starts
+          -- a fresh inactivity delay.
           if autoResortHold then return end
 
           local now = GetTime and GetTime() or 0
@@ -3123,12 +3118,10 @@ local function Initialize()
     end
 
     pfUI.bagtweaks.ProtectAutoResort = function(holdUntilMutation)
-      autoResortArmed = true
       if holdUntilMutation then autoResortHold = true end
     end
 
     pfUI.bagtweaks.CancelAutoResortProtection = function()
-      autoResortArmed = false
       autoResortHold = false
     end
 
@@ -4221,9 +4214,6 @@ local function ToolbarClickSort()
 end
 
 local function ToolbarClickOpen()
-  if pfUI.bagtweaks and pfUI.bagtweaks.ProtectAutoResort then
-    pfUI.bagtweaks.ProtectAutoResort()
-  end
   ToolbarNativeClick("open")
 end
 
@@ -4650,20 +4640,6 @@ if type(OriginalContainerFrameItemButton_OnClick_BagTweaks) == "function" then
          (bag == -2 or (bag >= 0 and bag <= 4)) and
          pfUI.bagtweaks and pfUI.bagtweaks.ProtectAutoResort then
         pfUI.bagtweaks.ProtectAutoResort(true)
-      end
-    end
-
-    -- Any ordinary right-click use from carried inventory may mutate the bag
-    -- contents: selling, equipping, opening a container, consuming an item, etc.
-    -- Arming protection is harmless when no BAG_UPDATE follows and makes those
-    -- inventory-changing paths share the same inactivity-based visual delay.
-    if button == "RightButton" and
-       not IsShiftKeyDown() and not IsControlKeyDown() and not IsAltKeyDown() then
-      local bag, slot = ToolbarGetClickedBagSlot()
-      if bag ~= nil and slot ~= nil and GetContainerItemLink(bag, slot) and
-         (bag == -2 or (bag >= 0 and bag <= 4)) and
-         pfUI.bagtweaks and pfUI.bagtweaks.ProtectAutoResort then
-        pfUI.bagtweaks.ProtectAutoResort()
       end
     end
 
