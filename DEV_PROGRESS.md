@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.9-dev`
-- Development code head: `643b029e91485713d601df73cf9540e84da312e5` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
+- Version: `0.5.10-dev`
+- Development code head: `371fa27398c16a9bdd074ebefb32ecf0faaac10a` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Generalise Auto resort from action-specific protection to true bag-mutation inactivity. `0.5.8-dev` improved repeated cast coalescing, but stack splitting still reordered instantly because that path was never explicitly armed. `0.5.9-dev` starts/restarts the configured delay for every observed bag-content mutation.
-- Current scope boundary: Validate generic mutation-based Auto resort across stack splitting, Disenchant, manual container use, equipping and VendorTweaks autosell. Do not start open-all-containers-on-right-click yet.
+- Goal: Preserve the generic mutation-based Auto resort model while removing an observed inventory-tracking performance regression. `0.5.10-dev` coalesces bursts of Account Inventory BAG_UPDATE processing so one loot/action burst causes one rescan/publish instead of repeated full carried-bag scans/file writes.
+- Current scope boundary: Validate raid/loot performance first, then continue generic Auto resort behaviour checks. Do not start open-all-containers-on-right-click yet.
 
 ## Current Design / Development Contract
 
@@ -221,16 +221,18 @@
 - `0.5.2-dev` proved same-account collection/aggregation but failed to display tooltip lines. `0.5.3-dev` changed the tooltip injection path but was superseded before direct runtime retest; `0.5.4-dev` carries that same tooltip fix into the requested clean-start test.
 - `0.5.4-dev` intentionally destroys prior Account Inventory state on first load per WoW account. Character snapshots therefore need to be rebuilt by revisiting characters; banks remain unknown until opened.
 - Cross-account publish/read and remote inclusion still require complete target-client validation after the clean reset.
-- Auto resort runtime gaps: stack splitting exposed that action-specific protection was incomplete. `0.5.9-dev` now delays every observed bag mutation, so stack operations and VendorTweaks no longer require dedicated action hooks. This generalised behaviour awaits target-client runtime validation.
+- Auto resort runtime gaps: `0.5.9-dev` generalises delay to every observed bag mutation and still awaits full target-client validation.
+- Performance: `0.5.10-dev` addresses a reported raid/loot hitch by coalescing Account Inventory BAG_UPDATE scans/publishes. If continuous FPS loss remains outside inventory activity, the permanent toolbar OnUpdate is the next suspect to isolate.
 - Raw SavedVariables backups may differ only in Lua table key order even when their BagTweaks state is semantically identical.
 
 ## Testing
 
 ### Last Runtime Test
-- Version/commit: `0.5.8-dev` / `a84bcd99d6d4f5d60c427763e79e376c8487163d`
-- New failure reported: splitting a stack still visually reordered instantly.
-- Interpretation: action-specific arming is the wrong abstraction for Auto resort. Stack manipulation is a normal BAG_UPDATE path with no dedicated BagTweaks action hook, so it escaped protection entirely.
-- Prior progress retained: `0.5.7-dev` established a real Disenchant delay; `0.5.8-dev` added repeated-cast holds/reset semantics.
+- Version/commit: `0.5.9-dev` / `643b029e91485713d601df73cf9540e84da312e5`
+- Performance regression reported: gameplay felt shaky in raids, particularly when picking an item up from a corpse.
+- Inspection found no new permanent heavy polling in the Auto resort scheduler; its frame only performs deadline checks while a resort is pending.
+- Stronger performance suspect: Account Inventory's `OnBagUpdated` synchronously rescanned all carried bags for every bag update and could immediately publish/write custom files when sharing was enabled.
+- A permanent toolbar OnUpdate also exists and predates this performance fix; it still warrants separate attention if continuous FPS loss remains when no inventory mutations occur.
 - Account Inventory tooltip functionality remains working from the earlier checkpoint.
 
 ### Next Runtime Test
@@ -261,4 +263,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Have the user runtime-test `0.5.9-dev` / `643b029e91485713d601df73cf9540e84da312e5` first with stack splitting/moving, then chained Disenchant, equip/container use and VendorTweaks autosell at delay `3`, followed by a delay-`0` sanity check. The intended invariant is now simple: pfUI inventory state changes immediately, while every automatic BagTweaks visual resort waits until the configured period of bag-mutation inactivity. Continue Account Inventory cross-account validation independently; do not start open-all-containers-on-right-click yet.
+Have the user runtime-test `0.5.10-dev` / `371fa27398c16a9bdd074ebefb32ecf0faaac10a` specifically for raid/corpse-loot hitching and rapid inventory mutations. If event-time hitching improves but baseline FPS remains poor, optimise/remove the permanent toolbar OnUpdate as a separate checkpoint. Only then resume the remaining Auto resort behavioural validation.
