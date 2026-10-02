@@ -593,6 +593,11 @@ local function Initialize()
     local InventoryTracker = (function()
       local tracker = {
         bankOpen = false,
+        pendingScanCarried = false,
+        pendingScanKeyring = false,
+        pendingScanBank = false,
+        pendingScanAt = nil,
+        scanDriver = nil,
       }
 
       local CARRIED_BAGS = { 0, 1, 2, 3, 4 }
@@ -1258,16 +1263,60 @@ local function Initialize()
         return changed
       end
 
+      function tracker:FlushPendingRescan()
+        local scanCarried = self.pendingScanCarried
+        local scanKeyring = self.pendingScanKeyring
+        local scanBank = self.pendingScanBank
+
+        self.pendingScanCarried = false
+        self.pendingScanKeyring = false
+        self.pendingScanBank = false
+        self.pendingScanAt = nil
+        if self.scanDriver then self.scanDriver:Hide() end
+
+        if scanCarried or scanKeyring or scanBank then
+          self:RescanCurrent(scanCarried, scanKeyring, scanBank)
+        end
+      end
+
+      function tracker:QueueRescan(scanCarried, scanKeyring, scanBank)
+        if scanCarried then self.pendingScanCarried = true end
+        if scanKeyring then self.pendingScanKeyring = true end
+        if scanBank then self.pendingScanBank = true end
+
+        -- BAG_UPDATE can arrive several times for one player action. Coalesce the
+        -- burst so Account Inventory scans/publishes once after updates settle.
+        self.pendingScanAt = (GetTime and GetTime() or 0) + .15
+
+        if not self.scanDriver then
+          self.scanDriver = CreateFrame("Frame")
+          self.scanDriver:SetScript("OnUpdate", function()
+            local due = tracker.pendingScanAt
+            if not due then
+              this:Hide()
+              return
+            end
+
+            local now = GetTime and GetTime() or 0
+            if now < due then return end
+            tracker:FlushPendingRescan()
+          end)
+          self.scanDriver:Hide()
+        end
+
+        self.scanDriver:Show()
+      end
+
       function tracker:OnBagUpdated(bag)
         bag = tonumber(bag)
         if not bag then return end
 
         if bag >= 0 and bag <= 4 then
-          self:RescanCurrent(true, false, false)
+          self:QueueRescan(true, false, false)
         elseif bag == -2 then
-          self:RescanCurrent(false, true, false)
+          self:QueueRescan(false, true, false)
         elseif (bag == -1 or (bag >= 5 and bag <= 11)) and self:IsBankOpen() then
-          self:RescanCurrent(false, false, true)
+          self:QueueRescan(false, false, true)
         end
       end
 
@@ -1292,6 +1341,7 @@ local function Initialize()
       events:RegisterEvent("PLAYER_ENTERING_WORLD")
       events:RegisterEvent("BANKFRAME_OPENED")
       events:RegisterEvent("BANKFRAME_CLOSED")
+      events:RegisterEvent("PLAYER_LOGOUT")
       events:SetScript("OnEvent", function()
         if event == "PLAYER_ENTERING_WORLD" then
           tracker.bankOpen = false
@@ -1299,7 +1349,12 @@ local function Initialize()
         elseif event == "BANKFRAME_OPENED" then
           tracker.bankOpen = true
         elseif event == "BANKFRAME_CLOSED" then
+          -- Preserve the final bank mutation before the open-state guard changes.
+          tracker:FlushPendingRescan()
           tracker.bankOpen = false
+        elseif event == "PLAYER_LOGOUT" then
+          -- Do not leave the last coalesced inventory change only in memory.
+          tracker:FlushPendingRescan()
         end
       end)
       tracker.events = events
