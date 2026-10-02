@@ -44,6 +44,7 @@
 - `0.5.7-dev` corrected the timing semantics so `ProtectAutoResort()` armed the next inventory mutation instead of immediately starting the countdown. Runtime testing confirmed this finally produced some real delay on Disenchant.
 - `0.5.8-dev` completed the cast-hold part of the inactivity/coalescing model for repeated Disenchant/Lockpicking actions.
 - Runtime feedback then exposed the broader design flaw: splitting a stack reordered immediately because the scheduler still depended on action-specific arming. `0.5.9-dev` removes that requirement. Every pfUI `UpdateBag` mutation now starts or restarts the Auto resort inactivity deadline. This naturally covers stack splitting/moving, equipping, consuming/opening items, manual selling and programmatic selling such as VendorTweaks. Cast-based DE/Pick Lock still use a hold only to prevent an older pending deadline expiring during the cast; their resulting bag mutation releases the hold and restarts the full delay.
+- Raid testing then reported shaky FPS particularly when loot was picked up from a corpse. Inspection found Account Inventory's `OnBagUpdated` was synchronously rescanning all carried bags for every pfUI BAG_UPDATE and could immediately serialize/write the published account file when sharing was enabled. `0.5.10-dev` queues carried/keyring/bank dirty flags and waits 0.15 seconds after the last update in the burst before performing one combined rescan/publish. The scan driver is hidden when idle; bank-close and logout flush pending work so snapshots are not lost.
 - Open all containers on right click remains the next feature after Account Inventory review/runtime validation; exact interaction ownership/target surface still needs inspection before implementation, and it has not been started.
 
 ### Multi-Account Item Tracking — Agreed Design
@@ -229,11 +230,10 @@
 
 ### Last Runtime Test
 - Version/commit: `0.5.9-dev` / `643b029e91485713d601df73cf9540e84da312e5`
-- Performance regression reported: gameplay felt shaky in raids, particularly when picking an item up from a corpse.
-- Inspection found no new permanent heavy polling in the Auto resort scheduler; its frame only performs deadline checks while a resort is pending.
-- Stronger performance suspect: Account Inventory's `OnBagUpdated` synchronously rescanned all carried bags for every bag update and could immediately publish/write custom files when sharing was enabled.
-- A permanent toolbar OnUpdate also exists and predates this performance fix; it still warrants separate attention if continuous FPS loss remains when no inventory mutations occur.
-- Account Inventory tooltip functionality remains working from the earlier checkpoint.
+- Performance report: gameplay felt somewhat shaky in raids, especially when picking an item up from a corpse.
+- Inspection result: the strongest event-correlated suspect is Account Inventory. Every carried-bag pfUI `UpdateBag` invoked a full carried-bag rescan; bursts of BAG_UPDATE during looting could therefore repeat whole-inventory scans, and published accounts could also serialize/write the cross-account file repeatedly.
+- A permanent toolbar OnUpdate also exists and was already identified as a possible sustained-FPS suspect, but it is not changed in this checkpoint so the loot/update optimization can be tested independently.
+- Auto resort's pending timer itself only performs lightweight time/deadline checks and is not the primary suspect for corpse-loot hitches.
 
 ### Next Runtime Test
 1. Load `0.5.4-dev` / `f2b4d7f34c1885f8e4eff2f6711f32e9b2bbf2d0` on the first WoW account. Confirm Account Inventory has reset to a fresh default label/current-character-only snapshot, publishing is off, Included account sources is empty, and **Regenerate account identity** is absent. Existing BagTweaks categories/settings must remain intact.
@@ -263,4 +263,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Have the user runtime-test `0.5.10-dev` / `371fa27398c16a9bdd074ebefb32ecf0faaac10a` specifically for raid/corpse-loot hitching and rapid inventory mutations. If event-time hitching improves but baseline FPS remains poor, optimise/remove the permanent toolbar OnUpdate as a separate checkpoint. Only then resume the remaining Auto resort behavioural validation.
+Have the user runtime-test `0.5.10-dev` / `371fa27398c16a9bdd074ebefb32ecf0faaac10a` for corpse looting and general raid smoothness, including with Account Inventory sharing enabled if normally used. Confirm tracked counts still update after the short 0.15 s coalescing interval. If FPS problems persist independently of bag mutations, isolate/replace the permanent toolbar polling OnUpdate as the next versioned performance checkpoint. Do not combine that second optimization into this build.
