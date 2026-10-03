@@ -5,8 +5,8 @@
 - Version: `0.5.10-dev`
 - Development code head: `371fa27398c16a9bdd074ebefb32ecf0faaac10a` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Preserve the generic mutation-based Auto resort model while removing an observed inventory-tracking performance regression. `0.5.10-dev` coalesces bursts of Account Inventory BAG_UPDATE processing so one loot/action burst causes one rescan/publish instead of repeated full carried-bag scans/file writes.
-- Current scope boundary: Validate raid/loot performance first, then continue generic Auto resort behaviour checks. Do not start open-all-containers-on-right-click yet.
+- Goal: Preserve the `0.5.10-dev` Account Inventory performance fix while redesigning the Inventory Tracking settings around a human-facing opt-in model.
+- Current scope boundary: Next addon change is the agreed Inventory Tracking UX/settings reset only. Do not mix in toolbar polling changes, open-all-containers, or unrelated tracking refactors.
 
 ## Current Design / Development Contract
 
@@ -45,6 +45,36 @@
 - `0.5.8-dev` completed the cast-hold part of the inactivity/coalescing model for repeated Disenchant/Lockpicking actions.
 - Runtime feedback then exposed the broader design flaw: splitting a stack reordered immediately because the scheduler still depended on action-specific arming. `0.5.9-dev` removes that requirement. Every pfUI `UpdateBag` mutation now starts or restarts the Auto resort inactivity deadline. This naturally covers stack splitting/moving, equipping, consuming/opening items, manual selling and programmatic selling such as VendorTweaks. Cast-based DE/Pick Lock still use a hold only to prevent an older pending deadline expiring during the cast; their resulting bag mutation releases the hold and restarts the full delay.
 - Raid testing then reported shaky FPS particularly when loot was picked up from a corpse. Inspection found Account Inventory's `OnBagUpdated` was synchronously rescanning all carried bags for every pfUI BAG_UPDATE and could immediately serialize/write the published account file when sharing was enabled. `0.5.10-dev` queues carried/keyring/bank dirty flags and waits 0.15 seconds after the last update in the burst before performing one combined rescan/publish. The scan driver is hidden when idle; bank-close and logout flush pending work so snapshots are not lost.
+
+### Inventory Tracking Settings — Agreed UX
+- Replace the current implementation-facing Account Inventory controls ("publish/share", "included account sources", Nampower availability status) with the following user-facing layout:
+  - **[Subheader] Inventory Tracking**
+    - **Character Bank** `[ ]`
+    - **Cross-Character** `[ ]`
+    - **Cross-Account** `[ ]`
+    - **Current Account Nickname** `[ editable text ]`
+  - **[Subheader] Shared Accounts**
+    - one checkbox per known/nicknamed WoW account, e.g. `[x] Blackwaves`, `[x] Blackwavestwo`.
+- Defaults for the three main tracking scope toggles are **OFF**. Tracking beyond the current character's carried inventory is therefore explicitly enabled by the user.
+- **Character Bank** controls whether the current character's last-known bank snapshot contributes to tracking/tooltips.
+- **Cross-Character** controls whether other characters on the same WoW account contribute.
+- **Cross-Account** controls cross-WoW-account sharing/reading through Nampower custom files.
+- If Nampower custom-file capability is unavailable, **Cross-Account** remains visible but disabled/greyed and includes **"(requires Nampower.dll)"** in its label/help.
+- **Current Account Nickname** is the human-readable name advertised for this WoW account because addon Lua does not expose the real WoW account/folder/login name.
+- Known accounts are identified internally by the existing opaque per-WoW-account ID stored in that account's SavedVariables and discovered through the Nampower shared registry; account-folder structure is not inspected.
+- Newly discovered/nicknamed accounts in **Shared Accounts** default to **checked**. The user may uncheck an account to exclude it from the combined cross-account view.
+- Do not expose "publish", "source", "registry", opaque account IDs, or other implementation language in the normal settings UI.
+- Open UX detail still to confirm during implementation: whether the currently logged-in account should appear in the **Shared Accounts** checklist and, if so, the exact effect of unchecking it. Do not invent behaviour for this without user confirmation.
+
+### Inventory Tracking Settings — One-Time Test Reset
+- The first build implementing the above UX must include a **one-time Inventory Tracking settings reset** so the user can validate the new defaults and setup flow from a clean state.
+- Scope the reset to Inventory Tracking settings/preferences only. Preserve BagTweaks categories, subcategories, item assignments, Auto resort settings, and unrelated addon configuration.
+- Preserve existing tracked character/item snapshots and the opaque per-WoW-account identity unless implementation proves a reset is required for correctness; this is a settings reset, not another destructive inventory-history wipe.
+- Reset the three new scope toggles to their agreed defaults: **Character Bank OFF, Cross-Character OFF, Cross-Account OFF**.
+- Clear legacy publish/include UI preference state so it cannot silently override the new defaults. Existing discovered account metadata may remain; when surfaced under the new Shared Accounts model, known/newly discovered accounts should take the new default checked state unless the user subsequently unchecks them.
+- If the account was previously publishing, disabling Cross-Account during the one-time reset must also make the previously published shared state non-authoritative (use the existing published=0/tombstone mechanism) so "Cross-Account OFF" is true in practice, not just in the local UI.
+- Use a new one-time reset epoch/version marker so the reset runs once per WoW account and is not repeated on subsequent logins.
+
 - Open all containers on right click remains the next feature after Account Inventory review/runtime validation; exact interaction ownership/target surface still needs inspection before implementation, and it has not been started.
 
 ### Multi-Account Item Tracking — Agreed Design
@@ -123,10 +153,10 @@
 - Generate the opaque account ID once, lazily when tracking identity is first needed, and persist it in this WoW account's SavedVariables. It must not depend on an exposed login/account-folder name.
 - Provide a recovery action to regenerate the shared account identity without touching categories or other BagTweaks settings. This is needed if a user manually copies BagTweaks SavedVariables between WoW-account folders and accidentally duplicates the opaque ID; before changing IDs, tombstone the old published file when possible.
 - Default friendly label: a neutral label derived from the first character seen on the account (for example `Account (Revenga)`), editable by the user.
-- Local same-account tracking is automatic.
-- **Publish/share this account's inventory defaults OFF.**
-- The current/local account is included in tracked tooltip results by default.
-- Newly discovered remote accounts default to **not included**. The user must explicitly opt each source into compiled totals.
+- The new settings UX makes additional tracking scopes explicit opt-ins: **Character Bank OFF, Cross-Character OFF, Cross-Account OFF** by default.
+- Current-character carried inventory remains the baseline local view.
+- Newly discovered/nicknamed accounts default to **checked** in the Shared Accounts list; the user may uncheck them to exclude them from the combined cross-account view.
+- Cross-Account OFF means the account must not remain authoritatively published to other WoW accounts; legacy published state must be tombstoned during the one-time migration/reset.
 - Registry entries marked unpublished or with missing/invalid account files remain discoverable as stale/unavailable metadata but never contribute inventory counts.
 
 #### Read/refresh and presentation
@@ -244,13 +274,15 @@
 6. After clean-start/tooltips pass, make the Auto resort fix its own next checkpoint: protect VendorTweaks autoselling, prevent immediate protected relayout bypasses, and include equip-driven bag changes in the inactivity deadline.
 
 ## Planned / Next Work
-1. Batch runtime-test the three Account Inventory stepping stones and the inherited Auto resort checkpoint when the user is back at the target client.
-2. If a regression appears, step back to the exact preceding version/commit above to isolate the first failing slice.
-3. After Account Inventory/Auto resort validation, inspect and design open all containers on right click against the existing Open control and Auto resort protection owner before changing runtime code.
-4. Rogue Pick Lock workflow test.
-5. Disenchant targeting-cursor / candidate-item hover discoverability.
-6. Remaining direct-toolbar edge-case checks.
-7. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+1. Implement the agreed Inventory Tracking settings UX and its one-time settings-only reset as the next isolated versioned checkpoint.
+2. Runtime-test the clean defaults, Nampower-disabled state, nickname flow, Shared Accounts default-checked discovery, opt-out behaviour, and preservation of existing tracked snapshots/unrelated BagTweaks settings.
+3. Continue runtime validation of the `0.5.10-dev` raid/loot performance fix and generic Auto resort behaviour after the UX checkpoint.
+4. If a regression appears, step back to the exact preceding version/commit to isolate the first failing slice.
+5. After Account Inventory/Auto resort validation, inspect and design open all containers on right click against the existing Open control and Auto resort protection owner before changing runtime code.
+6. Rogue Pick Lock workflow test.
+7. Disenchant targeting-cursor / candidate-item hover discoverability.
+8. Remaining direct-toolbar edge-case checks.
+9. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Packing optimisation unless future inventories show a real problem.
@@ -263,4 +295,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Have the user runtime-test `0.5.10-dev` / `371fa27398c16a9bdd074ebefb32ecf0faaac10a` for corpse looting and general raid smoothness, including with Account Inventory sharing enabled if normally used. Confirm tracked counts still update after the short 0.15 s coalescing interval. If FPS problems persist independently of bag mutations, isolate/replace the permanent toolbar polling OnUpdate as the next versioned performance checkpoint. Do not combine that second optimization into this build.
+Implement the agreed Inventory Tracking settings redesign as one isolated addon checkpoint: Character Bank / Cross-Character / Cross-Account (all default OFF), Current Account Nickname, and a default-checked Shared Accounts list. Include a new one-time Inventory Tracking settings reset epoch for clean testing while preserving tracked snapshots and unrelated BagTweaks settings. Cross-Account must be visibly disabled with "(requires Nampower.dll)" when the bridge is unavailable, and previously published legacy state must be tombstoned when the one-time reset forces Cross-Account OFF. Before coding the Shared Accounts current-account row, confirm with the user whether the currently logged-in account appears there and what unchecking it should mean.
