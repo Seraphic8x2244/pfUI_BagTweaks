@@ -603,8 +603,7 @@ local function Initialize()
       local CARRIED_BAGS = { 0, 1, 2, 3, 4 }
       local BANK_BAGS = { -1, 5, 6, 7, 8, 9, 10, 11 }
       local REGISTRY_FILE = "pfUI_BagTweaks_accounts.txt"
-      local RESET_FILE = "pfUI_BagTweaks_reset.txt"
-      local RESET_EPOCH = "0.5.4-cleanstart-1"
+      local TRACKING_SETTINGS_RESET_EPOCH = "0.5.11-inventory-settings-1"
       local ACCOUNT_FILE_PREFIX = "pfUI_BagTweaks_account_"
 
       local function SafeCount(value)
@@ -676,9 +675,10 @@ local function Initialize()
         local store = db.itemTracking
 
         if store.version ~= 1 then store.version = 1 end
-        if type(store.includedAccounts) ~= "table" then store.includedAccounts = {} end
         if type(store.characters) ~= "table" then store.characters = {} end
-        if store.publish ~= "1" and store.publish ~= "0" then store.publish = "0" end
+        if store.characterBank ~= "1" then store.characterBank = "0" end
+        if store.crossCharacter ~= "1" then store.crossCharacter = "0" end
+        if store.crossAccount ~= "1" then store.crossAccount = "0" end
 
         if type(store.accountID) ~= "string" or store.accountID == "" then
           store.accountID = NewAccountID()
@@ -790,37 +790,34 @@ local function Initialize()
         return type(G.ReadCustomFile) == "function" and type(G.WriteCustomFile) == "function"
       end
 
-      function tracker:ResetAccountInventoryOnce()
-        if db.itemTrackingResetEpoch == RESET_EPOCH then return false end
+      function tracker:ResetTrackingSettingsOnce()
+        if db.itemTrackingSettingsResetEpoch == TRACKING_SETTINGS_RESET_EPOCH then return false end
 
-        local oldStore = type(db.itemTracking) == "table" and db.itemTracking or nil
-        local oldID = oldStore and SafeAccountID(oldStore.accountID) or nil
-        local oldLabel = oldStore and tostring(oldStore.accountLabel or "") or ""
-
-        if self:HasBridge() then
-          if oldID then
-            local oldFile = self:AccountFilename(oldID)
-            if oldFile then
-              local tombstone = self:SerializeAccount(oldID, oldLabel, false, {})
-              self:WriteFile(oldFile, tombstone, "w")
-            end
-          end
-
-          local resetMarker = self:ReadFile(RESET_FILE)
-          if resetMarker ~= RESET_EPOCH then
-            self:WriteFile(REGISTRY_FILE, "", "w")
-            self:WriteFile(RESET_FILE, RESET_EPOCH, "w")
-          end
+        local store = type(db.itemTracking) == "table" and db.itemTracking or nil
+        if store then
+          local wasPublished = store.publish == "1" or store.crossAccount == "1"
+          store.characterBank = "0"
+          store.crossCharacter = "0"
+          store.crossAccount = "0"
+          store.publish = nil
+          store.includedAccounts = nil
+          if wasPublished then store.crossAccountTombstonePending = "1" end
         end
 
-        db.itemTracking = nil
-        db.itemTrackingResetEpoch = RESET_EPOCH
-        self.store = nil
-        self.characterKey = nil
-        self.character = nil
+        db.itemTrackingSettingsResetEpoch = TRACKING_SETTINGS_RESET_EPOCH
         self.registryAccounts = {}
         self.remoteAccounts = {}
         return true
+      end
+
+      function tracker:FlushPendingCrossAccountTombstone()
+        local store = self:EnsureStore()
+        if store.crossAccountTombstonePending ~= "1" then return true end
+        if not self:HasBridge() then return false, "unavailable" end
+
+        local ok, err = self:PublishLocal(false)
+        if ok then store.crossAccountTombstonePending = nil end
+        return ok, err
       end
 
       function tracker:ReadFile(filename)
@@ -892,7 +889,7 @@ local function Initialize()
         if not filename then return false, "invalid account id" end
 
         local published
-        if forcePublished == nil then published = store.publish == "1"
+        if forcePublished == nil then published = store.crossAccount == "1"
         else published = forcePublished and true or false end
 
         local body = self:SerializeAccount(accountID, store.accountLabel or "", published, published and store.characters or {})
@@ -988,60 +985,29 @@ local function Initialize()
       end
 
       function tracker:RefreshRegistry()
-        local store = self:EnsureStore()
         self.registryAccounts = {}
-        self.remoteAccounts = self.remoteAccounts or {}
 
         if not self:HasBridge() then return false end
         local content = self:ReadFile(REGISTRY_FILE)
         if content then self.registryAccounts = self:ParseRegistry(content) end
-
-        for accountID, meta in pairs(self.registryAccounts) do
-          if accountID ~= store.accountID then
-            local remote = self.remoteAccounts[accountID] or {}
-            remote.id = accountID
-            remote.label = meta.label
-            remote.published = meta.published
-            remote.available = false
-            remote.characters = nil
-            self.remoteAccounts[accountID] = remote
-          end
-        end
-
         return true
       end
 
-      function tracker:RefreshSelectedRemoteAccounts()
+      function tracker:RefreshSharedRemoteAccounts(forceRefresh)
         local store = self:EnsureStore()
-        self.remoteAccounts = self.remoteAccounts or {}
+        self.remoteAccounts = {}
         if not self:HasBridge() then return false end
+        if not forceRefresh and store.crossAccount ~= "1" then return true end
 
         for accountID, meta in pairs(self.registryAccounts or {}) do
-          if accountID ~= store.accountID then
-            local remote = self.remoteAccounts[accountID] or {
-              id = accountID,
-              label = meta.label,
-              published = meta.published,
-            }
-
-            if meta.published and (store.includedAccounts[accountID] == "1" or store.includedAccounts[accountID] == true) then
-              local filename = self:AccountFilename(accountID)
-              local content = filename and self:ReadFile(filename)
-              local parsed = content and self:ParseAccount(content, accountID) or nil
-              if parsed and parsed.published then
-                remote = parsed
-              else
-                remote.available = false
-                remote.characters = nil
-              end
-            else
-              remote.available = false
-              remote.characters = nil
+          if accountID ~= store.accountID and meta.published then
+            local filename = self:AccountFilename(accountID)
+            local content = filename and self:ReadFile(filename)
+            local parsed = content and self:ParseAccount(content, accountID) or nil
+            if parsed and parsed.published then
+              if meta.label ~= "" then parsed.label = meta.label end
+              self.remoteAccounts[accountID] = parsed
             end
-
-            remote.label = meta.label ~= "" and meta.label or remote.label
-            remote.published = meta.published
-            self.remoteAccounts[accountID] = remote
           end
         end
 
@@ -1049,15 +1015,47 @@ local function Initialize()
       end
 
       function tracker:RefreshRemoteAccounts()
+        local store = self:EnsureStore()
+        if store.crossAccount ~= "1" or not self:HasBridge() then
+          self.registryAccounts = {}
+          self.remoteAccounts = {}
+          return false
+        end
+
         self:RefreshRegistry()
-        return self:RefreshSelectedRemoteAccounts()
+        return self:RefreshSharedRemoteAccounts(false)
       end
 
-      function tracker:SetPublish(enabled)
+      function tracker:SetCrossAccount(enabled)
         local store = self:EnsureStore()
-        store.publish = enabled and "1" or "0"
-        if not self:HasBridge() then return false, "unavailable" end
-        return self:PublishLocal(enabled and true or false)
+        enabled = enabled and true or false
+
+        if enabled and not self:HasBridge() then
+          store.crossAccount = "0"
+          self.registryAccounts = {}
+          self.remoteAccounts = {}
+          return false, "unavailable"
+        end
+
+        store.crossAccount = enabled and "1" or "0"
+        if not self:HasBridge() then
+          if not enabled then store.crossAccountTombstonePending = "1" end
+          self.registryAccounts = {}
+          self.remoteAccounts = {}
+          return false, "unavailable"
+        end
+
+        local ok, err = self:PublishLocal(enabled)
+        if enabled then
+          if ok then store.crossAccountTombstonePending = nil end
+          self:RefreshRemoteAccounts()
+        else
+          if ok then store.crossAccountTombstonePending = nil
+          else store.crossAccountTombstonePending = "1" end
+          self.registryAccounts = {}
+          self.remoteAccounts = {}
+        end
+        return ok, err
       end
 
       function tracker:SetAccountLabel(label)
@@ -1067,32 +1065,61 @@ local function Initialize()
         label = string.gsub(label, "%s+$", "")
         if label == "" then return false end
         store.accountLabel = label
-        if store.publish == "1" and self:HasBridge() then self:PublishLocal(true) end
+        if store.crossAccount == "1" and self:HasBridge() then self:PublishLocal(true) end
         return true
       end
 
-      function tracker:SetIncluded(accountID, enabled)
+      function tracker:GetAvailableAccountInventories()
         local store = self:EnsureStore()
-        accountID = SafeAccountID(accountID)
-        if not accountID or accountID == store.accountID then return false end
-        if enabled then store.includedAccounts[accountID] = "1"
-        else store.includedAccounts[accountID] = nil end
-        self:RefreshSelectedRemoteAccounts()
-        return true
+        local accounts = {}
+        if not self:HasBridge() then return accounts end
+
+        self:RefreshRegistry()
+        self:RefreshSharedRemoteAccounts(true)
+
+        local ownMeta = self.registryAccounts and self.registryAccounts[store.accountID] or nil
+        if store.crossAccount == "1" and ownMeta and ownMeta.published then
+          local filename = self:AccountFilename(store.accountID)
+          local content = filename and self:ReadFile(filename)
+          local parsed = content and self:ParseAccount(content, store.accountID) or nil
+          if parsed and parsed.published then
+            table.insert(accounts, {
+              id = store.accountID,
+              label = store.accountLabel or ownMeta.label or store.accountID,
+            })
+          end
+        end
+
+        for accountID, remote in pairs(self.remoteAccounts or {}) do
+          if remote and remote.available and remote.published then
+            table.insert(accounts, {
+              id = accountID,
+              label = remote.label or accountID,
+            })
+          end
+        end
+
+        table.sort(accounts, function(a, b)
+          if a.label == b.label then return a.id < b.id end
+          return a.label < b.label
+        end)
+        return accounts
       end
 
-      local function CharacterItemSummary(record, itemID)
+      local function CharacterItemSummary(record, itemID, includeBank)
         if type(record) ~= "table" then return nil end
         local carried = SafeCount(record.carried and record.carried[itemID])
         local keyring = SafeCount(record.keyring and record.keyring[itemID])
-        local bank = SafeCount(record.bank and record.bank[itemID])
+        local bankIncluded = includeBank ~= false
+        local bank = bankIncluded and SafeCount(record.bank and record.bank[itemID]) or 0
         local total = carried + keyring + bank
         if total <= 0 then return nil end
         return {
           carried = carried,
           keyring = keyring,
           bank = bank,
-          bankKnown = record.bankKnown == true,
+          bankIncluded = bankIncluded,
+          bankKnown = not bankIncluded or record.bankKnown == true,
           total = total,
         }
       end
@@ -1124,6 +1151,31 @@ local function Initialize()
         return group
       end
 
+      function tracker:BuildLocalItemGroup(itemID)
+        local store = self:EnsureStore()
+        local group = { label=store.accountLabel or "", characters={}, total=0 }
+        local currentKey = self.characterKey
+        if not currentKey then currentKey = CharacterIdentity() end
+        local keys = SortedKeys(store.characters or {}, false)
+
+        for i = 1, table.getn(keys) do
+          local key = keys[i]
+          if key == currentKey or store.crossCharacter == "1" then
+            local record = store.characters[key]
+            local includeBank = key ~= currentKey or store.characterBank == "1"
+            local summary = CharacterItemSummary(record, itemID, includeBank)
+            if summary then
+              summary.name = DisplayCharacterName(record)
+              table.insert(group.characters, summary)
+              group.total = group.total + summary.total
+            end
+          end
+        end
+
+        if group.total <= 0 then return nil end
+        return group
+      end
+
       function tracker:GetTrackedItemGroups(itemID)
         itemID = tonumber(itemID)
         if not itemID then return {}, 0 end
@@ -1132,24 +1184,25 @@ local function Initialize()
         local groups = {}
         local total = 0
 
-        local localGroup = self:BuildAccountItemGroup(store.accountLabel or "", store.characters, itemID)
+        local localGroup = self:BuildLocalItemGroup(itemID)
         if localGroup then
           table.insert(groups, localGroup)
           total = total + localGroup.total
         end
 
-        local remoteIDs = SortedKeys(self.registryAccounts or {}, false)
-        for i = 1, table.getn(remoteIDs) do
-          local accountID = remoteIDs[i]
-          local meta = self.registryAccounts[accountID]
-          local remote = self.remoteAccounts and self.remoteAccounts[accountID] or nil
-          if accountID ~= store.accountID and meta and meta.published and
-             (store.includedAccounts[accountID] == "1" or store.includedAccounts[accountID] == true) and
-             remote and remote.available and remote.published and type(remote.characters) == "table" then
-            local group = self:BuildAccountItemGroup(remote.label or meta.label or accountID, remote.characters, itemID)
-            if group then
-              table.insert(groups, group)
-              total = total + group.total
+        if store.crossAccount == "1" then
+          local remoteIDs = SortedKeys(self.registryAccounts or {}, false)
+          for i = 1, table.getn(remoteIDs) do
+            local accountID = remoteIDs[i]
+            local meta = self.registryAccounts[accountID]
+            local remote = self.remoteAccounts and self.remoteAccounts[accountID] or nil
+            if accountID ~= store.accountID and meta and meta.published and
+               remote and remote.available and remote.published and type(remote.characters) == "table" then
+              local group = self:BuildAccountItemGroup(remote.label or meta.label or accountID, remote.characters, itemID)
+              if group then
+                table.insert(groups, group)
+                total = total + group.total
+              end
             end
           end
         end
@@ -1174,7 +1227,7 @@ local function Initialize()
             if item.carried > 0 then table.insert(parts, string.format(L.ACCOUNT_BAGS_COUNT or "Bags %d", item.carried)) end
             if item.keyring > 0 then table.insert(parts, string.format(L.ACCOUNT_KEYS_COUNT or "Keys %d", item.keyring)) end
             if item.bank > 0 then table.insert(parts, string.format(L.ACCOUNT_BANK_COUNT or "Bank %d", item.bank)) end
-            if not item.bankKnown then table.insert(parts, L.ACCOUNT_BANK_UNSCANNED or "bank unscanned") end
+            if item.bankIncluded and not item.bankKnown then table.insert(parts, L.ACCOUNT_BANK_UNSCANNED or "bank unscanned") end
 
             local details = table.concat(parts, ", ")
             local line = string.format(L.ACCOUNT_CHARACTER_COUNT or "%s: %d tracked", item.name, item.total)
@@ -1187,42 +1240,9 @@ local function Initialize()
         GameTooltip:Show()
       end
 
-      function tracker:GetRemoteOptions()
-        local store = self:EnsureStore()
-        local options = {}
-        local ids = SortedKeys(self.registryAccounts or {}, false)
-
-        for i = 1, table.getn(ids) do
-          local accountID = ids[i]
-          if accountID ~= store.accountID then
-            local meta = self.registryAccounts[accountID]
-            local remote = self.remoteAccounts and self.remoteAccounts[accountID] or nil
-            local label = meta.label ~= "" and meta.label or accountID
-            local status
-            if not meta.published then
-              status = L.ACCOUNT_STATUS_UNPUBLISHED or "unpublished"
-            elseif (store.includedAccounts[accountID] == "1" or store.includedAccounts[accountID] == true) and remote and not remote.available then
-              status = L.ACCOUNT_STATUS_UNAVAILABLE or "unavailable"
-            end
-
-            table.insert(options, {
-              id = accountID,
-              label = label,
-              status = status,
-            })
-          end
-        end
-
-        table.sort(options, function(a, b)
-          if a.label == b.label then return a.id < b.id end
-          return a.label < b.label
-        end)
-        return options
-      end
-
       function tracker:LocalChanged()
         local store = self:EnsureStore()
-        if store.publish == "1" and self:HasBridge() then
+        if store.crossAccount == "1" and self:HasBridge() then
           self:PublishLocal(true)
         end
       end
@@ -1325,15 +1345,17 @@ local function Initialize()
           self:RescanCurrent(false, false, true)
         end
         if object == "bank" or object == nil or object == "backpack" then
+          self:FlushPendingCrossAccountTombstone()
           self:RefreshRemoteAccounts()
         end
       end
 
       function tracker:InitializeCurrent()
-        self:ResetAccountInventoryOnce()
+        self:ResetTrackingSettingsOnce()
         local store = self:EnsureStore()
+        self:FlushPendingCrossAccountTombstone()
         local changed = self:RescanCurrent(true, true, false)
-        if not changed and store.publish == "1" and self:HasBridge() then self:PublishLocal(true) end
+        if not changed and store.crossAccount == "1" and self:HasBridge() then self:PublishLocal(true) end
         self:RefreshRemoteAccounts()
       end
 
@@ -3358,46 +3380,38 @@ local function Initialize()
       local tracker = pfUI.bagtweaks and pfUI.bagtweaks.InventoryTracker
       if tracker then
         local store = tracker:EnsureStore()
-        tracker:RefreshRemoteAccounts()
 
-        pfUI.gui.CreateConfig(nil, L.ACCOUNT_TRACKING_HEADER, nil, nil, "header")
+        pfUI.gui.CreateConfig(nil, L.INVENTORY_TRACKING_HEADER, nil, nil, "header")
 
-        local bridgeText
-        if tracker:HasBridge() then bridgeText = L.ACCOUNT_BRIDGE_AVAILABLE
-        else bridgeText = L.ACCOUNT_BRIDGE_UNAVAILABLE end
-        pfUI.gui.CreateConfig(nil, bridgeText, nil, nil, "header")
+        pfUI.gui.CreateConfig(function() end,
+          L.CHARACTER_BANK, store, "characterBank", "checkbox")
+
+        pfUI.gui.CreateConfig(function() end,
+          L.CROSS_CHARACTER, store, "crossCharacter", "checkbox")
+
+        local crossAccountLabel = L.CROSS_ACCOUNT
+        if not tracker:HasBridge() then crossAccountLabel = L.CROSS_ACCOUNT_REQUIRES_NAMPOWER end
+        local crossAccount = pfUI.gui.CreateConfig(function()
+          tracker:SetCrossAccount(store.crossAccount == "1")
+        end, crossAccountLabel, store, "crossAccount", "checkbox")
+
+        if crossAccount and not tracker:HasBridge() then
+          if crossAccount.Disable then crossAccount:Disable() end
+          if crossAccount.EnableMouse then crossAccount:EnableMouse(0) end
+          crossAccount:SetAlpha(.5)
+        end
 
         pfUI.gui.CreateConfig(function()
           tracker:SetAccountLabel(store.accountLabel)
-        end, L.ACCOUNT_LABEL, store, "accountLabel", nil, nil, nil, nil, "string")
+        end, L.CURRENT_ACCOUNT_NICKNAME, store, "accountLabel", nil, nil, nil, nil, "string")
 
-        local publish = pfUI.gui.CreateConfig(function()
-          tracker:SetPublish(store.publish == "1")
-        end, L.ACCOUNT_PUBLISH, store, "publish", "checkbox")
-
-        if publish then
-          publish:EnableMouse(1)
-          publish:SetScript("OnEnter", function()
-            if not GameTooltip then return end
-            GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
-            GameTooltip:SetText(L.ACCOUNT_PUBLISH_TOOLTIP)
-            GameTooltip:Show()
-          end)
-          publish:SetScript("OnLeave", function()
-            if GameTooltip then GameTooltip:Hide() end
-          end)
-        end
-
-        local remotes = tracker:GetRemoteOptions()
-        if table.getn(remotes) > 0 then
-          pfUI.gui.CreateConfig(nil, L.ACCOUNT_INCLUDE_HEADER, nil, nil, "header")
-          for i = 1, table.getn(remotes) do
-            local remote = remotes[i]
-            local caption = string.format(L.ACCOUNT_INCLUDE_SOURCE, remote.label)
-            if remote.status then caption = caption .. " (" .. remote.status .. ")" end
-            pfUI.gui.CreateConfig(function()
-              tracker:SetIncluded(remote.id, store.includedAccounts[remote.id] == "1")
-            end, caption, store.includedAccounts, remote.id, "checkbox")
+        pfUI.gui.CreateConfig(nil, L.AVAILABLE_ACCOUNT_INVENTORIES, nil, nil, "header")
+        local available = tracker:GetAvailableAccountInventories()
+        if table.getn(available) == 0 then
+          pfUI.gui.CreateConfig(nil, L.NO_AVAILABLE_ACCOUNT_INVENTORIES, nil, nil, "header")
+        else
+          for i = 1, table.getn(available) do
+            pfUI.gui.CreateConfig(nil, available[i].label, nil, nil, "header")
           end
         end
       end
