@@ -53,25 +53,28 @@
     - **Cross-Character** `[ ]`
     - **Cross-Account** `[ ]`
     - **Current Account Nickname** `[ editable text ]`
-  - **[Subheader] Shared Accounts**
-    - one checkbox per known/nicknamed WoW account, e.g. `[x] Blackwaves`, `[x] Blackwavestwo`.
+  - **[Subheader] Available Account Inventories**
+    - read-only list of WoW accounts that are actively sharing inventory, e.g. `Blackwaves`, `Blackwavestwo`.
 - Defaults for the three main tracking scope toggles are **OFF**. Tracking beyond the current character's carried inventory is therefore explicitly enabled by the user.
 - **Character Bank** controls whether the current character's last-known bank snapshot contributes to tracking/tooltips.
 - **Cross-Character** controls whether other characters on the same WoW account contribute.
-- **Cross-Account** controls cross-WoW-account sharing/reading through Nampower custom files.
+- **Cross-Account** is the single account-level participation control for cross-WoW-account inventory. ON means this WoW account publishes its inventory and reads all other currently shared account inventories. OFF means this account is not shared and does not consume cross-account inventory.
 - If Nampower custom-file capability is unavailable, **Cross-Account** remains visible but disabled/greyed and includes **"(requires Nampower.dll)"** in its label/help.
 - **Current Account Nickname** is the human-readable name advertised for this WoW account because addon Lua does not expose the real WoW account/folder/login name.
 - Known accounts are identified internally by the existing opaque per-WoW-account ID stored in that account's SavedVariables and discovered through the Nampower shared registry; account-folder structure is not inspected.
-- Newly discovered/nicknamed accounts in **Shared Accounts** default to **checked**. The user may uncheck an account to exclude it from the combined cross-account view.
-- Do not expose "publish", "source", "registry", opaque account IDs, or other implementation language in the normal settings UI.
-- Open UX detail still to confirm during implementation: whether the currently logged-in account should appear in the **Shared Accounts** checklist and, if so, the exact effect of unchecking it. Do not invent behaviour for this without user confirmation.
+- **Available Account Inventories** has no checkboxes or per-account interaction. It is visibility/status only.
+- The list shows only accounts that are actively sharing. Do not surface unpublished, sharing-off, stale, tombstoned, unavailable, or otherwise non-sharing account names in the normal UI.
+- The currently logged-in account appears in **Available Account Inventories** when its own **Cross-Account** setting is ON; when Cross-Account is OFF it is not listed.
+- There is no per-account include/exclude model. If a WoW account should not participate or appear, Cross-Account is disabled on that account.
+- Do not expose "publish", "source", "registry", opaque account IDs, tombstones, or other implementation language in the normal settings UI.
 
 ### Inventory Tracking Settings — One-Time Test Reset
 - The first build implementing the above UX must include a **one-time Inventory Tracking settings reset** so the user can validate the new defaults and setup flow from a clean state.
 - Scope the reset to Inventory Tracking settings/preferences only. Preserve BagTweaks categories, subcategories, item assignments, Auto resort settings, and unrelated addon configuration.
 - Preserve existing tracked character/item snapshots and the opaque per-WoW-account identity unless implementation proves a reset is required for correctness; this is a settings reset, not another destructive inventory-history wipe.
 - Reset the three new scope toggles to their agreed defaults: **Character Bank OFF, Cross-Character OFF, Cross-Account OFF**.
-- Clear legacy publish/include UI preference state so it cannot silently override the new defaults. Existing discovered account metadata may remain; when surfaced under the new Shared Accounts model, known/newly discovered accounts should take the new default checked state unless the user subsequently unchecks them.
+- Clear legacy publish/include UI preference state so it cannot silently override the new model. The old per-account inclusion selection is retired rather than migrated.
+- Existing discovery metadata may remain internally, but the normal UI must surface only accounts that are currently sharing.
 - If the account was previously publishing, disabling Cross-Account during the one-time reset must also make the previously published shared state non-authoritative (use the existing published=0/tombstone mechanism) so "Cross-Account OFF" is true in practice, not just in the local UI.
 - Use a new one-time reset epoch/version marker so the reset runs once per WoW account and is not repeated on subsequent logins.
 
@@ -91,14 +94,13 @@
 - Account identity and user-selection preferences remain in the local account's SavedVariables. Shared custom files contain only the information intentionally published for cross-account inventory tracking.
 
 ### Multi-Account Item Tracking — User Controls / Privacy
-- Each account has an editable friendly **Account label** for display, independent of its opaque internal account ID.
-- Provide a **Share/publish this account's inventory** control. Publishing controls whether this account writes/updates its cross-account inventory database.
-- Provide an **Included accounts** list for the current account. Only checked source accounts contribute to compiled item totals/views.
+- Each account has an editable **Current Account Nickname** for display, independent of its opaque internal account ID.
+- **Cross-Account** is the only user-facing account participation control. It replaces the old separate publish/share and included-account controls.
+- Cross-Account ON means the current WoW account is intentionally visible/shared and all other actively shared account inventories are eligible for the combined cross-account view.
+- Cross-Account OFF means the current WoW account is not visible/shared to other accounts and does not consume cross-account inventory.
+- The normal settings UI provides a read-only **Available Account Inventories** list containing only accounts that are actively sharing. Unshared account names are deliberately not surfaced.
 - Account identity is generated automatically and is not a routine user control. The earlier exposed **Regenerate account identity** button was removed in `0.5.4-dev` after first-run testing showed it was easy to mistake for a harmless refresh/reset action.
-- Publishing and inclusion are separate decisions: an account may publish its inventory without the current account including it, and the current account may include only a subset of discovered published accounts.
-- This separation is required for shared WoW installations where different people use different WoW accounts.
-- Do not automatically treat every discovered account database as part of one user's totals merely because it exists in the same installation.
-- Preflight resolved the defaults and first presentation as documented below.
+- Account discovery/tombstone metadata may remain internally for protocol correctness, but privacy-facing UI follows the user's sharing choice rather than exposing registry history.
 
 ### Multi-Account Item Tracking — Implementation Preflight
 #### Local authority and tracked data
@@ -155,16 +157,16 @@
 - Default friendly label: a neutral label derived from the first character seen on the account (for example `Account (Revenga)`), editable by the user.
 - The new settings UX makes additional tracking scopes explicit opt-ins: **Character Bank OFF, Cross-Character OFF, Cross-Account OFF** by default.
 - Current-character carried inventory remains the baseline local view.
-- Newly discovered/nicknamed accounts default to **checked** in the Shared Accounts list; the user may uncheck them to exclude them from the combined cross-account view.
+- There is no per-account include/exclude preference. When Cross-Account is ON, all valid actively shared account inventories participate in the cross-account view.
 - Cross-Account OFF means the account must not remain authoritatively published to other WoW accounts; legacy published state must be tombstoned during the one-time migration/reset.
-- Registry entries marked unpublished or with missing/invalid account files remain discoverable as stale/unavailable metadata but never contribute inventory counts.
+- Registry entries marked unpublished or with missing/invalid account files may remain discoverable internally for protocol repair, but never contribute inventory counts and never appear in **Available Account Inventories**.
 
 #### Read/refresh and presentation
-- Load/parse the registry and selected remote sources at `PLAYER_ENTERING_WORLD`.
-- Refresh selected remote account files when the backpack or bank is opened, reusing the existing bag `CreateBags` lifecycle rather than polling on a timer. This gives a fresh cross-account view during normal bag use without arbitrary background I/O.
-- The pfUI GUI page is lazily populated on first show, so refresh the registry before building the Account Tracking controls. A newly published account discovered after that page has already been built may require reopening after `/reload` in the first implementation; do not add a polling/rebuild system solely for this edge case.
+- Load/parse the registry and valid actively shared remote sources at `PLAYER_ENTERING_WORLD` when Cross-Account is enabled.
+- Refresh actively shared remote account files when the backpack or bank is opened, reusing the existing bag `CreateBags` lifecycle rather than polling on a timer. This gives a fresh cross-account view during normal bag use without arbitrary background I/O.
+- The pfUI GUI page is lazily populated on first show, so refresh the registry before building **Available Account Inventories**. A newly shared account discovered after that page has already been built may require reopening after `/reload` in the first implementation; do not add a polling/rebuild system solely for this edge case.
 - First presentation surface: append a BagTweaks tracking section to pfUI bag-item tooltips by wrapping the existing pfUI slot frame `OnEnter` handlers during BagTweaks' existing slot-hook pass. Do not globally replace all game item tooltips.
-- Tooltip data is compiled from the local account plus only explicitly included, currently published remote accounts. Show only characters with a positive tracked count for the hovered item, grouped by friendly account label; retain carried/keyring/bank split where non-zero and include a compiled tracked total.
+- Tooltip data is compiled according to the three scope toggles. When Cross-Account is enabled, all valid actively shared account inventories participate; there is no per-account inclusion filter. Show only characters with a positive tracked count for the hovered item, grouped by friendly account nickname; retain carried/keyring/bank split where non-zero and include a compiled tracked total.
 - Treat bank values as last-known. The UI must not silently represent an unscanned bank as a known zero; exact wording can be concise (for example a tracked total rather than claiming a complete live total).
 
 #### Lua 5.0.3 / structure
@@ -230,7 +232,7 @@
 - Native tracking reuses the existing pfUI `UpdateBag` and `CreateBags` ownership paths; it adds no competing bag-event scanner. The current character is initialized at `PLAYER_ENTERING_WORLD`.
 - `0.5.1-dev` adds the optional Nampower bridge. Native tracking remains functional when `ReadCustomFile` / `WriteCustomFile` are unavailable.
 - Cross-account files use inert deterministic `BTINV 1` text, one writer per opaque account ID, a tolerant append-only `BTREG1` registry, pcall-wrapped custom-file I/O, and a `published=0` tombstone when sharing is disabled.
-- Publishing defaults off. Remote accounts are discovered separately from inclusion and default to not included. Only selected, currently published, successfully parsed remote account files contribute counts.
+- The current implementation still uses legacy publish/include fields internally; the next UX checkpoint replaces that user model. Under the agreed model, Cross-Account defaults OFF and, when enabled, all currently shared successfully parsed remote account files contribute without per-account inclusion controls.
 - A published account re-registers once on a later session even when its snapshot is unchanged; if the login snapshot changed, that change-triggered publish is reused rather than writing twice.
 - `0.5.2-dev` adds the scoped presentation: pfUI bag-slot tooltips only, grouped by account/character with carried/keyring/bank splits and tracked total, plus Account Inventory options for label, publish/share, identity regeneration and per-source inclusion.
 - Unscanned banks are not represented as known zero; tooltip detail explicitly marks `bank unscanned`.
@@ -251,7 +253,7 @@
 ## Current Issues
 - `0.5.2-dev` proved same-account collection/aggregation but failed to display tooltip lines. `0.5.3-dev` changed the tooltip injection path but was superseded before direct runtime retest; `0.5.4-dev` carries that same tooltip fix into the requested clean-start test.
 - `0.5.4-dev` intentionally destroys prior Account Inventory state on first load per WoW account. Character snapshots therefore need to be rebuilt by revisiting characters; banks remain unknown until opened.
-- Cross-account publish/read and remote inclusion still require complete target-client validation after the clean reset.
+- Cross-account sharing/reading still requires complete target-client validation after the new UX/settings reset. The legacy per-account inclusion model is being retired.
 - Auto resort runtime gaps: `0.5.9-dev` generalises delay to every observed bag mutation and still awaits full target-client validation.
 - Performance: `0.5.10-dev` addresses a reported raid/loot hitch by coalescing Account Inventory BAG_UPDATE scans/publishes. If continuous FPS loss remains outside inventory activity, the permanent toolbar OnUpdate is the next suspect to isolate.
 - Raw SavedVariables backups may differ only in Lua table key order even when their BagTweaks state is semantically identical.
@@ -266,16 +268,17 @@
 - Auto resort's pending timer itself only performs lightweight time/deadline checks and is not the primary suspect for corpse-loot hitches.
 
 ### Next Runtime Test
-1. Load `0.5.4-dev` / `f2b4d7f34c1885f8e4eff2f6711f32e9b2bbf2d0` on the first WoW account. Confirm Account Inventory has reset to a fresh default label/current-character-only snapshot, publishing is off, Included account sources is empty, and **Regenerate account identity** is absent. Existing BagTweaks categories/settings must remain intact.
-2. Rename that account as desired, enable publishing, then visit each character that should be tracked. Because this build deliberately wipes the previous snapshots, each character must be logged once again to repopulate its carried/keyring data; open its bank once if bank counts are wanted.
-3. Hover the known Mining Pick item ID `2901` after two characters holding one each have been revisited. Expected: the retained `0.5.3-dev` tooltip fix displays both local characters and tracked total `2`.
-4. Load `0.5.4-dev` on the second WoW account. Confirm its local Account Inventory resets independently without clearing the first account's newly published registry entry; rename/publish it and confirm the first account appears exactly once as a remote source.
-5. Include the remote source and confirm the tooltip groups local and remote character counts under their account labels.
-6. After clean-start/tooltips pass, make the Auto resort fix its own next checkpoint: protect VendorTweaks autoselling, prevent immediate protected relayout bypasses, and include equip-driven bag changes in the inactivity deadline.
+1. Load the next Inventory Tracking UX checkpoint on the first WoW account. Confirm the one-time settings reset leaves **Character Bank**, **Cross-Character**, and **Cross-Account** OFF while preserving existing tracked snapshots, categories, item assignments, Auto resort settings, and unrelated BagTweaks configuration.
+2. Confirm the settings page shows **Current Account Nickname** and a read-only **Available Account Inventories** section, with no publish/source/include terminology or per-account checkboxes.
+3. With Nampower available, enable **Cross-Account** and set the nickname. Confirm the current account becomes visible in **Available Account Inventories** and is published for other WoW accounts.
+4. Enable Cross-Account on a second WoW account with its own nickname. Confirm both actively sharing accounts appear in the read-only list and their inventories participate automatically without an include/exclude step.
+5. Disable Cross-Account on one account. Confirm it is tombstoned/non-authoritative, disappears from **Available Account Inventories** on the other account, and no longer contributes cross-account tooltip counts.
+6. Separately validate **Character Bank** and **Cross-Character** OFF/ON scope behaviour, including last-known bank data and same-account character aggregation.
+7. Recheck corpse looting/raid smoothness to confirm the inherited `0.5.10-dev` scan-coalescing fix remains good through the UX change.
 
 ## Planned / Next Work
 1. Implement the agreed Inventory Tracking settings UX and its one-time settings-only reset as the next isolated versioned checkpoint.
-2. Runtime-test the clean defaults, Nampower-disabled state, nickname flow, Shared Accounts default-checked discovery, opt-out behaviour, and preservation of existing tracked snapshots/unrelated BagTweaks settings.
+2. Runtime-test the clean defaults, Nampower-disabled state, nickname flow, read-only Available Account Inventories visibility, Cross-Account participation on/off, and preservation of existing tracked snapshots/unrelated BagTweaks settings.
 3. Continue runtime validation of the `0.5.10-dev` raid/loot performance fix and generic Auto resort behaviour after the UX checkpoint.
 4. If a regression appears, step back to the exact preceding version/commit to isolate the first failing slice.
 5. After Account Inventory/Auto resort validation, inspect and design open all containers on right click against the existing Open control and Auto resort protection owner before changing runtime code.
@@ -295,4 +298,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Implement the agreed Inventory Tracking settings redesign as one isolated addon checkpoint: Character Bank / Cross-Character / Cross-Account (all default OFF), Current Account Nickname, and a default-checked Shared Accounts list. Include a new one-time Inventory Tracking settings reset epoch for clean testing while preserving tracked snapshots and unrelated BagTweaks settings. Cross-Account must be visibly disabled with "(requires Nampower.dll)" when the bridge is unavailable, and previously published legacy state must be tombstoned when the one-time reset forces Cross-Account OFF. Before coding the Shared Accounts current-account row, confirm with the user whether the currently logged-in account appears there and what unchecking it should mean.
+Implement the agreed Inventory Tracking settings redesign as one isolated addon checkpoint: Character Bank / Cross-Character / Cross-Account (all default OFF), Current Account Nickname, and a read-only **Available Account Inventories** list. Cross-Account is the sole account-level participation control: ON publishes the current account and reads all other actively shared accounts; OFF hides/unshares the current account and consumes no cross-account inventory. The available-inventories list shows only actively sharing accounts, including the current account when Cross-Account is ON, with no per-account checkboxes or include/exclude state. Include a new one-time Inventory Tracking settings reset epoch for clean testing while preserving tracked snapshots and unrelated BagTweaks settings. Cross-Account must be visibly disabled with "(requires Nampower.dll)" when the bridge is unavailable, and previously published legacy state must be tombstoned when the one-time reset forces Cross-Account OFF.
