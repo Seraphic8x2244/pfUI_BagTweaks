@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.11-dev`
-- Development code head: `aba98f21f8879d4a20285361e2d91c948702e94c` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
+- Version: `0.5.12-dev`
+- Development code head: `e35802f651af0e93b565b9c314ecdf49388d3e1c` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Runtime-validate the new opt-in Inventory Tracking UX/settings reset while preserving the inherited `0.5.10-dev` Account Inventory performance fix.
-- Current scope boundary: `0.5.11-dev` is an isolated Inventory Tracking UX/settings checkpoint. Do not mix in toolbar polling changes, open-all-containers, or unrelated tracking refactors before its runtime results are known.
+- Goal: Runtime-validate the Inventory Tracking UX from a deliberately clean first-run sync state while preserving all non-Inventory-Tracking BagTweaks data and the inherited `0.5.10-dev` Account Inventory performance fix.
+- Current scope boundary: `0.5.12-dev` is an isolated clean-first-run Inventory Tracking reset checkpoint. Do not mix in toolbar polling changes, open-all-containers, or unrelated refactors before its runtime results are known.
 
 ## Current Design / Development Contract
 
@@ -46,7 +46,9 @@
 - Runtime feedback then exposed the broader design flaw: splitting a stack reordered immediately because the scheduler still depended on action-specific arming. `0.5.9-dev` removes that requirement. Every pfUI `UpdateBag` mutation now starts or restarts the Auto resort inactivity deadline. This naturally covers stack splitting/moving, equipping, consuming/opening items, manual selling and programmatic selling such as VendorTweaks. Cast-based DE/Pick Lock still use a hold only to prevent an older pending deadline expiring during the cast; their resulting bag mutation releases the hold and restarts the full delay.
 - Raid testing then reported shaky FPS particularly when loot was picked up from a corpse. Inspection found Account Inventory's `OnBagUpdated` was synchronously rescanning all carried bags for every pfUI BAG_UPDATE and could immediately serialize/write the published account file when sharing was enabled. `0.5.10-dev` queues carried/keyring/bank dirty flags and waits 0.15 seconds after the last update in the burst before performing one combined rescan/publish. The scan driver is hidden when idle; bank-close and logout flush pending work so snapshots are not lost.
 - `0.5.11-dev` replaces the legacy publish/include settings model with the agreed opt-in scopes: **Character Bank**, **Cross-Character**, and **Cross-Account**, all default OFF. **Cross-Account** is now the sole account-level sharing/consumption control; when ON, every valid actively sharing remote account participates automatically.
-- The `0.5.11-inventory-settings-1` one-time reset is settings-only: it preserves tracked `itemTracking.characters` snapshots, the opaque account ID, the current nickname, categories, assignments, Auto resort settings and unrelated BagTweaks state. It clears legacy publish/include preferences, forces the three new scopes OFF, and tombstones previously published state; if Nampower is unavailable at reset time the tombstone remains pending and is retried when the bridge becomes available.
+- The `0.5.11-inventory-settings-1` one-time reset was settings-only: it preserved tracked `itemTracking.characters` snapshots, the opaque account ID and nickname while resetting the new scope preferences.
+- **Changed requirement before runtime testing:** `0.5.12-dev` deliberately supersedes that preservation behaviour for this test checkpoint. Its one-time `0.5.12-first-run-tracking-1` reset removes the entire local `db.itemTracking` subtree so account identity, nickname, tracked character/bank/item snapshots and all sharing/scope state start fresh. Categories, subcategories, item assignments, Auto resort and all unrelated BagTweaks configuration remain untouched.
+- With the Nampower custom-file bridge available during the reset, the old account file is tombstoned and the shared account registry is cleared once for the new clean-start epoch before a fresh local identity/store is created.
 - **Available Account Inventories** is read-only and validates account files before display. It shows only accounts whose current shared file is successfully parsed and still marked published; the current account appears only while its own Cross-Account setting is ON.
 
 ### Inventory Tracking Settings — Agreed UX
@@ -72,14 +74,14 @@
 - Do not expose "publish", "source", "registry", opaque account IDs, tombstones, or other implementation language in the normal settings UI.
 
 ### Inventory Tracking Settings — One-Time Test Reset
-- The first build implementing the above UX must include a **one-time Inventory Tracking settings reset** so the user can validate the new defaults and setup flow from a clean state.
-- Scope the reset to Inventory Tracking settings/preferences only. Preserve BagTweaks categories, subcategories, item assignments, Auto resort settings, and unrelated addon configuration.
-- Preserve existing tracked character/item snapshots and the opaque per-WoW-account identity unless implementation proves a reset is required for correctness; this is a settings reset, not another destructive inventory-history wipe.
-- Reset the three new scope toggles to their agreed defaults: **Character Bank OFF, Cross-Character OFF, Cross-Account OFF**.
-- Clear legacy publish/include UI preference state so it cannot silently override the new model. The old per-account inclusion selection is retired rather than migrated.
-- Existing discovery metadata may remain internally, but the normal UI must surface only accounts that are currently sharing.
-- If the account was previously publishing, disabling Cross-Account during the one-time reset must also make the previously published shared state non-authoritative (use the existing published=0/tombstone mechanism) so "Cross-Account OFF" is true in practice, not just in the local UI.
-- Use a new one-time reset epoch/version marker so the reset runs once per WoW account and is not repeated on subsequent logins.
+- The original `0.5.11-dev` implementation used a settings-only reset, but the user changed the runtime-test requirement before testing: the experience should now behave like a first-ever Inventory Tracking / Account Sync setup.
+- `0.5.12-dev` therefore performs a **one-time full Inventory Tracking reset** using epoch `0.5.12-first-run-tracking-1`.
+- The reset removes the entire local `db.itemTracking` subtree. This intentionally discards tracked character/item/bank snapshots, opaque account identity, Current Account Nickname, the three scope settings, legacy publish/include state, and any other Inventory Tracking-local metadata.
+- Immediately afterwards, normal startup creates a new Inventory Tracking store/opaque account ID, gives the current account its normal default nickname, rescans the current character's carried/keyring inventory, and leaves **Character Bank**, **Cross-Character**, and **Cross-Account** OFF.
+- Preserve all non-Inventory-Tracking data: BagTweaks categories, subcategories, item assignments, Auto resort settings, toolbar/settings, layout configuration and unrelated addon state must remain outside this reset.
+- When Nampower custom-file capability is available during the reset, tombstone the old account file and clear the shared discovery registry once per installation using the shared reset marker file before the new account can opt back into Cross-Account.
+- If the bridge is unavailable during that first reset, local Inventory Tracking state still resets, but external custom files cannot be deleted/tombstoned at that moment. This limitation matters only when deliberately testing no-Nampower startup with old published data already present.
+- The reset is one-shot per WoW account. Subsequent logins on the same `0.5.12-dev` checkpoint must not repeatedly erase newly collected tracking data.
 
 - Open all containers on right click remains the next feature after Account Inventory review/runtime validation; exact interaction ownership/target surface still needs inspection before implementation, and it has not been started.
 
@@ -215,6 +217,8 @@
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
 
 ## Recent Relevant Commits
+- `e35802f651af0e93b565b9c314ecdf49388d3e1c` — Reset all Inventory Tracking state once for clean first-run runtime validation (`0.5.12-dev`).
+- `8f1aa7b32d1f2fd2eafdad1a8a1fc8ca8e635895` — Start the isolated `0.5.12-dev` clean-first-run tracking checkpoint.
 - `aba98f21f8879d4a20285361e2d91c948702e94c` — Implement Inventory Tracking UX, scoped tooltip compilation and settings-only reset (`0.5.11-dev`).
 - `694995382ffd0c97b7744a104e1e6590380d4e3f` — Replace legacy Account Inventory settings copy with the new Inventory Tracking labels.
 - `f7e80fba1613ca1cc4063c3ed6ab2b0d29a6395d` — Start the isolated `0.5.11-dev` Inventory Tracking UX checkpoint.
@@ -239,29 +243,34 @@
 - Native tracking reuses the existing pfUI `UpdateBag` and `CreateBags` ownership paths; it adds no competing bag-event scanner. The current character is initialized at `PLAYER_ENTERING_WORLD`.
 - `0.5.1-dev` adds the optional Nampower bridge. Native tracking remains functional when `ReadCustomFile` / `WriteCustomFile` are unavailable.
 - Cross-account files use inert deterministic `BTINV 1` text, one writer per opaque account ID, a tolerant append-only `BTREG1` registry, pcall-wrapped custom-file I/O, and a `published=0` tombstone when sharing is disabled.
-- `0.5.11-dev` retires the legacy per-account inclusion model. The active preferences are **Character Bank**, **Cross-Character**, and **Cross-Account**, all string-backed OFF by default; Cross-Account ON automatically consumes all currently published, successfully parsed remote account files.
-- The one-time `0.5.11-inventory-settings-1` reset preserves existing tracked character/item snapshots, account identity and nickname while clearing legacy publish/include preference state. Previously published state is tombstoned, with a persisted retry marker if the bridge is temporarily unavailable.
-- Tooltip compilation now follows the three scopes: current-character carried/keyring data is the baseline, Character Bank adds the current character's last-known bank, Cross-Character adds other same-account character snapshots, and Cross-Account adds all valid actively sharing remote account snapshots.
-- `0.5.11-dev` replaces the old implementation-facing options with **Current Account Nickname** and read-only **Available Account Inventories**; there are no per-account include/exclude controls. Cross-Account is visibly disabled as requiring Nampower when the custom-file bridge is unavailable.
+- `0.5.11-dev` retires the legacy per-account inclusion model. The active preferences are **Character Bank**, **Cross-Character**, and **Cross-Account**, all OFF by default; Cross-Account ON automatically consumes all currently published, successfully parsed remote account files.
+- Tooltip compilation follows the three scopes: current-character carried/keyring data is the baseline, Character Bank adds the current character's last-known bank, Cross-Character adds other same-account character snapshots, and Cross-Account adds all valid actively sharing remote account snapshots.
+- The settings page uses **Current Account Nickname** plus read-only **Available Account Inventories**; there are no per-account include/exclude controls. Cross-Account is visibly disabled as requiring Nampower when the custom-file bridge is unavailable.
+- `0.5.12-dev` changes only the pre-runtime reset semantics: on its first startup it deletes `db.itemTracking` once so the user sees a genuinely fresh Inventory Tracking setup, while keeping all non-tracking BagTweaks data intact.
+- With Nampower available on that reset, `0.5.12-dev` tombstones the previous account file and clears the shared registry once using `pfUI_BagTweaks_reset.txt`; startup then creates a new account identity/store and rescans only the current character's live carried/keyring inventory.
 - Unscanned banks are not represented as known zero; tooltip detail marks `bank unscanned` only when bank data is actually in the selected scope.
 - `0.1.44-dev` Auto resort remains awaiting runtime validation and is inherited unchanged by the `0.5.x` line.
 - `0.1.43-dev` SavedVariables no-op normalization guards remain inherited unchanged.
 
 ## Static / Automated Checks
-- Before writing, `dev` was verified identical to the requested handoff `d2be5ec8fe110e8afff601a6b7a16f1c73c58eb9`. The latest addon-affecting checkpoint is `aba98f21f8879d4a20285361e2d91c948702e94c`.
-- Full compare from the requested handoff through the `0.5.11-dev` addon checkpoint changes only `pfUI_BagTweaks.lua`, `locales/enUS.lua` and `pfUI_BagTweaks.toc`; toolbar/open-all-container implementation files or paths were not touched.
-- Exact static comparison confirms the inherited Auto resort scheduler block is byte-identical between the requested handoff and `0.5.11-dev`.
-- Exact static comparison confirms the `0.5.10-dev` Account Inventory scan-coalescing block from `RescanCurrent` through immediately before `OnCreateBags` is byte-identical between the requested handoff and `0.5.11-dev`.
-- The destructive `db.itemTracking = nil` clean-start path is absent from `0.5.11-dev`; legacy `includedAccounts` / `publish` references remain only in the one-time reset that clears/migrates them, and the old `SetPublish` / `SetIncluded` runtime controls are absent.
-- The prior exact local-count inspection remains the last exact compiler-local count. This checkpoint keeps its added helpers inside the nested `InventoryTracker` subsystem, and a like-for-like indentation-level comparison showed no increase in the parent module's local declarations versus the requested handoff.
-- Static later-Lua-syntax scan of the final Lua found none of the checked post-5.0 constructs (`#` length operator, `goto`/labels, `//`, or variable attributes).
-- Nampower custom-file API/overwrite/append behaviour was checked against the current Nampower documentation/source before implementing the bridge.
+- Before the `0.5.12-dev` write, `dev` was verified identical to the documented `0.5.11-dev` handoff `1de807d9fb55ee46300da76812845dd7553a0ad2`.
+- Compare `1de807d9fb55ee46300da76812845dd7553a0ad2...dev` at the addon checkpoint is exactly two commits ahead and modifies only `pfUI_BagTweaks.lua` (+37 lines) and `pfUI_BagTweaks.toc` (version bump). No locale, toolbar, open-all-container, category, layout or unrelated implementation file was changed.
+- `.toc` version is `0.5.12-dev`; addon-affecting code checkpoint is `e35802f651af0e93b565b9c314ecdf49388d3e1c`.
+- The full reset function occurs once and is called once from `InitializeCurrent()` before `EnsureStore()`/the initial rescan. The destructive `db.itemTracking = nil` assignment occurs exactly once in the current source.
+- The reset has its own one-shot epoch `0.5.12-first-run-tracking-1`. The prior `0.5.11` settings-reset epoch is marked complete by the full reset so the fresh store is not immediately subjected to legacy migration behaviour.
+- Exact comparison confirms the inherited `0.5.10-dev` scan-coalescing block from `RescanCurrent` through immediately before `OnCreateBags` is byte-identical to the `0.5.11` handoff.
+- Exact comparison confirms the inherited Auto resort scheduler block is byte-identical to the `0.5.11` handoff.
+- Like-for-like indentation-level local counts show no parent-module increase (`^    local` remains 173). Nested InventoryTracker locals increase only for the new reset constants/helper state.
+- Static later-Lua-syntax scan found none of the checked post-5.0 constructs (`#` length operator, `goto`/labels, `//`, or variable attributes).
+- The pre-existing category/subcategory/assignment reset pattern count is unchanged from the `0.5.11` handoff, and Auto resort reference count is unchanged; the new destructive assignment is limited to `db.itemTracking`.
 - No repository CI/workflow is present for this branch.
-- Canonical vendored Lua 5.0 compiler check: **not run**. The canonical checker/source can be read through the GitHub connection but is not mounted in the executable environment; the shell has a C compiler but cannot clone/download GitHub content, and no system `lua`/`luac` is installed. Do not treat the static checks above as a compiler pass or in-game test.
+- Canonical vendored Lua 5.0 compiler check: **not run**. The GitHub-connected source is not mounted in the executable environment and no system `lua`/`luac` is available. Do not treat these static checks as a compiler pass or an in-game test.
 
 ## Current Issues
-- The earlier tooltip-injection correction has not yet had a clean direct runtime confirmation on the current `0.5.11-dev` checkpoint.
-- `0.5.11-dev` Cross-Account publish/read behaviour, scope toggles, settings-only reset, pending legacy tombstone retry and read-only **Available Account Inventories** filtering still require target-client validation.
+- `0.5.12-dev` has not yet been run in the target 1.12.1 client.
+- The earlier tooltip-injection correction still needs clean direct runtime confirmation through this checkpoint.
+- Cross-Account publish/read behaviour, all three scope toggles, clean-first-run reset, nickname flow and read-only **Available Account Inventories** filtering require runtime validation.
+- If Nampower custom-file capability is deliberately unavailable on the very first `0.5.12-dev` reset, BagTweaks cannot tombstone/clear old external custom files during that login; the local first-run state still resets. For a true end-to-end shared-state clean start, perform the first reset with the bridge available.
 - Auto resort runtime gaps: `0.5.9-dev` generalises delay to every observed bag mutation and still awaits full target-client validation.
 - Performance: `0.5.10-dev` addresses a reported raid/loot hitch by coalescing Account Inventory BAG_UPDATE scans/publishes. If continuous FPS loss remains outside inventory activity, the permanent toolbar OnUpdate is the next suspect to isolate.
 - Raw SavedVariables backups may differ only in Lua table key order even when their BagTweaks state is semantically identical.
@@ -276,17 +285,18 @@
 - Auto resort's pending timer itself only performs lightweight time/deadline checks and is not the primary suspect for corpse-loot hitches.
 
 ### Next Runtime Test
-1. Load `0.5.11-dev` / `aba98f21f8879d4a20285361e2d91c948702e94c` on the first WoW account. Confirm the one-time settings reset leaves **Character Bank**, **Cross-Character**, and **Cross-Account** OFF while preserving existing tracked snapshots, account identity/nickname, categories, item assignments, Auto resort settings, and unrelated BagTweaks configuration.
-2. Confirm the settings page shows **Current Account Nickname** and a read-only **Available Account Inventories** section, with no publish/source/include terminology or per-account checkboxes.
-3. With Nampower available, enable **Cross-Account** and set the nickname. Confirm the current account becomes visible in **Available Account Inventories** and is published for other WoW accounts.
-4. Enable Cross-Account on a second WoW account with its own nickname. Confirm both actively sharing accounts appear in the read-only list and their inventories participate automatically without an include/exclude step.
-5. Disable Cross-Account on one account. Confirm it is tombstoned/non-authoritative, disappears from **Available Account Inventories** on the other account, and no longer contributes cross-account tooltip counts.
-6. Separately validate **Character Bank** and **Cross-Character** OFF/ON scope behaviour, including last-known bank data and same-account character aggregation.
-7. Recheck corpse looting/raid smoothness to confirm the inherited `0.5.10-dev` scan-coalescing fix remains good through the UX change.
+1. Start `0.5.12-dev` / `e35802f651af0e93b565b9c314ecdf49388d3e1c` with Nampower custom-file capability available so the old shared state can also be cleaned.
+2. Confirm this feels like first-time Inventory Tracking setup: **Character Bank**, **Cross-Character**, and **Cross-Account** are all OFF; the old Current Account Nickname/account identity and old tracked character/bank history are gone; only the current character's freshly scanned carried/keyring inventory exists after startup.
+3. Confirm all non-tracking BagTweaks state survived unchanged: categories/subcategories, item assignments, Auto resort, toolbar/layout/options and other unrelated settings.
+4. Confirm the settings page shows **Current Account Nickname** and a read-only **Available Account Inventories** section, with no publish/source/include terminology or per-account checkboxes. With Cross-Account still OFF, the current account must not appear as sharing.
+5. Set a nickname and enable **Cross-Account**. Confirm the current account appears in Available Account Inventories and is published under the newly generated identity.
+6. Repeat on a second WoW account. Its own first `0.5.12` login should independently reset its local tracking history, then after opting into Cross-Account both freshly sharing accounts should appear automatically without any include/exclude step.
+7. Disable Cross-Account on one account. Confirm it disappears from the other account's available list and no longer contributes tooltip counts.
+8. Separately validate **Character Bank** and **Cross-Character** OFF/ON scope behaviour, then recheck corpse-loot/raid smoothness to confirm the inherited `0.5.10-dev` scan-coalescing fix remains good.
 
 ## Planned / Next Work
-1. Runtime-test `0.5.11-dev` clean defaults, Nampower-disabled state, nickname flow, read-only Available Account Inventories visibility, Cross-Account participation on/off, scope behaviour, and preservation of existing tracked snapshots/unrelated BagTweaks settings.
-2. Recheck raid/corpse-loot smoothness so the inherited `0.5.10-dev` scan-coalescing fix is validated through the UX checkpoint.
+1. Runtime-test the `0.5.12-dev` clean-first-run flow above and bind all observations to code checkpoint `e35802f651af0e93b565b9c314ecdf49388d3e1c`.
+2. Recheck raid/corpse-loot smoothness so the inherited `0.5.10-dev` scan-coalescing fix is validated through the clean UX checkpoint.
 3. Continue generic Auto resort runtime validation.
 4. If a regression appears, step back to the exact preceding version/commit to isolate the first failing slice.
 5. After Account Inventory/Auto resort validation, inspect and design open all containers on right click against the existing Open control and Auto resort protection owner before changing runtime code.
@@ -306,4 +316,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test `0.5.11-dev` / `aba98f21f8879d4a20285361e2d91c948702e94c` using the seven checks above. Do not begin toolbar performance changes, open-all-containers, or unrelated refactors until this isolated Inventory Tracking checkpoint has runtime results.
+Runtime-test `0.5.12-dev` / `e35802f651af0e93b565b9c314ecdf49388d3e1c` using the eight checks above. For the true clean shared-state test, have Nampower custom-file capability available on the first login so the old account file and registry can be tombstoned/cleared. Do not begin toolbar performance changes, open-all-containers, or unrelated refactors until this isolated Inventory Tracking checkpoint has runtime results.
