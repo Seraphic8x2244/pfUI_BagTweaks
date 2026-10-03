@@ -603,7 +603,9 @@ local function Initialize()
       local CARRIED_BAGS = { 0, 1, 2, 3, 4 }
       local BANK_BAGS = { -1, 5, 6, 7, 8, 9, 10, 11 }
       local REGISTRY_FILE = "pfUI_BagTweaks_accounts.txt"
+      local RESET_FILE = "pfUI_BagTweaks_reset.txt"
       local TRACKING_SETTINGS_RESET_EPOCH = "0.5.11-inventory-settings-1"
+      local FULL_TRACKING_RESET_EPOCH = "0.5.12-first-run-tracking-1"
       local ACCOUNT_FILE_PREFIX = "pfUI_BagTweaks_account_"
 
       local function SafeCount(value)
@@ -788,6 +790,40 @@ local function Initialize()
 
       function tracker:HasBridge()
         return type(G.ReadCustomFile) == "function" and type(G.WriteCustomFile) == "function"
+      end
+
+      function tracker:ResetAllTrackingOnce()
+        if db.itemTrackingFirstRunResetEpoch == FULL_TRACKING_RESET_EPOCH then return false end
+
+        local oldStore = type(db.itemTracking) == "table" and db.itemTracking or nil
+        local oldID = oldStore and SafeAccountID(oldStore.accountID) or nil
+        local oldLabel = oldStore and tostring(oldStore.accountLabel or "") or ""
+
+        if self:HasBridge() then
+          if oldID then
+            local oldFile = self:AccountFilename(oldID)
+            if oldFile then
+              local tombstone = self:SerializeAccount(oldID, oldLabel, false, {})
+              self:WriteFile(oldFile, tombstone, "w")
+            end
+          end
+
+          local resetMarker = self:ReadFile(RESET_FILE)
+          if resetMarker ~= FULL_TRACKING_RESET_EPOCH then
+            self:WriteFile(REGISTRY_FILE, "", "w")
+            self:WriteFile(RESET_FILE, FULL_TRACKING_RESET_EPOCH, "w")
+          end
+        end
+
+        db.itemTracking = nil
+        db.itemTrackingSettingsResetEpoch = TRACKING_SETTINGS_RESET_EPOCH
+        db.itemTrackingFirstRunResetEpoch = FULL_TRACKING_RESET_EPOCH
+        self.store = nil
+        self.characterKey = nil
+        self.character = nil
+        self.registryAccounts = {}
+        self.remoteAccounts = {}
+        return true
       end
 
       function tracker:ResetTrackingSettingsOnce()
@@ -1351,6 +1387,7 @@ local function Initialize()
       end
 
       function tracker:InitializeCurrent()
+        self:ResetAllTrackingOnce()
         self:ResetTrackingSettingsOnce()
         local store = self:EnsureStore()
         self:FlushPendingCrossAccountTombstone()
