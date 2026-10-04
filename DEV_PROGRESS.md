@@ -245,6 +245,8 @@
 - Stable release `0.1.42` is on `main`.
 - Canonical workflow/name migration smoke test passed in game for 0.1.42.
 - Existing SavedVariables/categories, backpack/bank behaviour, toolbar, Eye/EyeOff and Close/X artwork were confirmed good for 0.1.42.
+- `0.5.16-dev` / `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06`: user reports **all requested runtime tests passed**.
+- Verified through that checkpoint: genuine bag opens complete the BagTweaks categorized layout immediately even during an active Auto Resort delay; mutation-driven re-layout still waits for the configured inactivity delay; bank open behaves correctly; the compact Available Account Inventories list sits directly under its header with ticked white shared-account rows and grey unticked empty state; Cross-Account OFF/ON and nickname changes update immediately; second-account sharing works without include/exclude controls; Character Bank and Cross-Character scope toggles work; corpse-loot/raid smoothness passed the requested recheck.
 
 ## Implemented / Awaiting Runtime Test
 - `0.5.0-dev` adds native same-WoW-account inventory snapshots under `db.itemTracking`: carried bags `0-4`, keyring `-2`, and last-known bank `-1,5-11` with an explicit `bankKnown` flag.
@@ -277,23 +279,28 @@
 - Canonical vendored Lua 5.0 compiler check: **not run**. The GitHub-connected source is not mounted in the executable environment and no system `lua`/`luac` is available. Do not treat these static checks as a compiler pass or an in-game test.
 
 ## Current Issues
-- The `0.5.14-dev` screenshot confirms the white nickname styling but the user reports the list still feels visually disjointed because the account row sits too far below its subheader. The user explicitly requested a tick before every visible shared account, with no cross state because non-sharing accounts are hidden for privacy. `0.5.16-dev` implements that direction and awaits runtime confirmation.
-- The user also reports that sometimes opening the bag shows a partially/half-generated layout.
-- **Code-inspection finding (not yet runtime-proven):** the strongest cause is the `0.5.5+` decision to send all `CreateBags()` visual work through the Auto Resort scheduler. pfUI's actual bag-frame OnShow calls CreateBags after the frame is already visible, so an older inactivity deadline can leave pfUI's intermediate layout visible until BagTweaks eventually relayouts.
-- `0.5.15-dev` narrows that behaviour: actual visible OnShow completes BagTweaks layout immediately; mutation/internal CreateBags and UpdateBag paths remain delayed/coalesced.
-- Cross-Account multi-account publish/read behaviour, Character Bank/Cross-Character scope behaviour and remote-account list changes still require runtime validation.
-- If Nampower custom-file capability is deliberately unavailable on the first clean reset, BagTweaks cannot tombstone/clear old external custom files during that login; local first-run state still resets.
-- Performance: the `0.5.10-dev` Account Inventory BAG_UPDATE scan/publish coalescing itself remains unchanged. If sustained FPS loss remains outside inventory activity after this visual-open fix, the permanent toolbar OnUpdate remains the next performance suspect to isolate.
+- No active runtime blocker remains from the `0.5.12-dev` through `0.5.16-dev` Inventory Tracking / bag-open validation slice.
+- The previously reported half-generated bag-open symptom is considered resolved by the `0.5.15-dev` visible-OnShow immediate relayout change based on the user's passing runtime test.
+- The previously reported disjointed Available Account Inventories presentation is considered resolved by the `0.5.16-dev` compact ticked list based on the user's passing runtime test.
+- If Nampower custom-file capability is deliberately unavailable on the first clean reset, BagTweaks still cannot tombstone/clear old external custom files during that login; local first-run state resets correctly. This is a documented capability limitation rather than a current failing test.
 - Raw SavedVariables backups may differ only in Lua table key order even when their BagTweaks state is semantically identical.
 
 ## Testing
 
 ### Last Runtime Test
-- Version: `0.5.14-dev` / code checkpoint `a23e1f31cb535978d2e84d5d15dc00cd26595fb7`.
-- Screenshot confirms **Available Account Inventories** remains a teal pfUI header and the visible nickname `Blackwavestwo` is now white.
-- UX feedback: the nickname is too far below the subheader; visible shared accounts should have a tick before the name. There is intentionally no cross state because unshared accounts are hidden rather than represented negatively.
-- Performance/runtime feedback: bag opening can intermittently look half-generated.
-- Inspection links that visual symptom to delayed BagTweaks relayout on pfUI's visible CreateBags/OnShow path; this is a deduction from the current code and still needs the `0.5.15+` runtime check.
+- Version: `0.5.16-dev` / code checkpoint `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06`.
+- User result: **all requested runtime tests passed**.
+- Bag-open regression: PASS — opening/reopening during an active Auto Resort delay no longer exposes a half-generated/raw intermediate layout.
+- Auto Resort scheduling guard: PASS — with the bag already open, mutation-driven presentation still waits for the configured inactivity delay rather than bypassing it.
+- Bank open: PASS — categorized presentation is complete immediately on show.
+- Available Account Inventories compact/ticked presentation: PASS.
+- Live Cross-Account OFF/ON and Current Account Nickname refresh: PASS.
+- Second-WoW-account automatic participation/listing: PASS.
+- Character Bank and Cross-Character scope toggles: PASS.
+- Corpse-loot/raid smoothness recheck: PASS.
+
+### Next Runtime Test
+- No additional runtime test is required for the `0.5.16-dev` Inventory Tracking / bag-open checkpoint before proceeding to the next feature slice.
 
 ### Next Runtime Test
 1. Load `0.5.16-dev` / `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06`.
@@ -306,16 +313,14 @@
 8. Validate Character Bank and Cross-Character OFF/ON scope behaviour, then recheck corpse-loot/raid smoothness.
 
 ## Planned / Next Work
-1. Runtime-test `0.5.16-dev`, binding the bag-open result specifically to the `0.5.15-dev` code change and the compact ticked list result to the `0.5.16-dev` code change.
-2. If the half-generated bag symptom persists, do not loosen more scheduling generically; capture the exact trigger and inspect pfUI's specific call path before another performance change.
-3. Recheck raid/corpse-loot smoothness so the inherited `0.5.10-dev` Account Inventory scan coalescing remains validated independently from this visual-open correction.
-4. Continue generic Auto Resort runtime validation.
-5. After Account Inventory/Auto Resort validation, inspect and design open all containers on right click against the existing Open control and Auto Resort protection owner before changing runtime code.
-6. **Bag replacement workflow:** BagTweaks' filtered/category presentation means physical bag contents can be spread across equipped bags and cannot be reliably managed by normal drag/drop through the filtered view. Add a safe way to replace an equipped bag by identifying the target bag slot, moving all items physically out of that bag into available space in the other equipped bags/backpack, swapping the new bag into the now-empty slot, then allowing pfUI/BagTweaks to refresh/repack presentation. Define failure handling first: insufficient free space must abort cleanly before removing the equipped bag, and specialty-bag restrictions must be respected.
-7. Rogue Pick Lock workflow test.
-8. Disenchant targeting-cursor / candidate-item hover discoverability.
-9. Remaining direct-toolbar edge-case checks.
-10. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
+2. Inspect and design **open all containers on right click** against the existing Open control and Auto Resort protection owner before changing runtime code.
+3. **Bag replacement workflow:** BagTweaks' filtered/category presentation means physical bag contents can be spread across equipped bags and cannot be reliably managed by normal drag/drop through the filtered view. Add a safe way to replace an equipped bag by identifying the target bag slot, moving all items physically out of that bag into available space in the other equipped bags/backpack, swapping the new bag into the now-empty slot, then allowing pfUI/BagTweaks to refresh/repack presentation. Define failure handling first: insufficient free space must abort cleanly before removing the equipped bag, and specialty-bag restrictions must be respected.
+4. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
+5. Rogue Pick Lock workflow test.
+6. Disenchant targeting-cursor / candidate-item hover discoverability.
+7. Remaining direct-toolbar edge-case checks.
+8. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Bag replacement automation is a future usability feature, not part of the current Inventory Tracking/Auto Resort validation slice. Its design must operate on physical bag-slot ownership rather than the filtered visual order.
@@ -329,4 +334,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test `0.5.16-dev` / `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06`. Prioritize reproducing the former half-generated bag condition by opening the bag during an active Auto Resort delay, then confirm the compact ticked shared-account list. Do not begin toolbar performance changes, open-all-containers, or another scheduling refactor until these results are known.
+The `0.5.16-dev` Inventory Tracking / bag-open checkpoint is runtime accepted. The next planned feature slice is to inspect/design **open all containers on right click** against the existing Open control and Auto Resort ownership before making runtime changes, unless the user selects another queued task first.
