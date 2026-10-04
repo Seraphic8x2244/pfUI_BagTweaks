@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.14-dev`
-- Development code head: `a23e1f31cb535978d2e84d5d15dc00cd26595fb7` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
+- Version: `0.5.16-dev`
+- Development code head: `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Continue runtime validation of the clean Inventory Tracking UX with immediate local list refresh and clear visual hierarchy for available-account values.
-- Current scope boundary: `0.5.14-dev` is a presentation-only text-colour follow-up on top of the `0.5.13-dev` immediate-refresh checkpoint. Do not mix in toolbar polling changes, open-all-containers, or unrelated refactors before its runtime results are known.
+- Goal: Runtime-validate the corrected bag-open presentation path plus the compact ticked Available Account Inventories list.
+- Current scope boundary: `0.5.15-dev` is an isolated bag-open rendering regression fix; `0.5.16-dev` is a separate presentation-only shared-account list follow-up. The underlying Account Inventory scan coalescing, mutation scheduler, toolbar performance and open-all-containers work remain otherwise untouched.
 
 ## Current Design / Development Contract
 
@@ -217,6 +217,10 @@
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
 
 ## Recent Relevant Commits
+- `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06` — Compact shared-account rows directly under their header and add passive shared-state ticks (`0.5.16-dev`).
+- `d3a1a12be4880ad511fddf1dd6c29159634316e1` — Start the isolated `0.5.16-dev` compact shared-account list checkpoint.
+- `f8bef1e3ac105c5dd75f544db71d801e298ad2c8` — Complete BagTweaks layout immediately for genuine visible bag/bank opens while keeping internal CreateBags work scheduled (`0.5.15-dev`).
+- `06884a2a8dd3e7e4739ef70319856be49bb1180b` — Start the isolated `0.5.15-dev` visible bag-open layout checkpoint.
 - `a23e1f31cb535978d2e84d5d15dc00cd26595fb7` — Style available account values white and the empty state muted grey (`0.5.14-dev`).
 - `4b6a618b675fcc30b9c30d0473125c1850dfbbda` — Start the isolated `0.5.14-dev` inventory-list text styling checkpoint.
 - `996bca34aebf0f188af20e68e30547726373159c` — Refresh Available Account Inventories immediately after local Cross-Account/nickname changes (`0.5.13-dev`).
@@ -253,61 +257,60 @@
 - `0.5.12-dev` changes only the pre-runtime reset semantics: on its first startup it deletes `db.itemTracking` once so the user sees a genuinely fresh Inventory Tracking setup, while keeping all non-tracking BagTweaks data intact.
 - With Nampower available on that reset, `0.5.12-dev` tombstones the previous account file and clears the shared registry once using `pfUI_BagTweaks_reset.txt`; startup then creates a new account identity/store and rescans only the current character's live carried/keyring inventory.
 - `0.5.13-dev` keeps the same data/protocol behaviour but refreshes the read-only Available Account Inventories rows immediately after the local Cross-Account checkbox callback and after Current Account Nickname edits. Enabling should add the current nickname without reopening Settings, disabling should remove it, and renaming should update the visible row immediately.
-- `0.5.14-dev` keeps **Available Account Inventories** as the normal teal pfUI section header, renders actual account nickname rows in white, and renders **None currently sharing** in muted 60% grey. No data/protocol/layout behaviour changes.
+- `0.5.14-dev` keeps **Available Account Inventories** as the normal teal pfUI section header, renders actual account nickname rows in white, and renders **None currently sharing** in muted 60% grey.
+- **Changed performance recommendation after runtime feedback:** scheduling every BagTweaks `CreateBags()` relayout was too aggressive. `0.5.15-dev` distinguishes a genuine visible pfBag/pfBank `OnShow` call (Vanilla global `this` equals the shown view frame) from internal maintenance/update `CreateBags()` calls. Genuine opens now run `RelayoutView(view)` immediately so the user cannot see pfUI's intermediate/raw layout; internal CreateBags calls and ordinary UpdateBag mutations still use the existing delayed scheduler.
+- `0.5.16-dev` implements the user's shared-account list direction: the first account row sits directly beneath **Available Account Inventories**, additional rows pack tightly beneath it, visible shared accounts show a small teal/green check texture and white nickname, and **None currently sharing** remains unticked muted grey. Unshared accounts remain hidden; there is deliberately no cross state.
 - Unscanned banks are not represented as known zero; tooltip detail marks `bank unscanned` only when bank data is actually in the selected scope.
 - `0.1.44-dev` Auto resort remains awaiting runtime validation and is inherited unchanged by the `0.5.x` line.
 - `0.1.43-dev` SavedVariables no-op normalization guards remain inherited unchanged.
 
 ## Static / Automated Checks
-- Before the `0.5.12-dev` write, `dev` was verified identical to the documented `0.5.11-dev` handoff `1de807d9fb55ee46300da76812845dd7553a0ad2`.
-- Compare `1de807d9fb55ee46300da76812845dd7553a0ad2...dev` at the addon checkpoint is exactly two commits ahead and modifies only `pfUI_BagTweaks.lua` (+37 lines) and `pfUI_BagTweaks.toc` (version bump). No locale, toolbar, open-all-container, category, layout or unrelated implementation file was changed.
-- `.toc` version is `0.5.12-dev`; addon-affecting code checkpoint is `e35802f651af0e93b565b9c314ecdf49388d3e1c`.
-- The full reset function occurs once and is called once from `InitializeCurrent()` before `EnsureStore()`/the initial rescan. The destructive `db.itemTracking = nil` assignment occurs exactly once in the current source.
-- The reset has its own one-shot epoch `0.5.12-first-run-tracking-1`. The prior `0.5.11` settings-reset epoch is marked complete by the full reset so the fresh store is not immediately subjected to legacy migration behaviour.
-- Exact comparison confirms the inherited `0.5.10-dev` scan-coalescing block from `RescanCurrent` through immediately before `OnCreateBags` is byte-identical to the `0.5.11` handoff.
-- Exact comparison confirms the inherited Auto resort scheduler block is byte-identical to the `0.5.11` handoff.
-- Like-for-like indentation-level local counts show no parent-module increase (`^    local` remains 173). Nested InventoryTracker locals increase only for the new reset constants/helper state.
+- Before the new regression work, `dev` was verified identical to the documented `0.5.14-dev` handoff `1eb5b707beb1e73c058098ae6538f24df2cdfcb0`.
+- `.toc` is now `0.5.16-dev`; latest addon-affecting code checkpoint is `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06`.
+- Compare from the `0.5.14-dev` handoff through the `0.5.16-dev` code checkpoint changes only `pfUI_BagTweaks.lua` and `pfUI_BagTweaks.toc`. The performance and UX adjustments are split into their own sequential versioned commits.
+- Exact static comparison confirms the Account Inventory pending-rescan/coalescing block is unchanged from `0.5.14-dev`.
+- Exact static comparison confirms the core `RequestRelayout()` Auto Resort inactivity scheduler is unchanged from `0.5.14-dev`.
+- `0.5.15-dev` adds exactly one genuine-visible-open branch: when the current Vanilla script context `this` is the shown pfBag/pfBank frame, the matching BagTweaks view lays out immediately; all other CreateBags calls continue through `RequestRelayout()`.
+- `0.5.16-dev` uses the standard Blizzard `Interface\\Buttons\\UI-CheckBox-Check` texture as a passive indicator, tinted to the pfUI teal/green accent. It does not add a clickable per-account state.
+- The shared account rows are manually re-anchored to 18px rows with a 2px first-row gap and 1px subsequent-row gap beneath the existing pfUI teal header.
 - Static later-Lua-syntax scan found none of the checked post-5.0 constructs (`#` length operator, `goto`/labels, `//`, or variable attributes).
-- The pre-existing category/subcategory/assignment reset pattern count is unchanged from the `0.5.11` handoff, and Auto resort reference count is unchanged; the new destructive assignment is limited to `db.itemTracking`.
-- No repository CI/workflow is present for this branch.
 - Canonical vendored Lua 5.0 compiler check: **not run**. The GitHub-connected source is not mounted in the executable environment and no system `lua`/`luac` is available. Do not treat these static checks as a compiler pass or an in-game test.
 
 ## Current Issues
-- `0.5.12-dev` received its first target-client UI observation: with Cross-Account enabled and the Current Account Nickname set to `Blackwavestwo`, the read-only **Available Account Inventories** section still showed **None currently sharing** in the already-open settings page.
-- Cause: the available-account rows were populated only when the pfUI settings entry was built; the Cross-Account and nickname callbacks changed/published state but did not refresh those existing rows.
-- `0.5.13-dev` implements an immediate local row refresh and still requires runtime confirmation for enable, disable and rename behaviour.
-- `0.5.14-dev` additionally corrects the visual hierarchy reported from the screenshot: account nicknames should not look like teal section headers; they are white, while the empty state is muted grey.
-- The earlier tooltip-injection correction still needs clean direct runtime confirmation through this checkpoint.
+- The `0.5.14-dev` screenshot confirms the white nickname styling but the user reports the list still feels visually disjointed because the account row sits too far below its subheader. The user explicitly requested a tick before every visible shared account, with no cross state because non-sharing accounts are hidden for privacy. `0.5.16-dev` implements that direction and awaits runtime confirmation.
+- The user also reports that sometimes opening the bag shows a partially/half-generated layout.
+- **Code-inspection finding (not yet runtime-proven):** the strongest cause is the `0.5.5+` decision to send all `CreateBags()` visual work through the Auto Resort scheduler. pfUI's actual bag-frame OnShow calls CreateBags after the frame is already visible, so an older inactivity deadline can leave pfUI's intermediate layout visible until BagTweaks eventually relayouts.
+- `0.5.15-dev` narrows that behaviour: actual visible OnShow completes BagTweaks layout immediately; mutation/internal CreateBags and UpdateBag paths remain delayed/coalesced.
 - Cross-Account multi-account publish/read behaviour, Character Bank/Cross-Character scope behaviour and remote-account list changes still require runtime validation.
 - If Nampower custom-file capability is deliberately unavailable on the first clean reset, BagTweaks cannot tombstone/clear old external custom files during that login; local first-run state still resets.
-- Auto resort runtime gaps: `0.5.9-dev` generalises delay to every observed bag mutation and still awaits full target-client validation.
-- Performance: `0.5.10-dev` addresses a reported raid/loot hitch by coalescing Account Inventory BAG_UPDATE scans/publishes. If continuous FPS loss remains outside inventory activity, the permanent toolbar OnUpdate is the next suspect to isolate.
+- Performance: the `0.5.10-dev` Account Inventory BAG_UPDATE scan/publish coalescing itself remains unchanged. If sustained FPS loss remains outside inventory activity after this visual-open fix, the permanent toolbar OnUpdate remains the next performance suspect to isolate.
 - Raw SavedVariables backups may differ only in Lua table key order even when their BagTweaks state is semantically identical.
 
 ## Testing
 
 ### Last Runtime Test
-- Version/commit: `0.5.12-dev` / `e35802f651af0e93b565b9c314ecdf49388d3e1c`.
-- Target-client screenshot confirmed the new **Inventory Tracking** settings layout is present.
-- Observed state: **Cross-Account** was enabled and **Current Account Nickname** displayed `Blackwavestwo`, but **Available Account Inventories** still displayed **None currently sharing** without rebuilding/reopening the settings entry.
-- User requirement clarified: enabling Cross-Account must add the current account nickname immediately; disabling must remove it immediately; editing Current Account Nickname must immediately update the displayed available-account name.
-- This is treated as a presentation-refresh bug, not evidence that the publish protocol itself failed; `0.5.13-dev` adds direct row refreshes after those local callbacks.
+- Version: `0.5.14-dev` / code checkpoint `a23e1f31cb535978d2e84d5d15dc00cd26595fb7`.
+- Screenshot confirms **Available Account Inventories** remains a teal pfUI header and the visible nickname `Blackwavestwo` is now white.
+- UX feedback: the nickname is too far below the subheader; visible shared accounts should have a tick before the name. There is intentionally no cross state because unshared accounts are hidden rather than represented negatively.
+- Performance/runtime feedback: bag opening can intermittently look half-generated.
+- Inspection links that visual symptom to delayed BagTweaks relayout on pfUI's visible CreateBags/OnShow path; this is a deduction from the current code and still needs the `0.5.15+` runtime check.
 
 ### Next Runtime Test
-1. Load `0.5.14-dev` / `a23e1f31cb535978d2e84d5d15dc00cd26595fb7`.
-2. With the settings page open, toggle **Cross-Account OFF** and confirm the current account disappears immediately from **Available Account Inventories**; if no other account is sharing, the row should immediately become **None currently sharing**.
-3. Toggle **Cross-Account ON** and confirm the current account nickname immediately appears, with no `/reload`, settings reopen or page rebuild.
-4. While Cross-Account remains ON, edit **Current Account Nickname** and confirm the read-only available-account row changes immediately as the saved/published nickname changes.
-5. Continue the existing second-account test: enable Cross-Account on the second WoW account and confirm both actively sharing accounts appear automatically with no include/exclude step.
-6. Validate Character Bank and Cross-Character OFF/ON scope behaviour.
-7. Recheck corpse-loot/raid smoothness to confirm the inherited `0.5.10-dev` scan-coalescing fix remains good.
+1. Load `0.5.16-dev` / `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06`.
+2. **Bag-open regression check:** after looting, moving/splitting a stack, equipping/using an item or any other mutation that starts the Auto Resort inactivity delay, close/open the backpack several times during that delay. The bag should always appear fully categorized/layout-complete immediately; no transient pfUI/raw/half-generated state should be visible.
+3. Leave the bag open and perform the same mutations. Automatic re-layout should still respect the configured inactivity delay rather than snapping immediately, confirming only genuine opens bypass the visual wait.
+4. Open/close the bank as well and confirm its categorized layout is complete immediately on show while bank-content mutations still use normal delayed behaviour.
+5. Confirm **Available Account Inventories** now forms a compact block directly beneath its teal subheader: each visible shared account has a small teal/green tick plus white nickname; **None currently sharing** is grey and has no tick.
+6. With Settings open, toggle Cross-Account OFF/ON and rename Current Account Nickname; the compact/ticked row should still update immediately.
+7. Continue the second-WoW-account test and confirm both actively sharing accounts appear automatically, each with a tick and no include/exclude controls.
+8. Validate Character Bank and Cross-Character OFF/ON scope behaviour, then recheck corpse-loot/raid smoothness.
 
 ## Planned / Next Work
-1. Runtime-test the `0.5.13-dev` immediate Available Account Inventories refresh and bind observations to code checkpoint `996bca34aebf0f188af20e68e30547726373159c`.
-2. Recheck raid/corpse-loot smoothness so the inherited `0.5.10-dev` scan-coalescing fix is validated through the clean UX checkpoint.
-3. Continue generic Auto resort runtime validation.
-4. If a regression appears, step back to the exact preceding version/commit to isolate the first failing slice.
-5. After Account Inventory/Auto resort validation, inspect and design open all containers on right click against the existing Open control and Auto resort protection owner before changing runtime code.
+1. Runtime-test `0.5.16-dev`, binding the bag-open result specifically to the `0.5.15-dev` code change and the compact ticked list result to the `0.5.16-dev` code change.
+2. If the half-generated bag symptom persists, do not loosen more scheduling generically; capture the exact trigger and inspect pfUI's specific call path before another performance change.
+3. Recheck raid/corpse-loot smoothness so the inherited `0.5.10-dev` Account Inventory scan coalescing remains validated independently from this visual-open correction.
+4. Continue generic Auto Resort runtime validation.
+5. After Account Inventory/Auto Resort validation, inspect and design open all containers on right click against the existing Open control and Auto Resort protection owner before changing runtime code.
 6. Rogue Pick Lock workflow test.
 7. Disenchant targeting-cursor / candidate-item hover discoverability.
 8. Remaining direct-toolbar edge-case checks.
@@ -324,4 +327,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test `0.5.14-dev` / `a23e1f31cb535978d2e84d5d15dc00cd26595fb7` first for immediate Cross-Account enable/disable, nickname-row refresh, white account-value text and muted-grey empty state while Settings remains open. Then continue the second-account/scope/performance checks. Do not begin toolbar performance changes, open-all-containers, or unrelated refactors until this Inventory Tracking checkpoint has runtime results.
+Runtime-test `0.5.16-dev` / `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06`. Prioritize reproducing the former half-generated bag condition by opening the bag during an active Auto Resort delay, then confirm the compact ticked shared-account list. Do not begin toolbar performance changes, open-all-containers, or another scheduling refactor until these results are known.
