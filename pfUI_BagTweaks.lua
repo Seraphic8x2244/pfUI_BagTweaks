@@ -3426,10 +3426,34 @@ local function Initialize()
         pfUI.gui.CreateConfig(function() end,
           L.CROSS_CHARACTER, store, "crossCharacter", "checkbox")
 
+        local availableFrames = {}
+        local function RefreshAvailableAccountInventoryUI()
+          local available = tracker:GetAvailableAccountInventories()
+          local count = table.getn(available)
+
+          for i = 1, table.getn(availableFrames) do
+            local frame = availableFrames[i]
+            if count == 0 and i == 1 then
+              if frame.caption then frame.caption:SetText(L.NO_AVAILABLE_ACCOUNT_INVENTORIES) end
+              frame:Show()
+            elseif available[i] then
+              if frame.caption then frame.caption:SetText(available[i].label) end
+              frame:Show()
+            else
+              frame:Hide()
+            end
+          end
+        end
+
+        local initialAvailable = tracker:GetAvailableAccountInventories()
+        local availableFrameCount = table.getn(initialAvailable) + 1
+        if availableFrameCount < 1 then availableFrameCount = 1 end
+
         local crossAccountLabel = L.CROSS_ACCOUNT
         if not tracker:HasBridge() then crossAccountLabel = L.CROSS_ACCOUNT_REQUIRES_NAMPOWER end
         local crossAccount = pfUI.gui.CreateConfig(function()
           tracker:SetCrossAccount(store.crossAccount == "1")
+          RefreshAvailableAccountInventoryUI()
         end, crossAccountLabel, store, "crossAccount", "checkbox")
 
         if crossAccount and not tracker:HasBridge() then
@@ -3440,17 +3464,16 @@ local function Initialize()
 
         pfUI.gui.CreateConfig(function()
           tracker:SetAccountLabel(store.accountLabel)
+          RefreshAvailableAccountInventoryUI()
         end, L.CURRENT_ACCOUNT_NICKNAME, store, "accountLabel", nil, nil, nil, nil, "string")
 
         pfUI.gui.CreateConfig(nil, L.AVAILABLE_ACCOUNT_INVENTORIES, nil, nil, "header")
-        local available = tracker:GetAvailableAccountInventories()
-        if table.getn(available) == 0 then
-          pfUI.gui.CreateConfig(nil, L.NO_AVAILABLE_ACCOUNT_INVENTORIES, nil, nil, "header")
-        else
-          for i = 1, table.getn(available) do
-            pfUI.gui.CreateConfig(nil, available[i].label, nil, nil, "header")
-          end
+        for i = 1, availableFrameCount do
+          local caption = initialAvailable[i] and initialAvailable[i].label or " "
+          local frame = pfUI.gui.CreateConfig(nil, caption, nil, nil, "header")
+          table.insert(availableFrames, frame)
         end
+        RefreshAvailableAccountInventoryUI()
       end
     end)
   end
