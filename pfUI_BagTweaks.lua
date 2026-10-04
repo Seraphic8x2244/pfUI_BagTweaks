@@ -3450,15 +3450,22 @@ local function Initialize()
               if frame.caption then
                 frame.caption:SetText(L.NO_AVAILABLE_ACCOUNT_INVENTORIES)
                 frame.caption:SetTextColor(.6, .6, .6, 1)
+                frame.caption:ClearAllPoints()
+                frame.caption:SetPoint("LEFT", frame, "LEFT", 3, 0)
               end
+              if frame.sharedTick then frame.sharedTick:Hide() end
               frame:Show()
             elseif available[i] then
               if frame.caption then
                 frame.caption:SetText(available[i].label)
                 frame.caption:SetTextColor(1, 1, 1, 1)
+                frame.caption:ClearAllPoints()
+                frame.caption:SetPoint("LEFT", frame, "LEFT", 19, 0)
               end
+              if frame.sharedTick then frame.sharedTick:Show() end
               frame:Show()
             else
+              if frame.sharedTick then frame.sharedTick:Hide() end
               frame:Hide()
             end
           end
@@ -3486,10 +3493,32 @@ local function Initialize()
           RefreshAvailableAccountInventoryUI()
         end, L.CURRENT_ACCOUNT_NICKNAME, store, "accountLabel", nil, nil, nil, nil, "string")
 
-        pfUI.gui.CreateConfig(nil, L.AVAILABLE_ACCOUNT_INVENTORIES, nil, nil, "header")
+        local availableHeader = pfUI.gui.CreateConfig(nil, L.AVAILABLE_ACCOUNT_INVENTORIES, nil, nil, "header")
         for i = 1, availableFrameCount do
           local caption = initialAvailable[i] and initialAvailable[i].label or " "
           local frame = pfUI.gui.CreateConfig(nil, caption, nil, nil, "header")
+
+          -- These are status/list values rather than nested section headers.
+          -- Pull them directly under the section heading and add a passive
+          -- shared-state tick only while an account is actually visible.
+          frame:SetHeight(18)
+          frame:ClearAllPoints()
+          if i == 1 then
+            frame:SetPoint("TOPLEFT", availableHeader, "BOTTOMLEFT", 0, -2)
+            frame:SetPoint("TOPRIGHT", availableHeader, "BOTTOMRIGHT", 0, -2)
+          else
+            frame:SetPoint("TOPLEFT", availableFrames[i - 1], "BOTTOMLEFT", 0, -1)
+            frame:SetPoint("TOPRIGHT", availableFrames[i - 1], "BOTTOMRIGHT", 0, -1)
+          end
+
+          frame.sharedTick = frame:CreateTexture(nil, "ARTWORK")
+          frame.sharedTick:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+          frame.sharedTick:SetWidth(14)
+          frame.sharedTick:SetHeight(14)
+          frame.sharedTick:SetPoint("LEFT", frame, "LEFT", 2, 0)
+          if frame.sharedTick.SetVertexColor then frame.sharedTick:SetVertexColor(.2, 1, .8, 1) end
+          frame.sharedTick:Hide()
+
           table.insert(availableFrames, frame)
         end
         RefreshAvailableAccountInventoryUI()
