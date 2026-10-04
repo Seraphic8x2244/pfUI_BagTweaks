@@ -3318,11 +3318,24 @@ local function Initialize()
     end
 
     pfUI.bag.CreateBags = function(self, object)
+      local view = object == "bank" and "bank" or "backpack"
+      local viewFrame = object == "bank" and pfUI.bag.left or pfUI.bag.right
+      local openingVisibleView = viewFrame and G.this == viewFrame
+        and viewFrame.IsShown and viewFrame:IsShown()
+
       oldCreateBags(self, object)
-      -- CreateBags is also reached during inventory mutations (for example
-      -- Disenchant). Route its visual rebuild through the same scheduler as
-      -- UpdateBag so an active Auto resort deadline cannot be bypassed.
-      RequestRelayout()
+
+      -- A genuine frame OnShow must finish BagTweaks' presentation immediately.
+      -- Deferring this path can expose pfUI's intermediate/raw bag layout while
+      -- an older Auto resort inactivity deadline is still active. Internal
+      -- CreateBags calls still use the scheduler so mutation-driven rebuilds
+      -- retain the coalescing/delay behaviour.
+      if openingVisibleView then
+        RelayoutView(view)
+      else
+        RequestRelayout()
+      end
+
       pcall(InventoryTracker.OnCreateBags, InventoryTracker, object)
     end
 
