@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.12-dev`
-- Development code head: `e35802f651af0e93b565b9c314ecdf49388d3e1c` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
+- Version: `0.5.13-dev`
+- Development code head: `996bca34aebf0f188af20e68e30547726373159c` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Runtime-validate the Inventory Tracking UX from a deliberately clean first-run sync state while preserving all non-Inventory-Tracking BagTweaks data and the inherited `0.5.10-dev` Account Inventory performance fix.
-- Current scope boundary: `0.5.12-dev` is an isolated clean-first-run Inventory Tracking reset checkpoint. Do not mix in toolbar polling changes, open-all-containers, or unrelated refactors before its runtime results are known.
+- Goal: Continue runtime validation of the clean Inventory Tracking UX, with local Available Account Inventories status updating immediately when Cross-Account or Current Account Nickname changes.
+- Current scope boundary: `0.5.13-dev` is an isolated settings-list refresh fix on top of the `0.5.12-dev` clean-first-run checkpoint. Do not mix in toolbar polling changes, open-all-containers, or unrelated refactors before its runtime results are known.
 
 ## Current Design / Development Contract
 
@@ -217,6 +217,8 @@
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
 
 ## Recent Relevant Commits
+- `996bca34aebf0f188af20e68e30547726373159c` — Refresh Available Account Inventories immediately after local Cross-Account/nickname changes (`0.5.13-dev`).
+- `31178d44e929afde75a521c138c9d5b37018b9aa` — Start the isolated `0.5.13-dev` live inventory-list refresh checkpoint.
 - `e35802f651af0e93b565b9c314ecdf49388d3e1c` — Reset all Inventory Tracking state once for clean first-run runtime validation (`0.5.12-dev`).
 - `8f1aa7b32d1f2fd2eafdad1a8a1fc8ca8e635895` — Start the isolated `0.5.12-dev` clean-first-run tracking checkpoint.
 - `aba98f21f8879d4a20285361e2d91c948702e94c` — Implement Inventory Tracking UX, scoped tooltip compilation and settings-only reset (`0.5.11-dev`).
@@ -248,6 +250,7 @@
 - The settings page uses **Current Account Nickname** plus read-only **Available Account Inventories**; there are no per-account include/exclude controls. Cross-Account is visibly disabled as requiring Nampower when the custom-file bridge is unavailable.
 - `0.5.12-dev` changes only the pre-runtime reset semantics: on its first startup it deletes `db.itemTracking` once so the user sees a genuinely fresh Inventory Tracking setup, while keeping all non-tracking BagTweaks data intact.
 - With Nampower available on that reset, `0.5.12-dev` tombstones the previous account file and clears the shared registry once using `pfUI_BagTweaks_reset.txt`; startup then creates a new account identity/store and rescans only the current character's live carried/keyring inventory.
+- `0.5.13-dev` keeps the same data/protocol behaviour but refreshes the read-only Available Account Inventories rows immediately after the local Cross-Account checkbox callback and after Current Account Nickname edits. Enabling should add the current nickname without reopening Settings, disabling should remove it, and renaming should update the visible row immediately.
 - Unscanned banks are not represented as known zero; tooltip detail marks `bank unscanned` only when bank data is actually in the selected scope.
 - `0.1.44-dev` Auto resort remains awaiting runtime validation and is inherited unchanged by the `0.5.x` line.
 - `0.1.43-dev` SavedVariables no-op normalization guards remain inherited unchanged.
@@ -267,10 +270,12 @@
 - Canonical vendored Lua 5.0 compiler check: **not run**. The GitHub-connected source is not mounted in the executable environment and no system `lua`/`luac` is available. Do not treat these static checks as a compiler pass or an in-game test.
 
 ## Current Issues
-- `0.5.12-dev` has not yet been run in the target 1.12.1 client.
+- `0.5.12-dev` received its first target-client UI observation: with Cross-Account enabled and the Current Account Nickname set to `Blackwavestwo`, the read-only **Available Account Inventories** section still showed **None currently sharing** in the already-open settings page.
+- Cause: the available-account rows were populated only when the pfUI settings entry was built; the Cross-Account and nickname callbacks changed/published state but did not refresh those existing rows.
+- `0.5.13-dev` implements an immediate local row refresh and now requires runtime confirmation for enable, disable and rename behaviour.
 - The earlier tooltip-injection correction still needs clean direct runtime confirmation through this checkpoint.
-- Cross-Account publish/read behaviour, all three scope toggles, clean-first-run reset, nickname flow and read-only **Available Account Inventories** filtering require runtime validation.
-- If Nampower custom-file capability is deliberately unavailable on the very first `0.5.12-dev` reset, BagTweaks cannot tombstone/clear old external custom files during that login; the local first-run state still resets. For a true end-to-end shared-state clean start, perform the first reset with the bridge available.
+- Cross-Account multi-account publish/read behaviour, Character Bank/Cross-Character scope behaviour and remote-account list changes still require runtime validation.
+- If Nampower custom-file capability is deliberately unavailable on the first clean reset, BagTweaks cannot tombstone/clear old external custom files during that login; local first-run state still resets.
 - Auto resort runtime gaps: `0.5.9-dev` generalises delay to every observed bag mutation and still awaits full target-client validation.
 - Performance: `0.5.10-dev` addresses a reported raid/loot hitch by coalescing Account Inventory BAG_UPDATE scans/publishes. If continuous FPS loss remains outside inventory activity, the permanent toolbar OnUpdate is the next suspect to isolate.
 - Raw SavedVariables backups may differ only in Lua table key order even when their BagTweaks state is semantically identical.
@@ -278,24 +283,23 @@
 ## Testing
 
 ### Last Runtime Test
-- Version/commit: `0.5.9-dev` / `643b029e91485713d601df73cf9540e84da312e5`
-- Performance report: gameplay felt somewhat shaky in raids, especially when picking an item up from a corpse.
-- Inspection result: the strongest event-correlated suspect is Account Inventory. Every carried-bag pfUI `UpdateBag` invoked a full carried-bag rescan; bursts of BAG_UPDATE during looting could therefore repeat whole-inventory scans, and published accounts could also serialize/write the cross-account file repeatedly.
-- A permanent toolbar OnUpdate also exists and was already identified as a possible sustained-FPS suspect, but it is not changed in this checkpoint so the loot/update optimization can be tested independently.
-- Auto resort's pending timer itself only performs lightweight time/deadline checks and is not the primary suspect for corpse-loot hitches.
+- Version/commit: `0.5.12-dev` / `e35802f651af0e93b565b9c314ecdf49388d3e1c`.
+- Target-client screenshot confirmed the new **Inventory Tracking** settings layout is present.
+- Observed state: **Cross-Account** was enabled and **Current Account Nickname** displayed `Blackwavestwo`, but **Available Account Inventories** still displayed **None currently sharing** without rebuilding/reopening the settings entry.
+- User requirement clarified: enabling Cross-Account must add the current account nickname immediately; disabling must remove it immediately; editing Current Account Nickname must immediately update the displayed available-account name.
+- This is treated as a presentation-refresh bug, not evidence that the publish protocol itself failed; `0.5.13-dev` adds direct row refreshes after those local callbacks.
 
 ### Next Runtime Test
-1. Start `0.5.12-dev` / `e35802f651af0e93b565b9c314ecdf49388d3e1c` with Nampower custom-file capability available so the old shared state can also be cleaned.
-2. Confirm this feels like first-time Inventory Tracking setup: **Character Bank**, **Cross-Character**, and **Cross-Account** are all OFF; the old Current Account Nickname/account identity and old tracked character/bank history are gone; only the current character's freshly scanned carried/keyring inventory exists after startup.
-3. Confirm all non-tracking BagTweaks state survived unchanged: categories/subcategories, item assignments, Auto resort, toolbar/layout/options and other unrelated settings.
-4. Confirm the settings page shows **Current Account Nickname** and a read-only **Available Account Inventories** section, with no publish/source/include terminology or per-account checkboxes. With Cross-Account still OFF, the current account must not appear as sharing.
-5. Set a nickname and enable **Cross-Account**. Confirm the current account appears in Available Account Inventories and is published under the newly generated identity.
-6. Repeat on a second WoW account. Its own first `0.5.12` login should independently reset its local tracking history, then after opting into Cross-Account both freshly sharing accounts should appear automatically without any include/exclude step.
-7. Disable Cross-Account on one account. Confirm it disappears from the other account's available list and no longer contributes tooltip counts.
-8. Separately validate **Character Bank** and **Cross-Character** OFF/ON scope behaviour, then recheck corpse-loot/raid smoothness to confirm the inherited `0.5.10-dev` scan-coalescing fix remains good.
+1. Load `0.5.13-dev` / `996bca34aebf0f188af20e68e30547726373159c`.
+2. With the settings page open, toggle **Cross-Account OFF** and confirm the current account disappears immediately from **Available Account Inventories**; if no other account is sharing, the row should immediately become **None currently sharing**.
+3. Toggle **Cross-Account ON** and confirm the current account nickname immediately appears, with no `/reload`, settings reopen or page rebuild.
+4. While Cross-Account remains ON, edit **Current Account Nickname** and confirm the read-only available-account row changes immediately as the saved/published nickname changes.
+5. Continue the existing second-account test: enable Cross-Account on the second WoW account and confirm both actively sharing accounts appear automatically with no include/exclude step.
+6. Validate Character Bank and Cross-Character OFF/ON scope behaviour.
+7. Recheck corpse-loot/raid smoothness to confirm the inherited `0.5.10-dev` scan-coalescing fix remains good.
 
 ## Planned / Next Work
-1. Runtime-test the `0.5.12-dev` clean-first-run flow above and bind all observations to code checkpoint `e35802f651af0e93b565b9c314ecdf49388d3e1c`.
+1. Runtime-test the `0.5.13-dev` immediate Available Account Inventories refresh and bind observations to code checkpoint `996bca34aebf0f188af20e68e30547726373159c`.
 2. Recheck raid/corpse-loot smoothness so the inherited `0.5.10-dev` scan-coalescing fix is validated through the clean UX checkpoint.
 3. Continue generic Auto resort runtime validation.
 4. If a regression appears, step back to the exact preceding version/commit to isolate the first failing slice.
@@ -316,4 +320,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test `0.5.12-dev` / `e35802f651af0e93b565b9c314ecdf49388d3e1c` using the eight checks above. For the true clean shared-state test, have Nampower custom-file capability available on the first login so the old account file and registry can be tombstoned/cleared. Do not begin toolbar performance changes, open-all-containers, or unrelated refactors until this isolated Inventory Tracking checkpoint has runtime results.
+Runtime-test `0.5.13-dev` / `996bca34aebf0f188af20e68e30547726373159c` first for immediate Cross-Account enable/disable and nickname-row refresh while Settings remains open. Then continue the second-account/scope/performance checks. Do not begin toolbar performance changes, open-all-containers, or unrelated refactors until this Inventory Tracking checkpoint has runtime results.
