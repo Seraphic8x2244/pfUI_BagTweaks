@@ -311,12 +311,14 @@
 3. Recheck raid/corpse-loot smoothness so the inherited `0.5.10-dev` Account Inventory scan coalescing remains validated independently from this visual-open correction.
 4. Continue generic Auto Resort runtime validation.
 5. After Account Inventory/Auto Resort validation, inspect and design open all containers on right click against the existing Open control and Auto Resort protection owner before changing runtime code.
-6. Rogue Pick Lock workflow test.
-7. Disenchant targeting-cursor / candidate-item hover discoverability.
-8. Remaining direct-toolbar edge-case checks.
-9. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+6. **Bag replacement workflow:** BagTweaks' filtered/category presentation means physical bag contents can be spread across equipped bags and cannot be reliably managed by normal drag/drop through the filtered view. Add a safe way to replace an equipped bag by identifying the target bag slot, moving all items physically out of that bag into available space in the other equipped bags/backpack, swapping the new bag into the now-empty slot, then allowing pfUI/BagTweaks to refresh/repack presentation. Define failure handling first: insufficient free space must abort cleanly before removing the equipped bag, and specialty-bag restrictions must be respected.
+7. Rogue Pick Lock workflow test.
+8. Disenchant targeting-cursor / candidate-item hover discoverability.
+9. Remaining direct-toolbar edge-case checks.
+10. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
+- Bag replacement automation is a future usability feature, not part of the current Inventory Tracking/Auto Resort validation slice. Its design must operate on physical bag-slot ownership rather than the filtered visual order.
 - Packing optimisation unless future inventories show a real problem.
 - Unrelated refactors while addressing auto-sort interaction churn.
 - Persisted-schema redesign solely for raw SavedVariables text-order stability.
