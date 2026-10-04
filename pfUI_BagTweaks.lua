@@ -3434,10 +3434,16 @@ local function Initialize()
           for i = 1, table.getn(availableFrames) do
             local frame = availableFrames[i]
             if count == 0 and i == 1 then
-              if frame.caption then frame.caption:SetText(L.NO_AVAILABLE_ACCOUNT_INVENTORIES) end
+              if frame.caption then
+                frame.caption:SetText(L.NO_AVAILABLE_ACCOUNT_INVENTORIES)
+                frame.caption:SetTextColor(.6, .6, .6, 1)
+              end
               frame:Show()
             elseif available[i] then
-              if frame.caption then frame.caption:SetText(available[i].label) end
+              if frame.caption then
+                frame.caption:SetText(available[i].label)
+                frame.caption:SetTextColor(1, 1, 1, 1)
+              end
               frame:Show()
             else
               frame:Hide()
