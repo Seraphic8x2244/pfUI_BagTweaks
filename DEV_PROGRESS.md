@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.17-dev`
-- Development code head: `2182a5b3336a6634b246133a1a634e4b7892c1b2` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.18-dev`
+- Development code head: `6064c9ea6a1d302e62b4f58c6570f138af1dadf6` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
 - Goal: Complete the approved **bag replacement workflow** through `0.5.22-dev`, then runtime-test the integrated carried/bank workflow as one feature.
-- Current scope boundary: `0.5.17-dev` interaction + overlay foundation is implemented and statically checked. Continue with `0.5.18-dev` read-only preflight planner next. Do not physically move inventory in `0.5.18-dev`, and do not mix in open-all-containers, toolbar performance work, or unrelated refactors.
+- Current scope boundary: `0.5.18-dev` read-only preflight planning is implemented and statically checked. Continue with `0.5.19-dev` pfUI sort + event-driven re-preflight only. Do not perform final bag evacuation/equip work before its documented slice, and do not mix in open-all-containers, toolbar performance work, or unrelated refactors.
 
 ## Current Design / Development Contract
 
@@ -84,7 +84,7 @@
 - The reset is one-shot per WoW account. Subsequent logins on the same `0.5.12-dev` checkpoint must not repeatedly erase newly collected tracking data.
 
 ### Bag Replacement Workflow — Agreed UX / Design
-- **Status:** UX/design approved. The isolated `0.5.17-dev` interaction/overlay foundation is implemented and awaiting runtime validation; read-only planning, sorting and physical movement remain unimplemented.
+- **Status:** UX/design approved. The isolated `0.5.17-dev` interaction/overlay foundation and `0.5.18-dev` read-only preflight planner are implemented and statically checked. Standalone runtime validation remains deliberately deferred until the complete workflow through `0.5.22-dev`; pfUI sort/re-preflight and physical execution remain unimplemented.
 - Purpose: BagTweaks' filtered/category presentation deliberately hides the physical distribution of items across bags. Users therefore need a safe way to replace an equipped bag without manually finding and emptying that physical bag first.
 - Scope includes both carried equipped bags and purchased bank bags. The backpack itself is not replaceable.
 - Entry interactions:
@@ -141,6 +141,7 @@
 - Runtime target: selection semantics, target detection, overlay sizing/styling, click interception, carried/bank ownership and clean cancellation.
 
 #### `0.5.18-dev` — Read-only preflight planner
+- **Status:** implemented and statically checked at code checkpoint `6064c9ea6a1d302e62b4f58c6570f138af1dadf6`; intentionally not runtime-tested as a standalone slice. Continue to `0.5.19-dev`.
 - Identify all physical items contained by the target equipped bag.
 - Locate the replacement bag physically, including the replacement-bag-inside-target case.
 - Build compatibility-aware candidate destinations outside the target bag.
@@ -325,6 +326,8 @@
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
 
 ## Recent Relevant Commits
+- `6064c9ea6a1d302e62b4f58c6570f138af1dadf6` — Add the non-mutating compatibility-aware bag-replacement preflight planner (`0.5.18-dev`).
+- `ab5292a14f61da59e6abb28c87ff208102bdb7e9` — Start the isolated `0.5.18-dev` preflight-planner checkpoint.
 - `2182a5b3336a6634b246133a1a634e4b7892c1b2` — Add the non-mutating bag-replacement interaction, shared transaction skeleton and pfUI-derived blocking overlay (`0.5.17-dev`).
 - `4955c0a7925788685f6c2c940f89604da84dc8c0` — Add bag-replacement status/failure strings, including **I'll make some space...**.
 - `bf8c9b8a7f6de392d6f6a18b7c2e9bfb10a247b4` — Start the isolated `0.5.17-dev` checkpoint.
@@ -361,7 +364,13 @@
 
 ## Implemented / Awaiting Runtime Test
 - `0.5.17-dev` hooks the existing pfUI carried/bank bag-slot controls and recognizes a replacement bag selected from a visible BagTweaks item frame for both click-and-click and drag-and-drop targeting. Bag candidates are limited to bag/quiver equip locations at this foundation stage.
-- A shared `BagReplacement` transaction owner now records source, target view/slot and phase skeleton for the agreed pipeline, but deliberately has no preflight, sorting, evacuation or equip execution yet.
+- The shared `BagReplacement` transaction owner now carries the same source/target/phase state into the `0.5.18-dev` read-only preflight rather than creating a second planner path.
+- `0.5.18-dev` snapshots every physical item remaining in the target bag, records the replacement bag's remembered physical origin plus whether it is still in that container or currently on the cursor, and explicitly detects replacement-inside-target from the remembered source location.
+- The planner scans only empty physical destinations outside the target within the affected carried/bank inventory. General bags are universal destinations; specialty destinations are accepted only when compatibility can be proven.
+- Specialty compatibility has a no-DLL baseline: an equipped specialty bag is keyed by its own item type/subtype, and items already residing in a specialty target inherit that exact family key. Optional item-family APIs are capability-detected only as an additional refinement; they are not a prerequisite. This covers quiver/ammo, soul-bag and other same-family specialty moves without guessing illegal cross-family placements.
+- Replacement-inside-target reserves one external general-purpose staging slot when other target contents still need evacuation. Family-compatible specialty slots are allocated first, then remaining items use general slots, preserving scarce general capacity.
+- The resulting plan records candidate destinations, staged replacement location, proposed source/destination moves, `missingSlots`, `possible`, and `needsSort`. A currently insufficient plan remains read-only for `0.5.19-dev`; it does not fail finally before pfUI Sort/re-preflight has had its chance to create space.
+- No sorting, evacuation, equipping or other physical inventory mutation is issued by `0.5.18-dev`.
 - The affected pfUI bag/bank frame gets a full-size mouse-intercepting overlay using pfUI's own backdrop constructor/configuration, centered status text, cancellation cleanup and the agreed insufficient-space acknowledgement presentation. The bag-slot popout is hidden while ownership is active so it cannot bypass the blocker.
 - Recognized target clicks/drops are consumed instead of forwarding pfUI's normal bag-slot swap handler. Closing the affected view cancels ownership and returns any user-held cursor item to its source via normal cursor cleanup.
 - `0.5.0-dev` adds native same-WoW-account inventory snapshots under `db.itemTracking`: carried bags `0-4`, keyring `-2`, and last-known bank `-1,5-11` with an explicit `bankKnown` flag.
@@ -382,6 +391,14 @@
 - `0.1.43-dev` SavedVariables no-op normalization guards remain inherited unchanged.
 
 ## Static / Automated Checks
+- `0.5.18-dev` resume verification: `dev` exactly matched requested handoff `0e2a2bc2e654aba20fdbe145f475ce476f0465e8` before implementation; that handoff documented `2182a5b3336a6634b246133a1a634e4b7892c1b2` as the last addon-affecting checkpoint.
+- `.toc` is now `0.5.18-dev`; latest addon-affecting code checkpoint is `6064c9ea6a1d302e62b4f58c6570f138af1dadf6`.
+- Compare from handoff `0e2a2bc2...` through the `0.5.18-dev` code checkpoint changes only `pfUI_BagTweaks.lua` and `pfUI_BagTweaks.toc`.
+- Removing the new nested BagReplacement planner methods plus the single `Start -> Preflight` call reproduces the handoff Lua byte-for-byte. No unrelated runtime code changed.
+- Exact base/head mutation-call counts are unchanged: `PickupContainerItem` 2 -> 2, `ClearCursor` 2 -> 2, and `PickupBagFromSlot`, `PutItemInBag`, `SplitContainerItem`, `UseContainerItem`, `SwapItems` and `MoveItem` remain 0 -> 0. No pfUI/libbagsort Sort invocation was added.
+- Static later-Lua-syntax scan found none of the checked post-5.0 constructs (`#` length operator, `goto`/labels, `//`, or variable attributes).
+- The new planner is implemented entirely as nested `BagReplacement` methods and adds no parent module-callback locals; the documented callback-level local-declaration heuristic therefore remains 154, below Lua 5.0.3's 200-local compiler limit.
+- Canonical vendored Lua 5.0.3 compiler check: **not run/unavailable**. The executable environment has GCC/CC but no system `lua`/`luac`, and the canonical `tools/lua50` source is not mounted/available in the executable environment, so no compiler pass is claimed.
 - Resume verification: `dev` was exactly identical to requested handoff `b3a3f8a8bf6034c0c431829a8b45bcad7a3055b2` before `0.5.17-dev` work began.
 - `.toc` is now `0.5.17-dev`; latest addon-affecting code checkpoint is `2182a5b3336a6634b246133a1a634e4b7892c1b2`.
 - Compare from handoff `b3a3f8a8...` through the code checkpoint changes only `pfUI_BagTweaks.lua`, `locales/enUS.lua` and `pfUI_BagTweaks.toc`.
@@ -400,7 +417,8 @@
 - The earlier `0.5.16-dev` static checks remain historical context; do not treat either those checks or the new `0.5.17-dev` inspection as an in-game test.
 
 ## Current Issues
-- `0.5.17-dev` has no known static blocker and is intentionally **not runtime tested as a standalone slice**. Its interaction/overlay behaviour remains validation debt for the final integrated bag-replacement test after `0.5.22-dev`.
+- `0.5.18-dev` has no known static blocker and is intentionally **not runtime tested as a standalone slice**. Interaction/overlay plus planner decisions remain validation debt for the final integrated bag-replacement test after `0.5.22-dev`.
+- On a baseline 1.12 client without an item-family helper, items from a general target are conservatively planned into general-purpose destinations unless specialty compatibility can be proven. This may produce an initial `needsSort` result where pfUI Sort can create better packing in `0.5.19-dev`; it deliberately prefers a safe false-negative preflight over guessing an illegal specialty move.
 - No active runtime blocker remains from the `0.5.12-dev` through `0.5.16-dev` Inventory Tracking / bag-open validation slice.
 - The previously reported half-generated bag-open symptom is considered resolved by the `0.5.15-dev` visible-OnShow immediate relayout change based on the user's passing runtime test.
 - The previously reported disjointed Available Account Inventories presentation is considered resolved by the `0.5.16-dev` compact ticked list based on the user's passing runtime test.
@@ -429,15 +447,16 @@
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
 2. `0.5.17-dev` interaction + overlay foundation: **implemented/checked**; standalone runtime testing intentionally deferred.
-3. Next: implement `0.5.18-dev` read-only preflight planner only; still no physical inventory movement.
-4. Continue `0.5.19-dev` through `0.5.22-dev` as isolated one-slice-per-chat implementation checkpoints, with static checks and docs-only handoffs after each.
-5. After `0.5.22-dev` is complete, runtime-test the full integrated bag-replacement workflow once against the complete matrix.
-6. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
-7. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
-8. Rogue Pick Lock workflow test.
-9. Disenchant targeting-cursor / candidate-item hover discoverability.
-10. Remaining direct-toolbar edge-case checks.
-11. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+3. `0.5.18-dev` read-only preflight planner: **implemented/checked**; standalone runtime testing intentionally deferred.
+4. Next: implement `0.5.19-dev` pfUI sort + event-driven re-preflight only; do not perform final evacuation/equip work yet.
+5. Continue `0.5.20-dev` through `0.5.22-dev` as isolated one-slice-per-chat implementation checkpoints, with static checks and docs-only handoffs after each.
+6. After `0.5.22-dev` is complete, runtime-test the full integrated bag-replacement workflow once against the complete matrix.
+7. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
+8. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
+9. Rogue Pick Lock workflow test.
+10. Disenchant targeting-cursor / candidate-item hover discoverability.
+11. Remaining direct-toolbar edge-case checks.
+12. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Open all containers on right click is deferred until the bag-replacement slice is implemented and runtime-accepted.
@@ -451,4 +470,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Begin **`0.5.18-dev` — read-only preflight planner only** from the documented `0.5.17-dev` foundation. Verify the handoff/head first, bump the addon version per `dev_rulebook.md`, implement only planner/read-only state needed to identify target contents, replacement location and compatibility-aware destinations, run static checks, update this document in a docs-only handoff commit, and stop. **Do not physically move inventory, invoke pfUI sort, or runtime-test yet.** Runtime testing waits until the complete workflow through `0.5.22-dev` is assembled.
+Begin **`0.5.19-dev` — pfUI sort + event-driven re-preflight only** from the documented `0.5.18-dev` planner checkpoint. Verify the handoff/head first, bump the addon version per `dev_rulebook.md`, invoke pfUI's normal sort only when the initial read-only plan lacks usable space, show the existing sorting status, resume from inventory events, positively verify sort completion, then rebuild preflight from actual post-sort state. End in either a verified ready-to-execute plan or the agreed insufficient-space failure state. **Do not perform bag evacuation/equip execution or begin `0.5.20-dev`, and do not runtime-test yet.** Runtime testing waits until the complete workflow through `0.5.22-dev` is assembled.
