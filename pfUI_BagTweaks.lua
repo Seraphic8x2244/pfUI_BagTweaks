@@ -1045,11 +1045,10 @@ local function Initialize()
       self.active.ready = true
       self:ShowStatus(L.BAG_SWAP_PREPARING or "Preparing bag swap...", L.CANCEL or "Cancel")
 
-      -- 0.5.20-dev executes carried bags only. Bank plans deliberately stop at
-      -- the same verified-ready seam for the 0.5.21-dev adapter.
-      if self.active.view == "backpack" then
-        self:BeginCarriedTransaction(plan)
-      end
+      -- Carried and purchased bank bag targets enter the same verified
+      -- transaction engine. View-specific differences are isolated to the
+      -- target-availability/inventory-slot adapter below.
+      self:BeginTransaction(plan)
 
       return plan
     end
@@ -1169,9 +1168,8 @@ local function Initialize()
         return
       end
 
-      if active.view == "backpack" and active.pending
-         and self:PendingUsesBag(active.pending, bag) then
-        self:VerifyCarriedPending()
+      if active.pending and self:PendingUsesBag(active.pending, bag) then
+        self:VerifyPending()
       end
     end
 
@@ -1206,8 +1204,46 @@ local function Initialize()
       return true
     end
 
+    function BagReplacement:TargetAvailable(active)
+      if not active or not active.targetBag then return false end
+
+      if active.view == "backpack" then
+        return active.targetBag >= 1 and active.targetBag <= 4
+      end
+
+      if active.view ~= "bank" then return false end
+
+      local frame = ViewFrame("bank")
+      if not frame or not frame.IsShown or not frame:IsShown() then return false end
+      if type(GetNumBankSlots) ~= "function" then return false end
+
+      local purchased = tonumber(GetNumBankSlots()) or 0
+      local bankIndex = active.targetBag - 4
+      if bankIndex < 1 or bankIndex > purchased then return false end
+
+      return (tonumber(GetContainerNumSlots(active.targetBag)) or 0) > 0
+    end
+
+    function BagReplacement:TargetInventorySlot(active)
+      if not self:TargetAvailable(active) then return nil end
+
+      -- Vanilla's BankFrameItemButtonBag_OnClick resolves bank bag buttons via
+      -- BankButtonIDToInvSlotID(id, 1) before calling PutItemInBag. Match that
+      -- native path for bank targets; carried targets keep ContainerIDToInventoryID.
+      if active.view == "bank" and type(BankButtonIDToInvSlotID) == "function" then
+        return BankButtonIDToInvSlotID(active.targetBag, 1)
+      end
+
+      if type(ContainerIDToInventoryID) == "function" then
+        return ContainerIDToInventoryID(active.targetBag)
+      end
+
+      return nil
+    end
+
     function BagReplacement:OldBagStillEquipped(active)
-      if not active or not active.targetInventorySlot or not active.oldBagLink then return false end
+      if not self:TargetAvailable(active)
+         or not active.targetInventorySlot or not active.oldBagLink then return false end
       return GetInventoryItemLink("player", active.targetInventorySlot) == active.oldBagLink
     end
 
@@ -1394,9 +1430,9 @@ local function Initialize()
       return true
     end
 
-    function BagReplacement:FinishCarried()
+    function BagReplacement:FinishTransaction()
       local active = self.active
-      if not active or active.view ~= "backpack" then return false end
+      if not active or not self:TargetAvailable(active) then return false end
       if not self:ReplacementEquipped(active) then return false end
       if type(CursorHasItem) == "function" and CursorHasItem() then return false end
       if not self:ContainerSlotMatches(
@@ -1406,21 +1442,26 @@ local function Initialize()
         active.oldBagLink
       ) then return false end
 
+      local view = active.view
       active.phase = "refresh"
       self:Cancel(false)
 
       if pfUI.bag and type(pfUI.bag.CreateBags) == "function" then
-        pfUI.bag:CreateBags()
+        if view == "bank" then
+          pfUI.bag:CreateBags("bank")
+        else
+          pfUI.bag:CreateBags()
+        end
       else
         RequestRelayout()
       end
       return true
     end
 
-    function BagReplacement:VerifyCarriedPending()
+    function BagReplacement:VerifyPending()
       local active = self.active
       local pending = active and active.pending
-      if not active or active.view ~= "backpack" or not pending then return false end
+      if not active or not pending then return false end
 
       if pending.kind == "replacement-return" then
         local replacement = self:LocateReplacement(active)
@@ -1429,7 +1470,7 @@ local function Initialize()
            or replacement.bag ~= pending.sourceBag
            or replacement.slot ~= pending.sourceSlot then return false end
         active.pending = nil
-        return self:AdvanceCarried()
+        return self:AdvanceTransaction()
       end
 
       if pending.kind == "replacement-stage" then
@@ -1447,7 +1488,7 @@ local function Initialize()
           return false
         end
         active.pending = nil
-        return self:AdvanceCarried()
+        return self:AdvanceTransaction()
       end
 
       if pending.kind == "evacuate" then
@@ -1467,7 +1508,7 @@ local function Initialize()
 
         active.pending = nil
         active.moveIndex = (active.moveIndex or 1) + 1
-        return self:AdvanceCarried()
+        return self:AdvanceTransaction()
       end
 
       if pending.kind == "equip" then
@@ -1494,7 +1535,7 @@ local function Initialize()
           active.oldBagLink
         ) then
           active.pending = nil
-          return self:FinishCarried()
+          return self:FinishTransaction()
         end
 
         return false
@@ -1511,15 +1552,15 @@ local function Initialize()
         ) then return false end
 
         active.pending = nil
-        return self:FinishCarried()
+        return self:FinishTransaction()
       end
 
       return false
     end
 
-    function BagReplacement:AdvanceCarried()
+    function BagReplacement:AdvanceTransaction()
       local active = self.active
-      if not active or active.view ~= "backpack" or active.pending then return false end
+      if not active or active.pending or not self:TargetAvailable(active) then return false end
       if not self:OldBagStillEquipped(active) then return false end
 
       local moves = active.plan and active.plan.moves or {}
@@ -1533,14 +1574,12 @@ local function Initialize()
       return self:IssueEquip()
     end
 
-    function BagReplacement:BeginCarriedTransaction(plan)
+    function BagReplacement:BeginTransaction(plan)
       local active = self.active
-      if not active or active.view ~= "backpack" then return false end
-      if active.targetBag < 1 or active.targetBag > 4 then return false end
+      if not active or not self:TargetAvailable(active) then return false end
       if not active.ready or active.plan ~= plan or not plan or not plan.possible then return false end
-      if type(ContainerIDToInventoryID) ~= "function" then return false end
 
-      local inventorySlot = ContainerIDToInventoryID(active.targetBag)
+      local inventorySlot = self:TargetInventorySlot(active)
       local oldBagLink = inventorySlot and GetInventoryItemLink("player", inventorySlot)
       if not inventorySlot or not oldBagLink then return false end
 
@@ -1559,16 +1598,16 @@ local function Initialize()
         return self:IssueReplacementReturn()
       end
 
-      return self:AdvanceCarried()
+      return self:AdvanceTransaction()
     end
 
     function BagReplacement:OnEquipmentUpdated(unit)
       if unit and unit ~= "player" then return end
       local active = self.active
-      if not active or active.view ~= "backpack" or active.phase ~= "equip" then return end
+      if not active or active.phase ~= "equip" then return end
       if active.pending
          and (active.pending.kind == "equip" or active.pending.kind == "store-old-bag") then
-        self:VerifyCarriedPending()
+        self:VerifyPending()
       end
     end
 
@@ -1809,9 +1848,14 @@ local function Initialize()
 
     BagReplacement.eventFrame = CreateFrame("Frame")
     BagReplacement.eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+    BagReplacement.eventFrame:RegisterEvent("PLAYERBANKBAGSLOTS_CHANGED")
     BagReplacement.eventFrame:SetScript("OnEvent", function()
       if event == "UNIT_INVENTORY_CHANGED" then
         BagReplacement:OnEquipmentUpdated(arg1)
+      elseif event == "PLAYERBANKBAGSLOTS_CHANGED" then
+        -- Bank bag equipment changes use their dedicated Vanilla event rather
+        -- than relying on carried-equipment notification ordering.
+        BagReplacement:OnEquipmentUpdated(nil)
       end
     end)
 
