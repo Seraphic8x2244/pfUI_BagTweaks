@@ -594,7 +594,9 @@ local function Initialize()
     -- 0.5.17-dev introduced interaction/state/blocking UI; 0.5.18-dev and
     -- 0.5.19-dev added planning plus sort/re-preflight; 0.5.20-dev and
     -- 0.5.21-dev extended this same owner through carried/bank execution.
-    -- 0.5.22-dev hardens that one pipeline with explicit safe-stop recovery:
+    -- 0.5.22-dev hardens that one pipeline with explicit safe-stop recovery.
+    -- 0.5.23-dev keeps that pipeline unchanged and fixes Vanilla source-bag
+    -- recognition by preferring numeric item-ID metadata over link metadata:
     -- select -> preflight -> optional sort -> re-preflight -> evacuate ->
     -- equip -> refresh.
     local BagReplacement = {
@@ -617,7 +619,16 @@ local function Initialize()
       local link = GetContainerItemLink(bag, slot)
       if not link then return false end
 
-      local _, _, _, _, _, _, _, _, equipLoc = GetItemInfo(link)
+      -- Vanilla/private-server clients can expose a valid container link while
+      -- GetItemInfo(link) still returns no metadata. Prefer the parsed numeric
+      -- item ID, matching BagTweaks' existing metadata lookup path, then keep
+      -- the link form as a compatibility fallback.
+      local itemID = ItemID(bag, slot)
+      local _, _, _, _, _, _, _, _, equipLoc = GetItemInfo(itemID or link)
+      if (not equipLoc or equipLoc == "") and itemID then
+        _, _, _, _, _, _, _, _, equipLoc = GetItemInfo(link)
+      end
+
       return equipLoc == "INVTYPE_BAG" or equipLoc == "INVTYPE_QUIVER"
     end
 
