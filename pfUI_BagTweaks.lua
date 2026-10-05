@@ -595,11 +595,11 @@ local function Initialize()
     -- 0.5.19-dev added planning plus sort/re-preflight; 0.5.20-dev and
     -- 0.5.21-dev extended this same owner through carried/bank execution.
     -- 0.5.22-dev hardens that one pipeline with explicit safe-stop recovery.
-    -- 0.5.23-dev prefers numeric item-ID metadata over link metadata for source
-    -- recognition. 0.5.24-dev adds the Vanilla error-triggered entry fallback
-    -- used by Bagshui/Swapper. 0.5.25-dev also listens for UI_ERROR_MESSAGE on
-    -- BagTweaks' own event frame so later hook-chain replacements cannot bypass
-    -- recovery from ERR_DESTROY_NONEMPTY_BAG:
+    -- 0.5.23-dev through 0.5.25-dev investigated Vanilla entry fallbacks.
+    -- 0.5.26-dev fixes the demonstrated root compatibility issue: pfUI exposes
+    -- complete bag metadata through C_Item.GetItemInfo while legacy
+    -- GetItemInfo() returns nil on the target client. Source recognition now
+    -- follows pfUI's own metadata path first:
     -- select -> preflight -> optional sort -> re-preflight -> evacuate ->
     -- equip -> refresh.
     local BagReplacement = {
@@ -623,14 +623,25 @@ local function Initialize()
       local link = GetContainerItemLink(bag, slot)
       if not link then return false end
 
-      -- Vanilla/private-server clients can expose a valid container link while
-      -- GetItemInfo(link) still returns no metadata. Prefer the parsed numeric
-      -- item ID, matching BagTweaks' existing metadata lookup path, then keep
-      -- the link form as a compatibility fallback.
       local itemID = ItemID(bag, slot)
-      local _, _, _, _, _, _, _, _, equipLoc = GetItemInfo(itemID or link)
+      local equipLoc
+
+      -- pfUI's Vanilla compatibility layer exposes complete item metadata
+      -- through C_Item.GetItemInfo even when the legacy global GetItemInfo()
+      -- returns nil for the same bag. Prefer the same API pfUI itself uses.
+      if itemID and G.C_Item and type(G.C_Item.GetItemInfo) == "function" then
+        local _, _, _, _, _, _, _, _, value = G.C_Item.GetItemInfo(itemID)
+        equipLoc = value
+      end
+
+      -- Preserve compatibility with clients that only expose the legacy API.
+      if not equipLoc or equipLoc == "" then
+        local _, _, _, _, _, _, _, _, value = GetItemInfo(itemID or link)
+        equipLoc = value
+      end
       if (not equipLoc or equipLoc == "") and itemID then
-        _, _, _, _, _, _, _, _, equipLoc = GetItemInfo(link)
+        local _, _, _, _, _, _, _, _, value = GetItemInfo(link)
+        equipLoc = value
       end
 
       return equipLoc == "INVTYPE_BAG" or equipLoc == "INVTYPE_QUIVER"
