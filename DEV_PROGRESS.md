@@ -125,6 +125,70 @@
 - Do not introduce a separate physical sorting model for BagTweaks. pfUI remains the owner of ordinary physical Sort behaviour; BagTweaks performs only the minimum physical moves required for this explicit replacement transaction.
 - Implementation must preserve the already runtime-accepted `0.5.16-dev` bag-open, Auto Resort and Inventory Tracking behaviour.
 
+### Bag Replacement Workflow — Development Sequence
+- Use a **one-slice-per-chat** workflow for this feature. Each development chat should verify the documented `dev` head, implement only that slice, run the available static checks, update `DEV_PROGRESS.md` in a final documentation-only handoff commit, and stop for runtime results before the next slice begins.
+- Preserve one shared transaction pipeline throughout: **select → preflight → optional pfUI sort → re-preflight → evacuate → equip → refresh**.
+- Carried bags and bank bags must feed the same pipeline. Bank support must be an adapter/configuration of the shared transaction engine, not a second independently implemented workflow.
+
+#### `0.5.17-dev` — Interaction + overlay foundation
+- Hook the existing carried and bank bag-slot controls.
+- Recognize the replacement bag item and target equipped bag slot for both drag-and-drop and click-and-click.
+- Create the pfUI-derived blocking overlay and agreed status/failure presentation, including **I'll make some space...**.
+- Add the transaction/state-machine skeleton and explicit ownership/cleanup rules.
+- Do **not** physically move inventory yet.
+- Runtime target: selection semantics, target detection, overlay sizing/styling, click interception, carried/bank ownership and clean cancellation.
+
+#### `0.5.18-dev` — Read-only preflight planner
+- Identify all physical items contained by the target equipped bag.
+- Locate the replacement bag physically, including the replacement-bag-inside-target case.
+- Build compatibility-aware candidate destinations outside the target bag.
+- Account for normal bags, quivers, soul bags and other specialty families.
+- Determine whether the operation is possible from the current physical state.
+- Do **not** physically move inventory yet.
+- Temporary development diagnostics are acceptable if useful for validating planner decisions, but must remain isolated/dev-only.
+- Runtime target: verify planner decisions across empty/populated targets, specialty cases, replacement-inside-target and insufficient-space inventories.
+
+#### `0.5.19-dev` — pfUI sort + re-preflight pipeline
+- If initial preflight lacks usable space, invoke pfUI's normal sort for the relevant inventory.
+- Show **Sorting bags…** on the blocking overlay.
+- Resume only from inventory events; no arbitrary delay and no per-frame polling.
+- Positively verify pfUI sorting has completed before proceeding. The current pfUI `libbagsort` uses `BAG_UPDATE_DELAYED` internally and exposes no public completion callback, so one observed event must not be treated as proof of completion by itself.
+- Rebuild preflight from the actual post-sort inventory state.
+- End in either a verified ready-to-execute plan or the agreed insufficient-space failure overlay.
+- Still do **not** perform the final bag replacement transaction.
+- Runtime target: partial-stack consolidation creating space, unchanged genuinely-insufficient inventories, specialty compatibility and correct event-driven resumption.
+
+#### `0.5.20-dev` — Core carried-bag transaction
+- Execute only a verified plan.
+- Evacuate one planned move at a time.
+- After every issued move, wait for the relevant inventory event and verify the expected source/destination state before continuing.
+- Keep the old bag equipped until it is confirmed empty.
+- If the replacement bag started inside the target bag, stage it automatically using the verified plan.
+- Equip the replacement into the exact target carried-bag slot only after evacuation is complete.
+- Do not move evacuated items back into the newly equipped bag.
+- Finish with normal pfUI/BagTweaks refresh and transaction cleanup.
+- Runtime target: extensive carried-bag testing including empty/populated target, replacement inside target, specialty bags, sort-created space, insufficient-space refusal and normal completion.
+
+#### `0.5.21-dev` — Bank bags through the same pipeline
+- Reuse the established preflight/state-machine/execution engine.
+- Add only the bank-specific adapter details: bank container IDs, equipped bank-bag slots, permitted destination inventory, bank-open requirement and pfUI bank overlay parent.
+- Do not fork a parallel bank transaction implementation.
+- Runtime target: equivalent empty/populated/specialty/sort-created-space/insufficient-space cases for purchased bank bag slots.
+
+#### `0.5.22-dev` — Recovery + edge-case hardening
+- Handle unexpected item locks.
+- Handle inventory events whose resulting state does not match the expected move.
+- Handle bag/bank window closure or bank access disappearing mid-transaction.
+- Handle an unexpected cursor-held item or rejected equipment operation.
+- Stop safely rather than advancing from stale state; keep/recover the existing equipped bag wherever possible and explain the safe-stop on the overlay.
+- Run the final regression pass against Auto Resort, Inventory Tracking, pfUI Sort, normal bag interaction and both carried/bank bag replacement paths.
+
+#### Optional ClassicAPI follow-up — only if justified
+- The baseline feature must already work on ordinary pfUI without ClassicAPI.
+- After the native/pfUI implementation is runtime accepted, investigate a capability-detected ClassicAPI path only if profiling or runtime evidence shows a concrete reliability or performance advantage.
+- Do not add ClassicAPI merely because the capability exists.
+- No user-facing setting or UX divergence; optional acceleration/reliability must remain transparent.
+
 - **Priority changed:** bag replacement is now the next feature. Open all containers on right click moves behind the bag-replacement slice.
 
 ### Multi-Account Item Tracking — Agreed Design
@@ -346,14 +410,15 @@
 
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
-2. **Bag replacement workflow:** approved design above is now priority #1. Implement it as the next isolated addon-affecting checkpoint, starting with the transaction/state-machine foundation, pfUI-overlay ownership and carried/bank bag-slot interception.
-3. Runtime-test bag replacement across: empty target bag; populated target bag; replacement bag inside target; insufficient-space failure; post-sort-created space; specialty-bag compatibility; carried bags; bank bags; interruption/unexpected-state safe-stop.
-4. After bag replacement is accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
-5. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
-6. Rogue Pick Lock workflow test.
-7. Disenchant targeting-cursor / candidate-item hover discoverability.
-8. Remaining direct-toolbar edge-case checks.
-9. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+2. **Bag replacement workflow:** execute the documented bite-sized sequence `0.5.17-dev` through `0.5.22-dev`, one runtime-gated slice per chat.
+3. Start with `0.5.17-dev` interaction + overlay foundation only; no physical item movement in that slice.
+4. After each slice, stop for the user's runtime result before beginning the next checkpoint.
+5. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
+6. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
+7. Rogue Pick Lock workflow test.
+8. Disenchant targeting-cursor / candidate-item hover discoverability.
+9. Remaining direct-toolbar edge-case checks.
+10. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Open all containers on right click is deferred until the bag-replacement slice is implemented and runtime-accepted.
@@ -367,4 +432,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-The `0.5.16-dev` Inventory Tracking / bag-open checkpoint is runtime accepted and the **bag replacement UX/design is approved**. Begin the next isolated addon-affecting checkpoint for bag replacement. Before writing runtime code, verify the documented handoff/head and bump the addon version per `dev_rulebook.md`. Preserve the approved event-driven safety model, pfUI-derived blocking overlay, pre-sort/re-preflight flow, carried+bank scope and no-required-DLL policy.
+The `0.5.16-dev` Inventory Tracking / bag-open checkpoint is runtime accepted, the bag-replacement UX/design is approved, and the implementation sequence is now fixed. Begin **`0.5.17-dev` — Interaction + overlay foundation only**. Before writing runtime code, verify this documentation handoff/head and bump the addon version per `dev_rulebook.md`. Do not physically move inventory in `0.5.17-dev`; stop after the foundation/static checks/docs handoff so the user can runtime-test that slice before `0.5.18-dev`.
