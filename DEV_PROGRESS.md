@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.22-dev`
-- Development code head: `da4e8b1832897ff23a3e8b2883524d957ce08f95` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.23-dev`
+- Development code head: `2de0894431b56bd8b93877ab1133b30af001bc8f` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Runtime-test the now-complete approved **bag replacement workflow** as one integrated carried/bank feature.
-- Current scope boundary: `0.5.22-dev` recovery + edge-case hardening is implemented and statically checked. The next step is runtime testing of the integrated bag-replacement matrix only. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
+- Goal: Resume runtime validation of the approved **bag replacement workflow** after the first integrated pass exposed and corrected a Vanilla source-bag recognition defect.
+- Current scope boundary: `0.5.23-dev` is a targeted compatibility correction only: replacement-bag recognition now prefers numeric item-ID metadata before link metadata after live 1.12.1 testing showed `GetItemInfo(link)` returning nil metadata for a real bag. The next step is a focused carried-bag entry retest, then the existing integrated matrix if that passes. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
 
 ## Current Design / Development Contract
 
@@ -479,7 +479,7 @@
 - The earlier `0.5.16-dev` static checks remain historical context; do not treat either those checks or the new `0.5.17-dev` inspection as an in-game test.
 
 ## Current Issues
-- `0.5.22-dev` has no known static blocker and is intentionally **not runtime tested yet**. The complete interaction/planner/sort/carried/bank/recovery workflow is now assembled and ready for one integrated runtime pass.
+- `0.5.22-dev` runtime validation is **blocked/failed at workflow entry**: both drag/drop and click-and-click against a populated carried bag fell through to Vanilla's native `You can only do that with empty bags` rejection. The target bag-slot hook and source item-frame hook were both present, but `BagReplacement.candidate` remained nil because `IsReplacementBag(2,7)` returned false for the real replacement bag. Direct live inspection then showed `GetItemInfo(GetContainerItemLink(2,7))` returning nil item type/subtype/equip-location metadata. `0.5.23-dev` corrects only this demonstrated recognition defect by preferring the already-parsed numeric item ID and retaining link lookup as fallback.
 - Runtime testing must confirm actual 1.12.1 event ordering for replacement return/staging, one-at-a-time evacuation, `PutItemInBag`, native old-bag landing vs explicit cursor storage, bank `PLAYERBANKBAGSLOTS_CHANGED`, and the correct `CreateBags()` / `CreateBags("bank")` refresh.
 - The recovery pass must deliberately exercise lock/mismatch/cursor/rejected-equip and bag/bank-close cases to confirm safe-stop messages appear and no stale transaction resumes from later events.
 - The sort completion path deliberately depends on current pfUI's observable sorter state (`libbagsort.bagList`) plus physical slot locks after an inventory-event wake-up. The final integrated runtime test must confirm both consolidation and final-placement event ordering on the target 1.12.1/pfUI environment, including the no-op sort path.
@@ -493,21 +493,26 @@
 ## Testing
 
 ### Last Runtime Test
-- Version: `0.5.16-dev` / code checkpoint `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06`.
-- User result: **all requested runtime tests passed**.
-- Bag-open regression: PASS — opening/reopening during an active Auto Resort delay no longer exposes a half-generated/raw intermediate layout.
-- Auto Resort scheduling guard: PASS — with the bag already open, mutation-driven presentation still waits for the configured inactivity delay rather than bypassing it.
-- Bank open: PASS — categorized presentation is complete immediately on show.
-- Available Account Inventories compact/ticked presentation: PASS.
-- Live Cross-Account OFF/ON and Current Account Nickname refresh: PASS.
-- Second-WoW-account automatic participation/listing: PASS.
-- Character Bank and Cross-Character scope toggles: PASS.
-- Corpse-loot/raid smoothness recheck: PASS.
+- Version: `0.5.22-dev` / code checkpoint `da4e8b1832897ff23a3e8b2883524d957ce08f95`.
+- User result: **BLOCKED / FAIL at bag-replacement entry**.
+- Normal carried replacement failed for both drag/drop and click-and-click with Vanilla's native **You can only do that with empty bags** message; BagTweaks never reached Preparing/preflight.
+- Runtime diagnostics: target bag-slot hook = true; replacement source item-frame hook = true; `BagReplacement.candidate` = nil; direct `IsReplacementBag(2,7)` on the real replacement bag = false.
+- Direct client metadata check on that source returned nil item type/subtype/equip-location from `GetItemInfo(GetContainerItemLink(2,7))`.
+- This result is bound only to `0.5.22-dev`; it does not invalidate the previously accepted `0.5.16-dev` Inventory Tracking/bag-open checkpoint.
+
+### 0.5.23-dev Static Validation
+- Targeted code checkpoint: `2de0894431b56bd8b93877ab1133b30af001bc8f`.
+- Scope is limited to `IsReplacementBag` metadata lookup plus the dev version marker. The shared planner/sort/evacuation/equip/recovery engine is unchanged.
+- Diff from handoff `8534abb812da85aba0edf59de92d13ccc35be50c`: only `pfUI_BagTweaks.lua` and `pfUI_BagTweaks.toc` changed.
+- Direct physical mutation call counts remain `PickupContainerItem=8`, `ClearCursor=4`, `PutItemInBag=1`; `PickupBagFromSlot`, `SplitContainerItem`, `UseContainerItem`, `SwapItems` and `MoveItem` remain 0.
+- Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
+- Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 
 ### Next Runtime Test
-- **Deferred until the complete bag-replacement implementation through `0.5.22-dev` is assembled.**
-- The final integrated runtime pass must cover all per-slice runtime targets: carried/bank click-and-click and drag/drop selection, overlay styling/blocking/cleanup, planner decisions, replacement-inside-target, specialty compatibility, pfUI sort/re-preflight, carried and bank execution, insufficient-space refusal, event-driven progression, recovery/safe-stop behaviour, and regressions against Auto Resort, Inventory Tracking, pfUI Sort and normal bag interaction.
-- Bind that result to the exact final `0.5.22-dev` code checkpoint tested; do not retroactively mark intermediate slices independently runtime-tested.
+- First retest `0.5.23-dev` / `2de0894431b56bd8b93877ab1133b30af001bc8f` with the same ordinary replacement bag and populated carried target.
+- Confirm both **drag-and-drop** and **click-and-click** now enter BagTweaks (show **Preparing bag swap...**) instead of the native empty-bag rejection.
+- If those two entry paths pass, continue the already-documented integrated matrix: carried/bank selection, overlay styling/blocking/cleanup, planner decisions, replacement-inside-target, specialty compatibility, pfUI sort/re-preflight, carried and bank execution, insufficient-space refusal, event-driven progression, recovery/safe-stop behaviour, and regressions against Auto Resort, Inventory Tracking, pfUI Sort and normal bag interaction.
+- Bind subsequent results to the exact `0.5.23-dev` checkpoint tested; do not retroactively mark intermediate slices independently runtime-tested.
 
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
@@ -517,7 +522,7 @@
 5. `0.5.20-dev` core carried-bag transaction: **implemented/checked**; standalone runtime testing intentionally deferred.
 6. `0.5.21-dev` bank bags through the same shared transaction engine: **implemented/checked**; standalone runtime testing intentionally deferred.
 7. `0.5.22-dev` recovery/edge-case hardening: **implemented/checked**; runtime testing intentionally deferred until the full workflow was assembled.
-8. Next: runtime-test the full integrated bag-replacement workflow once against the complete matrix, including the new safe-stop recovery cases.
+8. `0.5.23-dev` targeted Vanilla source-bag recognition correction: **implemented/checked**; focused carried-bag entry retest pending, then resume the full integrated matrix if it passes.
 9. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
 10. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
 11. Rogue Pick Lock workflow test.
