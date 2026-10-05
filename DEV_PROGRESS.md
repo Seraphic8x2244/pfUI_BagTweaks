@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.23-dev`
-- Development code head: `2de0894431b56bd8b93877ab1133b30af001bc8f` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.24-dev`
+- Development code head: `fbc9d0ce6c450ab92efff7ad32aef61ffab159bd` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Resume runtime validation of the approved **bag replacement workflow** after the first integrated pass exposed and corrected a Vanilla source-bag recognition defect.
-- Current scope boundary: `0.5.23-dev` is a targeted compatibility correction only: replacement-bag recognition now prefers numeric item-ID metadata before link metadata after live 1.12.1 testing showed `GetItemInfo(link)` returning nil metadata for a real bag. The next step is a focused carried-bag entry retest, then the existing integrated matrix if that passes. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
+- Goal: Resume runtime validation of the approved **bag replacement workflow** after adopting Bagshui/Swapper-style error-triggered entry recovery for Vanilla's populated-bag rejection.
+- Current scope boundary: `0.5.24-dev` changes only bag-replacement workflow entry. The normal direct path remains, but BagTweaks now also tracks the raw pickup source and intercepts Vanilla's `ERR_DESTROY_NONEMPTY_BAG` UI error to recover the locked equipped target bag slot, matching the proven Bagshui/Swapper methodology. That recovered source/target pair feeds the existing shared transaction engine unchanged. The next step is a focused carried-bag entry retest, then the existing integrated matrix if that passes. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
 
 ## Current Design / Development Contract
 
@@ -479,7 +479,7 @@
 - The earlier `0.5.16-dev` static checks remain historical context; do not treat either those checks or the new `0.5.17-dev` inspection as an in-game test.
 
 ## Current Issues
-- `0.5.22-dev` runtime validation is **blocked/failed at workflow entry**: both drag/drop and click-and-click against a populated carried bag fell through to Vanilla's native `You can only do that with empty bags` rejection. The target bag-slot hook and source item-frame hook were both present, but `BagReplacement.candidate` remained nil because `IsReplacementBag(2,7)` returned false for the real replacement bag. Direct live inspection then showed `GetItemInfo(GetContainerItemLink(2,7))` returning nil item type/subtype/equip-location metadata. `0.5.23-dev` corrects only this demonstrated recognition defect by preferring the already-parsed numeric item ID and retaining link lookup as fallback.
+- `0.5.23-dev` runtime validation still **failed at workflow entry**: after the numeric-ID metadata correction, the same populated carried-bag swap still fell through to Vanilla's native `You can only do that with empty bags` rejection. Inspection of Bagshui's Vanilla automated bag swapping showed the more robust path: it tracks the picked-up source item, then handles `UI_ERROR_MESSAGE == ERR_DESTROY_NONEMPTY_BAG`, identifies the locked equipped bag target, suppresses the native error, and starts its swap. `0.5.24-dev` adopts that entry methodology while keeping BagTweaks' planner/execution/recovery engine unchanged.
 - Runtime testing must confirm actual 1.12.1 event ordering for replacement return/staging, one-at-a-time evacuation, `PutItemInBag`, native old-bag landing vs explicit cursor storage, bank `PLAYERBANKBAGSLOTS_CHANGED`, and the correct `CreateBags()` / `CreateBags("bank")` refresh.
 - The recovery pass must deliberately exercise lock/mismatch/cursor/rejected-equip and bag/bank-close cases to confirm safe-stop messages appear and no stale transaction resumes from later events.
 - The sort completion path deliberately depends on current pfUI's observable sorter state (`libbagsort.bagList`) plus physical slot locks after an inventory-event wake-up. The final integrated runtime test must confirm both consolidation and final-placement event ordering on the target 1.12.1/pfUI environment, including the no-op sort path.
@@ -500,19 +500,22 @@
 - Direct client metadata check on that source returned nil item type/subtype/equip-location from `GetItemInfo(GetContainerItemLink(2,7))`.
 - This result is bound only to `0.5.22-dev`; it does not invalidate the previously accepted `0.5.16-dev` Inventory Tracking/bag-open checkpoint.
 
-### 0.5.23-dev Static Validation
-- Targeted code checkpoint: `2de0894431b56bd8b93877ab1133b30af001bc8f`.
-- Scope is limited to `IsReplacementBag` metadata lookup plus the dev version marker. The shared planner/sort/evacuation/equip/recovery engine is unchanged.
-- Diff from handoff `8534abb812da85aba0edf59de92d13ccc35be50c`: only `pfUI_BagTweaks.lua` and `pfUI_BagTweaks.toc` changed.
+### 0.5.24-dev Static Validation
+- Targeted code checkpoint: `fbc9d0ce6c450ab92efff7ad32aef61ffab159bd`.
+- Scope is limited to bag-replacement entry/recovery plus the dev version marker. The existing shared preflight/sort/evacuation/equip/recovery transaction engine is unchanged.
+- The source item-frame hook now keeps a raw source snapshot before metadata-based recognition. This is not itself authority to swap; it is consumed only when Vanilla emits the specific populated-bag rejection.
+- `UIErrorsFrame_OnEvent` is wrapped only for `UI_ERROR_MESSAGE == ERR_DESTROY_NONEMPTY_BAG`. On that error BagTweaks finds exactly one locked carried/bank bag target, uses the tracked source (or a unique locked source fallback), starts the existing transaction, and blanks the native error only when recovery successfully starts.
+- Diff from the `0.5.23-dev` handoff `43e4edea09fe340f1c240bc4889b752eca198158`: only `pfUI_BagTweaks.lua` and `pfUI_BagTweaks.toc` changed.
 - Direct physical mutation call counts remain `PickupContainerItem=8`, `ClearCursor=4`, `PutItemInBag=1`; `PickupBagFromSlot`, `SplitContainerItem`, `UseContainerItem`, `SwapItems` and `MoveItem` remain 0.
 - Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 
 ### Next Runtime Test
-- First retest `0.5.23-dev` / `2de0894431b56bd8b93877ab1133b30af001bc8f` with the same ordinary replacement bag and populated carried target.
-- Confirm both **drag-and-drop** and **click-and-click** now enter BagTweaks (show **Preparing bag swap...**) instead of the native empty-bag rejection.
-- If those two entry paths pass, continue the already-documented integrated matrix: carried/bank selection, overlay styling/blocking/cleanup, planner decisions, replacement-inside-target, specialty compatibility, pfUI sort/re-preflight, carried and bank execution, insufficient-space refusal, event-driven progression, recovery/safe-stop behaviour, and regressions against Auto Resort, Inventory Tracking, pfUI Sort and normal bag interaction.
-- Bind subsequent results to the exact `0.5.23-dev` checkpoint tested; do not retroactively mark intermediate slices independently runtime-tested.
+- First retest `0.5.24-dev` / `fbc9d0ce6c450ab92efff7ad32aef61ffab159bd` with the same ordinary replacement bag and populated carried target.
+- Test **drag-and-drop** and **click-and-click** separately. Expected result for both: the native **You can only do that with empty bags** message is suppressed and BagTweaks enters **Preparing bag swap...**.
+- If either path still falls through, report whether the native error appears and whether the replacement remains on the cursor; do not continue the matrix.
+- If both entry paths pass, continue the already-documented integrated matrix: carried/bank selection, overlay styling/blocking/cleanup, planner decisions, replacement-inside-target, specialty compatibility, pfUI sort/re-preflight, carried and bank execution, insufficient-space refusal, event-driven progression, recovery/safe-stop behaviour, and regressions against Auto Resort, Inventory Tracking, pfUI Sort and normal bag interaction.
+- Bind subsequent results to the exact `0.5.24-dev` checkpoint tested; do not retroactively mark intermediate slices independently runtime-tested.
 
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
@@ -522,13 +525,14 @@
 5. `0.5.20-dev` core carried-bag transaction: **implemented/checked**; standalone runtime testing intentionally deferred.
 6. `0.5.21-dev` bank bags through the same shared transaction engine: **implemented/checked**; standalone runtime testing intentionally deferred.
 7. `0.5.22-dev` recovery/edge-case hardening: **implemented/checked**; runtime testing intentionally deferred until the full workflow was assembled.
-8. `0.5.23-dev` targeted Vanilla source-bag recognition correction: **implemented/checked**; focused carried-bag entry retest pending, then resume the full integrated matrix if it passes.
-9. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
-10. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
-11. Rogue Pick Lock workflow test.
-12. Disenchant targeting-cursor / candidate-item hover discoverability.
-13. Remaining direct-toolbar edge-case checks.
-14. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+8. `0.5.23-dev` numeric-ID source recognition correction: **runtime failed at entry**; direct metadata recognition was still insufficient on the target client.
+9. `0.5.24-dev` Bagshui/Swapper-style error-triggered entry fallback: **implemented/checked**; focused carried-bag drag/drop + click/click retest pending, then resume the full integrated matrix if it passes.
+10. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
+11. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
+12. Rogue Pick Lock workflow test.
+13. Disenchant targeting-cursor / candidate-item hover discoverability.
+14. Remaining direct-toolbar edge-case checks.
+15. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Open all containers on right click is deferred until the bag-replacement slice is implemented and runtime-accepted.
