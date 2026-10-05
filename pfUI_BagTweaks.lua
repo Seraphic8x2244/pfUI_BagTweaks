@@ -595,12 +595,15 @@ local function Initialize()
     -- 0.5.19-dev added planning plus sort/re-preflight; 0.5.20-dev and
     -- 0.5.21-dev extended this same owner through carried/bank execution.
     -- 0.5.22-dev hardens that one pipeline with explicit safe-stop recovery.
-    -- 0.5.23-dev keeps that pipeline unchanged and fixes Vanilla source-bag
-    -- recognition by preferring numeric item-ID metadata over link metadata:
+    -- 0.5.23-dev prefers numeric item-ID metadata over link metadata for source
+    -- recognition. 0.5.24-dev adds the Vanilla error-triggered entry fallback
+    -- used by Bagshui/Swapper: raw source tracking + locked target detection
+    -- after ERR_DESTROY_NONEMPTY_BAG, feeding the same transaction owner:
     -- select -> preflight -> optional sort -> re-preflight -> evacuate ->
     -- equip -> refresh.
     local BagReplacement = {
       candidate = nil,
+      potentialSource = nil,
       active = nil,
       overlays = {},
       phases = {
@@ -1943,14 +1946,122 @@ local function Initialize()
       if type(CursorHasItem) == "function" and CursorHasItem() then return end
 
       self.candidate = nil
-      if not self:IsReplacementBag(bag, slot) then return end
+      self.potentialSource = nil
 
-      self.candidate = {
+      local link = GetContainerItemLink(bag, slot)
+      if not link then return end
+
+      -- Keep the raw pickup origin even when Vanilla has not populated
+      -- GetItemInfo() metadata yet. The native non-empty-bag error is an
+      -- authoritative signal that the cursor item was being used as a bag,
+      -- and this source snapshot lets that fallback enter the same transaction.
+      self.potentialSource = {
         bag=bag,
         slot=slot,
         itemID=ItemID(bag, slot),
-        link=GetContainerItemLink(bag, slot),
+        link=link,
       }
+
+      if not self:IsReplacementBag(bag, slot) then return end
+
+      self.candidate = {
+        bag=self.potentialSource.bag,
+        slot=self.potentialSource.slot,
+        itemID=self.potentialSource.itemID,
+        link=self.potentialSource.link,
+      }
+    end
+
+    function BagReplacement:FindNativeErrorTarget()
+      if type(IsInventoryItemLocked) ~= "function" then return nil end
+
+      local foundView
+      local foundBag
+
+      local function Check(view, targetBag)
+        local inventorySlot = BagReplacement:TargetInventorySlot({
+          view=view,
+          targetBag=targetBag,
+        })
+        if inventorySlot and IsInventoryItemLocked(inventorySlot) then
+          if foundBag then return false end
+          foundView = view
+          foundBag = targetBag
+        end
+        return true
+      end
+
+      local backpack = ViewFrame("backpack")
+      if backpack and backpack.IsShown and backpack:IsShown() then
+        for targetBag = 1, 4 do
+          if not Check("backpack", targetBag) then return nil end
+        end
+      end
+
+      local bank = ViewFrame("bank")
+      if bank and bank.IsShown and bank:IsShown() then
+        local purchased = tonumber(GetNumBankSlots and GetNumBankSlots() or 0) or 0
+        for index = 1, purchased do
+          if not Check("bank", index + 4) then return nil end
+        end
+      end
+
+      return foundView, foundBag
+    end
+
+    function BagReplacement:FindLockedSource(view)
+      local bags = ViewBags(view) or {}
+      local found
+
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+        local slots = tonumber(GetContainerNumSlots(bag)) or 0
+        for slot = 1, slots do
+          local link = GetContainerItemLink(bag, slot)
+          local _, _, locked = GetContainerItemInfo(bag, slot)
+          if link and locked then
+            if found then return nil end
+            found = {
+              bag=bag,
+              slot=slot,
+              itemID=ItemID(bag, slot),
+              link=link,
+            }
+          end
+        end
+      end
+
+      return found
+    end
+
+    function BagReplacement:OnNativeNonEmptyBagError(message)
+      if self.active then return false end
+
+      local expected = ERR_DESTROY_NONEMPTY_BAG
+      if type(TEXT) == "function" and expected then expected = TEXT(expected) end
+      if message ~= expected and message ~= ERR_DESTROY_NONEMPTY_BAG then return false end
+      if type(CursorHasItem) ~= "function" or not CursorHasItem() then return false end
+
+      local view, targetBag = self:FindNativeErrorTarget()
+      if not view or not targetBag then return false end
+
+      local source = self.potentialSource or self:FindLockedSource(view)
+      if not source or not source.link then return false end
+
+      self.candidate = {
+        bag=source.bag,
+        slot=source.slot,
+        itemID=source.itemID,
+        link=source.link,
+      }
+
+      if self:Start(view, targetBag) then
+        self.potentialSource = nil
+        return true
+      end
+
+      self.candidate = nil
+      return false
     end
 
     function BagReplacement:EnsureOverlay(view)
@@ -2075,6 +2186,7 @@ local function Initialize()
       local active = self.active
       self.active = nil
       self.candidate = nil
+      self.potentialSource = nil
 
       if active and self.overlays[active.view] then
         self.overlays[active.view]:Hide()
@@ -2199,6 +2311,25 @@ local function Initialize()
       end
     end
     pfUI.bagtweaks.BagReplacement = BagReplacement
+
+    -- Bagshui/Swapper-style Vanilla fallback: when Blizzard rejects an attempt
+    -- to replace a populated bag, recover the exact locked target bag slot and
+    -- feed the already-tracked pickup source into BagTweaks' transaction owner.
+    -- Keep the normal fast path above; this exists specifically for clients
+    -- where GetItemInfo() metadata is unavailable at pickup time.
+    if type(UIErrorsFrame_OnEvent) == "function"
+       and UIErrorsFrame
+       and not UIErrorsFrame.bagtweaks_bagreplace_hooked then
+      local oldUIErrorsFrame_OnEvent = UIErrorsFrame_OnEvent
+      UIErrorsFrame_OnEvent = function(eventName, message)
+        if eventName == "UI_ERROR_MESSAGE"
+           and BagReplacement:OnNativeNonEmptyBagError(message) then
+          return oldUIErrorsFrame_OnEvent(eventName, "")
+        end
+        return oldUIErrorsFrame_OnEvent(eventName, message)
+      end
+      UIErrorsFrame.bagtweaks_bagreplace_hooked = true
+    end
 
     BagReplacement.eventFrame = CreateFrame("Frame")
     BagReplacement.eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
