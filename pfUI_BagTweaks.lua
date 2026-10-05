@@ -70,6 +70,7 @@ local function Initialize()
     }
 
     local oldCreateBags = pfUI.bag.CreateBags
+    local oldCreateBagSlots = pfUI.bag.CreateBagSlots
     local oldUpdateBag = pfUI.bag.UpdateBag
 
     local headers = { backpack={}, bank={} }
@@ -587,6 +588,270 @@ local function Initialize()
       local _, _, id = string.find(link, "item:(%d+)")
       return tonumber(id)
     end
+
+    -- Bag replacement transaction foundation.
+    --
+    -- 0.5.17-dev deliberately owns only interaction, state and blocking UI.
+    -- It never issues a physical inventory/equipment move. Later checkpoints
+    -- advance this same transaction through:
+    -- select -> preflight -> optional sort -> re-preflight -> evacuate ->
+    -- equip -> refresh.
+    local BagReplacement = {
+      candidate = nil,
+      active = nil,
+      overlays = {},
+      phases = {
+        select=true,
+        preflight=true,
+        sort=true,
+        repreflight=true,
+        evacuate=true,
+        equip=true,
+        refresh=true,
+        failed=true,
+      },
+    }
+
+    function BagReplacement:IsReplacementBag(bag, slot)
+      local link = GetContainerItemLink(bag, slot)
+      if not link then return false end
+
+      local _, _, _, _, _, _, _, _, equipLoc = GetItemInfo(link)
+      return equipLoc == "INVTYPE_BAG" or equipLoc == "INVTYPE_QUIVER"
+    end
+
+    function BagReplacement:RememberSource(bag, slot)
+      if self.active then return end
+
+      -- Do not overwrite the remembered source while another cursor item is
+      -- already being carried. This keeps drag/drop and click/click semantics
+      -- tied to the item that actually started the cursor interaction.
+      if type(CursorHasItem) == "function" and CursorHasItem() then return end
+
+      self.candidate = nil
+      if not self:IsReplacementBag(bag, slot) then return end
+
+      self.candidate = {
+        bag=bag,
+        slot=slot,
+        itemID=ItemID(bag, slot),
+        link=GetContainerItemLink(bag, slot),
+      }
+    end
+
+    function BagReplacement:EnsureOverlay(view)
+      local parent = ViewFrame(view)
+      if not parent then return nil end
+
+      local overlay = self.overlays[view]
+      if overlay then return overlay end
+
+      overlay = CreateFrame("Frame", nil, parent)
+      overlay:SetAllPoints(parent)
+      overlay:SetFrameLevel((parent:GetFrameLevel() or 0) + 50)
+      overlay:EnableMouse(1)
+      overlay:SetScript("OnMouseDown", function() end)
+      overlay:SetScript("OnMouseUp", function() end)
+
+      local _, border = GetBorderSize("bags")
+      border = border or 1
+
+      -- Use pfUI's own backdrop constructor so the overlay follows the active
+      -- pfUI border/background configuration instead of hard-coded BagTweaks
+      -- colours. The fallback copies the already-rendered parent backdrop.
+      if pfUI.api and type(pfUI.api.CreateBackdrop) == "function" then
+        pfUI.api.CreateBackdrop(overlay, border)
+      elseif parent.backdrop and parent.backdrop.GetBackdrop then
+        overlay:SetBackdrop(parent.backdrop:GetBackdrop())
+        if parent.backdrop.GetBackdropColor then
+          local r, g, b, a = parent.backdrop:GetBackdropColor()
+          overlay:SetBackdropColor(r, g, b, a)
+        end
+        if parent.backdrop.GetBackdropBorderColor then
+          local r, g, b, a = parent.backdrop:GetBackdropBorderColor()
+          overlay:SetBackdropBorderColor(r, g, b, a)
+        end
+      end
+
+      overlay.status = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+      overlay.status:SetFont(pfUI.font_default or STANDARD_TEXT_FONT, tonumber(C.global.font_size) or 12, "OUTLINE")
+      overlay.status:SetJustifyH("CENTER")
+      overlay.status:SetJustifyV("MIDDLE")
+      overlay.status:SetTextColor(1, 1, 1, 1)
+
+      overlay.button = CreateFrame("Button", nil, overlay)
+      overlay.button:SetHeight(22)
+      overlay.button:SetWidth(160)
+      overlay.button:SetPoint("CENTER", overlay, "CENTER", 0, -24)
+      overlay.button:SetFont(pfUI.font_default or STANDARD_TEXT_FONT, tonumber(C.global.font_size) or 12, "OUTLINE")
+      overlay.button:SetTextColor(1, 1, 1, 1)
+      if pfUI.api and type(pfUI.api.CreateBackdrop) == "function" then
+        pfUI.api.CreateBackdrop(overlay.button, border)
+      end
+      overlay.button:SetScript("OnClick", function()
+        BagReplacement:Cancel(true)
+      end)
+
+      overlay:Hide()
+      self.overlays[view] = overlay
+      return overlay
+    end
+
+    function BagReplacement:ShowStatus(text, buttonText)
+      if not self.active then return end
+
+      local overlay = self:EnsureOverlay(self.active.view)
+      local parent = ViewFrame(self.active.view)
+      if not overlay or not parent then return end
+
+      local width = (parent:GetWidth() or 260) - 40
+      if width < 120 then width = 120 end
+      overlay.status:SetWidth(width)
+      overlay.status:ClearAllPoints()
+      overlay.status:SetPoint("CENTER", overlay, "CENTER", 0, 12)
+      overlay.status:SetText(text or "")
+
+      overlay.button:SetText(buttonText or L.CANCEL or "Cancel")
+      overlay:Show()
+      overlay:Raise()
+    end
+
+    function BagReplacement:SetPhase(phase, statusText)
+      if not self.active or not self.phases[phase] then return false end
+      self.active.phase = phase
+      if statusText then self:ShowStatus(statusText, L.CANCEL or "Cancel") end
+      return true
+    end
+
+    function BagReplacement:Fail(requiredSlots, reason)
+      if not self.active then return end
+
+      self.active.phase = "failed"
+      local message = reason or L.BAG_SWAP_NOT_ENOUGH_SPACE or "Not enough space to replace this bag."
+      if requiredSlots and tonumber(requiredSlots) and tonumber(requiredSlots) > 0 then
+        message = message .. "\n" .. string.format(
+          L.BAG_SWAP_MORE_SLOTS_NEEDED or "%d more compatible slots are needed.",
+          tonumber(requiredSlots)
+        )
+      end
+      self:ShowStatus(message, L.BAG_SWAP_MAKE_SPACE or "I'll make some space...")
+    end
+
+    function BagReplacement:Cancel(clearCursor)
+      local active = self.active
+      self.active = nil
+      self.candidate = nil
+
+      if active and self.overlays[active.view] then
+        self.overlays[active.view]:Hide()
+      end
+
+      -- Returning the cursor item to its source is cleanup only; 0.5.17 never
+      -- deliberately places it into another inventory/equipment location.
+      if clearCursor and type(CursorHasItem) == "function" and CursorHasItem()
+         and type(ClearCursor) == "function" then
+        ClearCursor()
+      end
+    end
+
+    function BagReplacement:Start(view, targetBag)
+      if self.active or not self.candidate then return false end
+
+      local parent = ViewFrame(view)
+      if not parent or not parent.IsShown or not parent:IsShown() then return false end
+      if type(CursorHasItem) == "function" and not CursorHasItem() then
+        self.candidate = nil
+        return false
+      end
+
+      self.active = {
+        view=view,
+        targetBag=targetBag,
+        sourceBag=self.candidate.bag,
+        sourceSlot=self.candidate.slot,
+        replacementItemID=self.candidate.itemID,
+        replacementLink=self.candidate.link,
+        phase="select",
+      }
+      self.candidate = nil
+
+      -- The bag-slot popout lives partly outside the unified window, so hide
+      -- it once ownership begins. Its slot scripts are also intercepted while
+      -- the transaction is active.
+      if parent.bagslots then parent.bagslots:Hide() end
+
+      self:ShowStatus(L.BAG_SWAP_PREPARING or "Preparing bag swap...", L.CANCEL or "Cancel")
+      return true
+    end
+
+    function BagReplacement:TryTarget(view, targetBag, button)
+      if self.active then
+        -- The affected view is owned by the transaction until explicit cleanup.
+        return self.active.view == view
+      end
+
+      if button and button ~= "LeftButton" then return false end
+      if IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown() then return false end
+
+      if not self.candidate then return false end
+      if type(CursorHasItem) == "function" and not CursorHasItem() then
+        self.candidate = nil
+        return false
+      end
+
+      return self:Start(view, targetBag)
+    end
+
+    function BagReplacement:HookSlot(slotFrame, view, targetBag)
+      if not slotFrame or slotFrame.bagtweaks_bagreplace_hooked then return end
+
+      local oldClick = slotFrame:GetScript("OnClick")
+      local oldReceiveDrag = slotFrame:GetScript("OnReceiveDrag")
+
+      slotFrame:SetScript("OnClick", function()
+        if BagReplacement:TryTarget(view, targetBag, arg1) then return end
+        if oldClick then oldClick() end
+      end)
+
+      slotFrame:SetScript("OnReceiveDrag", function()
+        if BagReplacement:TryTarget(view, targetBag, "LeftButton") then return end
+        if oldReceiveDrag then oldReceiveDrag() end
+      end)
+
+      slotFrame.bagtweaks_bagreplace_hooked = true
+    end
+
+    function BagReplacement:HookBagSlots()
+      local backpack = pfUI.bag and pfUI.bag.right
+      local bank = pfUI.bag and pfUI.bag.left
+
+      if backpack and backpack.bagslots and backpack.bagslots.slots then
+        for slot, data in pairs(backpack.bagslots.slots) do
+          self:HookSlot(data and data.frame, "backpack", tonumber(slot) + 1)
+        end
+      end
+
+      if bank and bank.bagslots and bank.bagslots.slots then
+        for slot, data in pairs(bank.bagslots.slots) do
+          self:HookSlot(data and data.frame, "bank", tonumber(slot) + 4)
+        end
+      end
+    end
+
+    function BagReplacement:OnViewHidden(view)
+      if self.active and self.active.view == view then
+        self:Cancel(true)
+        return
+      end
+
+      if self.candidate and view == "bank" and
+         (self.candidate.bag == -1 or
+          (self.candidate.bag >= 5 and self.candidate.bag <= 11)) then
+        self.candidate = nil
+      end
+    end
+
+    pfUI.bagtweaks.BagReplacement = BagReplacement
 
     -- Account Inventory: native same-account snapshots. Cross-account transport and
     -- presentation are layered on this local authority in later 0.5.x checkpoints.
@@ -2750,12 +3015,16 @@ local function Initialize()
             local b, s = bag, slot
 
             frame:SetScript("OnMouseDown", function()
-              if arg1 == "LeftButton" then selectedItemID = ItemID(b, s) end
+              if arg1 == "LeftButton" then
+                selectedItemID = ItemID(b, s)
+                BagReplacement:RememberSource(b, s)
+              end
               if oldMouseDown then oldMouseDown() end
             end)
 
             frame:SetScript("OnDragStart", function()
               selectedItemID = ItemID(b, s)
+              BagReplacement:RememberSource(b, s)
               if oldDragStart then oldDragStart() else PickupContainerItem(b, s) end
             end)
 
@@ -3317,6 +3586,15 @@ local function Initialize()
       return db.showEmptyCategories ~= false
     end
 
+    if oldCreateBagSlots then
+      pfUI.bag.CreateBagSlots = function(self, frame)
+        oldCreateBagSlots(self, frame)
+        BagReplacement:HookBagSlots()
+      end
+    end
+
+    BagReplacement:HookBagSlots()
+
     pfUI.bag.CreateBags = function(self, object)
       local view = object == "bank" and "bank" or "backpack"
       local viewFrame = object == "bank" and pfUI.bag.left or pfUI.bag.right
@@ -3324,6 +3602,7 @@ local function Initialize()
         and viewFrame.IsShown and viewFrame:IsShown()
 
       oldCreateBags(self, object)
+      BagReplacement:HookBagSlots()
 
       -- A genuine frame OnShow must finish BagTweaks' presentation immediately.
       -- Deferring this path can expose pfUI's intermediate/raw bag layout while
@@ -3356,6 +3635,8 @@ local function Initialize()
         HideMenus()
         HideItemHighlight()
         if draggingView == "bank" and frame == pfUI.bag.left then EndSubcategoryDrag() end
+        if frame == pfUI.bag.left then BagReplacement:OnViewHidden("bank")
+        elseif frame == pfUI.bag.right then BagReplacement:OnViewHidden("backpack") end
       end)
       frame.bagtweaks_menu_hide_hooked = true
     end
