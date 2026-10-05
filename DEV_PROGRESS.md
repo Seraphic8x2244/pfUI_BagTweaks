@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.19-dev`
-- Development code head: `2dfad7a586b6f5cdf19e44f5509738b780bd5ab0` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.20-dev`
+- Development code head: `a42f2c2b7b4eb6731cf6ae338b5473b4a1bcc876` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
 - Goal: Complete the approved **bag replacement workflow** through `0.5.22-dev`, then runtime-test the integrated carried/bank workflow as one feature.
-- Current scope boundary: `0.5.19-dev` pfUI sort + event-driven re-preflight is implemented and statically checked. Stop at this slice; the next implementation checkpoint is `0.5.20-dev` core carried-bag execution. Do not start bank execution, recovery hardening, open-all-containers, toolbar performance work, or unrelated refactors.
+- Current scope boundary: `0.5.20-dev` core carried-bag execution is implemented and statically checked. Stop at this slice; the next implementation checkpoint is `0.5.21-dev` bank-bag execution through the same shared transaction pipeline. Do not start recovery hardening, open-all-containers, toolbar performance work, unrelated refactors, or runtime testing yet.
 
 ## Current Design / Development Contract
 
@@ -152,7 +152,7 @@
 - Runtime target: verify planner decisions across empty/populated targets, specialty cases, replacement-inside-target and insufficient-space inventories.
 
 #### `0.5.19-dev` — pfUI sort + re-preflight pipeline
-- **Status:** implemented and statically checked at code checkpoint `2dfad7a586b6f5cdf19e44f5509738b780bd5ab0`; intentionally not runtime-tested as a standalone slice. Stop here; continue with `0.5.20-dev` in the next development chat.
+- **Status:** implemented and statically checked at code checkpoint `2dfad7a586b6f5cdf19e44f5509738b780bd5ab0`; intentionally not runtime-tested as a standalone slice. Continued into `0.5.20-dev`.
 - If initial preflight lacks usable space, invoke pfUI's normal sort for the relevant inventory.
 - Show **Sorting bags…** on the blocking overlay.
 - Resume only from inventory events; no arbitrary delay and no per-frame polling.
@@ -163,6 +163,7 @@
 - Runtime target: partial-stack consolidation creating space, unchanged genuinely-insufficient inventories, specialty compatibility and correct event-driven resumption.
 
 #### `0.5.20-dev` — Core carried-bag transaction
+- **Status:** implemented and statically checked at code checkpoint `a42f2c2b7b4eb6731cf6ae338b5473b4a1bcc876`; intentionally not runtime-tested as a standalone slice. Stop here; continue with `0.5.21-dev` in the next development chat.
 - Execute only a verified plan.
 - Evacuate one planned move at a time.
 - After every issued move, wait for the relevant inventory event and verify the expected source/destination state before continuing.
@@ -327,6 +328,7 @@
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
 
 ## Recent Relevant Commits
+- `a42f2c2b7b4eb6731cf6ae338b5473b4a1bcc876` — Execute verified carried-bag replacement plans one move at a time and equip only after confirmed evacuation (`0.5.20-dev`).
 - `2dfad7a586b6f5cdf19e44f5509738b780bd5ab0` — Add pfUI sort invocation, event-driven completion verification and post-sort re-preflight (`0.5.19-dev`).
 - `68771bca4b7ce7670c679c4f5dcffea86c7ec760` — Start the isolated `0.5.19-dev` sort/re-preflight checkpoint.
 - `6064c9ea6a1d302e62b4f58c6570f138af1dadf6` — Add the non-mutating compatibility-aware bag-replacement preflight planner (`0.5.18-dev`).
@@ -366,19 +368,25 @@
 - Verified through that checkpoint: genuine bag opens complete the BagTweaks categorized layout immediately even during an active Auto Resort delay; mutation-driven re-layout still waits for the configured inactivity delay; bank open behaves correctly; the compact Available Account Inventories list sits directly under its header with ticked white shared-account rows and grey unticked empty state; Cross-Account OFF/ON and nickname changes update immediately; second-account sharing works without include/exclude controls; Character Bank and Cross-Character scope toggles work; corpse-loot/raid smoothness passed the requested recheck.
 
 ## Implemented / Awaiting Runtime Test
+- `0.5.20-dev` consumes only a shared `BagReplacement` plan already marked `possible`/ready, and auto-executes only for carried targets (`backpack`, container IDs `1-4`). Bank plans deliberately stop at the same ready seam for `0.5.21-dev`.
+- If the selected replacement is still on the cursor and evacuation is required, it is first returned to its reserved external origin. If the replacement originated inside the target, the planner now always reserves one external general-purpose staging slot and execution verifies that stage before any evacuation; this also gives the old equipped bag a stable external landing slot for the final swap.
+- Each planned evacuation revalidates the old bag is still equipped, the exact source item/link/count is still present and unlocked, the destination is still empty/unlocked and family-compatible, then issues one source-to-destination `PickupContainerItem` move. The transaction advances only after a relevant pfUI inventory update confirms the source is empty, the destination contains the expected stack and the cursor is clear.
+- Final carried equip is gated on a physical recheck that the old target bag is empty. The replacement is equipped with Vanilla's native `PutItemInBag(ContainerIDToInventoryID(targetBag))` path into the exact carried slot; `UNIT_INVENTORY_CHANGED` is an equipment wake-up, not proof by itself.
+- Completion requires the replacement link to be present in the exact equipped slot, the old bag to be stored in the replacement's external source/staging slot (using the native swap result or one verified cursor placement), and the cursor to be clear. Only then does the transaction enter refresh, clean up ownership/overlay state and run the normal pfUI `CreateBags()` rebuild.
+- No evacuated item is deliberately moved back into the newly equipped bag. Generalized rejected-operation recovery, mismatch explanation and closure/lock hardening remain owned by `0.5.22-dev`.
 - `0.5.19-dev` runs sorting only when the initial `0.5.18-dev` plan reports `needsSort`; already-possible plans are marked ready without invoking pfUI Sort.
 - Sorting reuses the affected pfUI bag/bank frame's existing native Sort `OnClick` path. BagTweaks does not call `libbagsort:Sort` directly and does not introduce a second physical sorting model.
 - A selected replacement still on the cursor is returned to its normal source with `ClearCursor()` before sorting. This is cursor cleanup required to let pfUI sort validly; no evacuation or equipment operation is issued by `0.5.19-dev`.
 - The blocking overlay shows **Sorting bags…** while pfUI owns the sort. Sort progress wakes only from relevant inventory updates routed through the existing pfUI `UpdateBag` wrapper; there is no timeout or per-frame polling.
 - One inventory update is not treated as completion. Post-sort preflight runs only after pfUI's sorter has cleared its active `bagList` state and all physical slots in the affected view are unlocked. A positively idle/no-mutation pfUI sort is the only synchronous completion path because it produces no inventory event to resume from.
 - Post-sort preflight re-locates the replacement bag by scanning actual affected inventory state, so a replacement moved by pfUI Sort is not assumed to remain at its remembered source slot.
-- Re-preflight rebuilds the `0.5.18-dev` plan from actual post-sort state. A possible plan ends in `repreflight` with `active.ready=true`; a still-insufficient plan uses the agreed insufficient-space overlay. No evacuation/equip execution is present.
+- Re-preflight rebuilds the `0.5.18-dev` plan from actual post-sort state. At the `0.5.19-dev` checkpoint a possible plan ended in `repreflight` with `active.ready=true`; `0.5.20-dev` now consumes that verified-ready seam for carried bags only. A still-insufficient plan continues to use the agreed insufficient-space overlay.
 - `0.5.17-dev` hooks the existing pfUI carried/bank bag-slot controls and recognizes a replacement bag selected from a visible BagTweaks item frame for both click-and-click and drag-and-drop targeting. Bag candidates are limited to bag/quiver equip locations at this foundation stage.
 - The shared `BagReplacement` transaction owner now carries the same source/target/phase state into the `0.5.18-dev` read-only preflight rather than creating a second planner path.
 - `0.5.18-dev` snapshots every physical item remaining in the target bag, records the replacement bag's remembered physical origin plus whether it is still in that container or currently on the cursor, and explicitly detects replacement-inside-target from the remembered source location.
 - The planner scans only empty physical destinations outside the target within the affected carried/bank inventory. General bags are universal destinations; specialty destinations are accepted only when compatibility can be proven.
 - Specialty compatibility has a no-DLL baseline: an equipped specialty bag is keyed by its own item type/subtype, and items already residing in a specialty target inherit that exact family key. Optional item-family APIs are capability-detected only as an additional refinement; they are not a prerequisite. This covers quiver/ammo, soul-bag and other same-family specialty moves without guessing illegal cross-family placements.
-- Replacement-inside-target reserves one external general-purpose staging slot when other target contents still need evacuation. Family-compatible specialty slots are allocated first, then remaining items use general slots, preserving scarce general capacity.
+- Replacement-inside-target now always reserves one external general-purpose staging slot before execution, including an otherwise-empty target, so the replacement can leave the target safely and the old equipped bag has an external landing slot during the final swap. Family-compatible specialty slots are allocated first, then remaining items use general slots, preserving scarce general capacity.
 - The resulting plan records candidate destinations, staged replacement location, proposed source/destination moves, `missingSlots`, `possible`, and `needsSort`. A currently insufficient plan remains read-only for `0.5.19-dev`; it does not fail finally before pfUI Sort/re-preflight has had its chance to create space.
 - No sorting, evacuation, equipping or other physical inventory mutation is issued by `0.5.18-dev`.
 - The affected pfUI bag/bank frame gets a full-size mouse-intercepting overlay using pfUI's own backdrop constructor/configuration, centered status text, cancellation cleanup and the agreed insufficient-space acknowledgement presentation. The bag-slot popout is hidden while ownership is active so it cannot bypass the blocker.
@@ -401,11 +409,21 @@
 - `0.1.43-dev` SavedVariables no-op normalization guards remain inherited unchanged.
 
 ## Static / Automated Checks
+- `0.5.20-dev` resume verification: `dev` exactly matched requested handoff `32673b4e08311acf3cdd41c71383dd13cdc48ffc` before implementation; that handoff documented `2dfad7a586b6f5cdf19e44f5509738b780bd5ab0` as the latest addon-affecting checkpoint.
+- `.toc` is now `0.5.20-dev`; latest addon-affecting code checkpoint is `a42f2c2b7b4eb6731cf6ae338b5473b4a1bcc876`.
+- Compare from handoff `32673b4e...` through the `0.5.20-dev` code checkpoint changes only `pfUI_BagTweaks.lua` and `pfUI_BagTweaks.toc`.
+- Vanilla 1.12.1 FrameXML audit confirms the native carried bag-slot click path calls `PutItemInBag(id)` and the drag path uses `PickupBagFromSlot(id)`; `0.5.20-dev` uses `ContainerIDToInventoryID(targetBag)` with `PutItemInBag` for the exact carried slot and does not call `PickupBagFromSlot`.
+- Exact handoff -> `0.5.20-dev` mutation-call counts are: `PickupContainerItem` 2 -> 8, `ClearCursor` 3 -> 4, `PutItemInBag` 0 -> 1; `PickupBagFromSlot`, `SplitContainerItem`, `UseContainerItem`, `SwapItems` and `MoveItem` remain 0. The new calls are confined to carried replacement return/staging, one-at-a-time evacuation, final carried equip and old-bag storage.
+- No bank execution primitive/path was added: carried execution is explicitly gated to `view == "backpack"` and target container IDs `1-4`; bank plans remain read-only/ready for `0.5.21-dev`.
+- Static later-Lua-syntax scan found none of the checked post-5.0 constructs (`#` length operator, `goto`/labels, `//`, or variable attributes).
+- Lightweight lexical structural check reports balanced parentheses/brackets/braces and exact block closure for both handoff and `0.5.20-dev` Lua; in the stripped current file `function + if + for + while == end` (1388) with no negative delimiter depth. This is a static sanity check, not a compiler/runtime test.
+- The `0.5.20-dev` execution code is added as `BagReplacement` methods/properties and adds no new parent `Initialize`-scope locals; the previously documented callback-level local-declaration heuristic therefore remains 154, below Lua 5.0.3's 200-local compiler limit.
+- Canonical vendored Lua 5.0.3 compiler check: **not run/unavailable**. GCC/CC are present, but no system `lua`/`luac` and no mounted `tools/lua50` source were found in the executable environment, so no compiler pass is claimed.
 - `0.5.19-dev` resume verification: `dev` exactly matched requested handoff `4ebfb9c5ab0bffb595141ef19299bd64a61e3503` before implementation; that handoff documented `6064c9ea6a1d302e62b4f58c6570f138af1dadf6` as the latest addon-affecting planner checkpoint.
 - `.toc` is now `0.5.19-dev`; latest addon-affecting code checkpoint is `2dfad7a586b6f5cdf19e44f5509738b780bd5ab0`.
 - Compare from handoff `4ebfb9c5...` through the `0.5.19-dev` code checkpoint changes only `pfUI_BagTweaks.lua` and `pfUI_BagTweaks.toc`.
 - Current pfUI audit confirms its normal sorter consolidates partial stacks, waits on `BAG_UPDATE_DELAYED` when consolidation work was fired, performs final placement, then clears `libbagsort.bagList`. BagTweaks invokes the native affected-view Sort button script and uses inventory events only as wake-ups; completion additionally requires that sorter state to be idle and all affected slots unlocked.
-- Exact current mutation-call counts are `PickupContainerItem` 2, `ClearCursor` 3, and `PickupBagFromSlot`, `PutItemInBag`, `SplitContainerItem`, `UseContainerItem`, `SwapItems` and `MoveItem` all 0. Relative to `0.5.18-dev`, the only added direct inventory/cursor mutation is one `ClearCursor()` before pfUI Sort; no evacuation/equip primitive was added.
+- At the `0.5.19-dev` checkpoint, mutation-call counts were `PickupContainerItem` 2, `ClearCursor` 3, and `PickupBagFromSlot`, `PutItemInBag`, `SplitContainerItem`, `UseContainerItem`, `SwapItems` and `MoveItem` all 0. Relative to `0.5.18-dev`, that slice added only one `ClearCursor()` before pfUI Sort and no evacuation/equip primitive.
 - No direct `libbagsort:Sort(...)` invocation exists in BagTweaks; physical sorting remains owned by pfUI's native Sort handler.
 - Static later-Lua-syntax scan found none of the checked post-5.0 constructs (`#` length operator, `goto`/labels, `//`, or variable attributes).
 - Lightweight lexical structural check reports balanced delimiters and block structure for both the handoff Lua and current Lua; this is a static sanity check, not a compiler/runtime test.
@@ -437,7 +455,9 @@
 - The earlier `0.5.16-dev` static checks remain historical context; do not treat either those checks or the new `0.5.17-dev` inspection as an in-game test.
 
 ## Current Issues
-- `0.5.19-dev` has no known static blocker and is intentionally **not runtime tested as a standalone slice**. Interaction/overlay, planner decisions, pfUI sort completion detection and post-sort re-preflight remain validation debt for the final integrated bag-replacement test after `0.5.22-dev`.
+- `0.5.20-dev` has no known static blocker and is intentionally **not runtime tested as a standalone slice**. Interaction/overlay, planner decisions, pfUI sort completion, carried staging/evacuation/equip event ordering and final refresh remain validation debt for the integrated bag-replacement test after `0.5.22-dev`.
+- Carried movement advances only after the expected physical state is observed from inventory/equipment wake-ups. The final integrated runtime test must confirm actual 1.12.1 event ordering for replacement return/staging, cross-bag moves, `PutItemInBag`, native old-bag landing vs explicit cursor storage, and the final `CreateBags()` refresh.
+- Generalized recovery for rejected moves, persistent locks, unexpected cursor state, closure mid-transaction or mismatched events is deliberately deferred to `0.5.22-dev`; `0.5.20-dev` does not claim those hardening paths.
 - The sort completion path deliberately depends on current pfUI's observable sorter state (`libbagsort.bagList`) plus physical slot locks after an inventory-event wake-up. The final integrated runtime test must confirm both consolidation and final-placement event ordering on the target 1.12.1/pfUI environment, including the no-op sort path.
 - On a baseline 1.12 client without an item-family helper, items from a general target are conservatively planned into general-purpose destinations unless specialty compatibility can be proven. This may produce an initial `needsSort` result where pfUI Sort can create better packing; it deliberately prefers a safe false-negative preflight over guessing an illegal specialty move.
 - No active runtime blocker remains from the `0.5.12-dev` through `0.5.16-dev` Inventory Tracking / bag-open validation slice.
@@ -470,15 +490,16 @@
 2. `0.5.17-dev` interaction + overlay foundation: **implemented/checked**; standalone runtime testing intentionally deferred.
 3. `0.5.18-dev` read-only preflight planner: **implemented/checked**; standalone runtime testing intentionally deferred.
 4. `0.5.19-dev` pfUI sort + event-driven re-preflight: **implemented/checked**; standalone runtime testing intentionally deferred.
-5. Next: implement `0.5.20-dev` core carried-bag transaction only, executing only a verified ready plan and advancing physical moves by verified inventory events.
-6. Continue `0.5.21-dev` and `0.5.22-dev` as isolated one-slice-per-chat checkpoints with static checks and docs-only handoffs.
-7. After `0.5.22-dev` is complete, runtime-test the full integrated bag-replacement workflow once against the complete matrix.
-8. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
-9. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
-10. Rogue Pick Lock workflow test.
-11. Disenchant targeting-cursor / candidate-item hover discoverability.
-12. Remaining direct-toolbar edge-case checks.
-13. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+5. `0.5.20-dev` core carried-bag transaction: **implemented/checked**; standalone runtime testing intentionally deferred.
+6. Next: implement `0.5.21-dev` bank bags through the same preflight/state-machine/execution engine, adding only the bank-specific adapter details.
+7. Then implement `0.5.22-dev` recovery/edge-case hardening as its own isolated checkpoint.
+8. After `0.5.22-dev` is complete, runtime-test the full integrated bag-replacement workflow once against the complete matrix.
+9. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
+10. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
+11. Rogue Pick Lock workflow test.
+12. Disenchant targeting-cursor / candidate-item hover discoverability.
+13. Remaining direct-toolbar edge-case checks.
+14. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Open all containers on right click is deferred until the bag-replacement slice is implemented and runtime-accepted.
@@ -492,4 +513,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Begin **`0.5.20-dev` — core carried-bag transaction only** from the documented `0.5.19-dev` sort/re-preflight checkpoint. Verify the handoff/head first and bump the addon version per `dev_rulebook.md`. Execute only a plan marked ready by the shared transaction owner; evacuate one planned carried-bag move at a time, resume from relevant inventory events, and verify the expected physical state before issuing the next move. Keep the old equipped bag in place until it is confirmed empty, stage a replacement that started inside the target using the verified plan, then equip the replacement into the exact carried-bag slot and perform normal refresh/cleanup. **Do not begin bank execution (`0.5.21-dev`), recovery hardening (`0.5.22-dev`), unrelated work, or runtime testing yet.** Runtime testing remains deferred until the complete workflow through `0.5.22-dev` is assembled.
+Begin **`0.5.21-dev` — bank bags through the same shared transaction pipeline only** from the documented `0.5.20-dev` carried-execution checkpoint. Verify the handoff/head first and bump the addon version per `dev_rulebook.md`. Reuse the existing preflight, optional pfUI sort, verified one-move-at-a-time evacuation, equip verification and refresh/cleanup engine; add only the bank-specific adapter details for purchased bank bag container/equipment slots, bank-open availability and affected bank inventory. **Do not fork a second bank workflow, start recovery hardening (`0.5.22-dev`), unrelated work, or runtime testing yet.** Runtime testing remains deferred until the complete workflow through `0.5.22-dev` is assembled.
