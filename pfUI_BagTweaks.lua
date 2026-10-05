@@ -620,6 +620,315 @@ local function Initialize()
       return equipLoc == "INVTYPE_BAG" or equipLoc == "INVTYPE_QUIVER"
     end
 
+    -- Return an item-family bit when the client exposes one. Vanilla 1.12 does
+    -- not require this API, so the planner treats it as an optional refinement
+    -- rather than a dependency.
+    function BagReplacement:ItemFamilyNumber(itemID, link)
+      local family
+
+      if G.C_Item and type(G.C_Item.GetItemFamily) == "function" then
+        local ok, value = pcall(G.C_Item.GetItemFamily, itemID or link)
+        if ok then family = tonumber(value) end
+      elseif type(G.GetItemFamily) == "function" then
+        local ok, value = pcall(G.GetItemFamily, itemID or link)
+        if ok then family = tonumber(value) end
+      end
+
+      if family and family > 0 then return family end
+      return nil
+    end
+
+    -- Describe an equipped container without depending on localized family
+    -- names. pfUI already knows whether a container is general-purpose. For a
+    -- specialty container, its own localized type/subtype pair is a stable
+    -- equality key within the running client: two Herb Bags (for example)
+    -- receive the same key regardless of the client's locale.
+    function BagReplacement:DescribeBag(bag)
+      if bag == 0 or bag == -1 then
+        return { bag=bag, known=true, general=true, familyNumber=0, familyKey="GENERAL" }
+      end
+
+      if bag == -2 then
+        return { bag=bag, known=true, general=false, familyKey="KEYRING" }
+      end
+
+      local invSlot
+      if type(ContainerIDToInventoryID) == "function" then
+        invSlot = ContainerIDToInventoryID(bag)
+      end
+
+      local link
+      if invSlot and type(GetInventoryItemLink) == "function" then
+        link = GetInventoryItemLink("player", invSlot)
+      end
+
+      local itemID
+      if link then
+        local _, _, parsed = string.find(link, "item:(%d+)")
+        itemID = tonumber(parsed)
+      end
+
+      local pfFamily
+      if pfUI.api and type(pfUI.api.GetBagFamily) == "function" then
+        local ok, value = pcall(pfUI.api.GetBagFamily, bag)
+        if ok then pfFamily = value end
+      end
+
+      if pfFamily == "BAG" then
+        return {
+          bag=bag,
+          known=true,
+          general=true,
+          familyNumber=0,
+          familyKey="GENERAL",
+          itemID=itemID,
+          link=link,
+        }
+      end
+
+      if not link then
+        return { bag=bag, known=false, general=false }
+      end
+
+      local _, _, _, _, _, itemType, itemSubType = GetItemInfo(link)
+      if not itemType or not itemSubType then
+        return { bag=bag, known=false, general=false, itemID=itemID, link=link }
+      end
+
+      return {
+        bag=bag,
+        known=true,
+        general=false,
+        familyNumber=self:ItemFamilyNumber(itemID, link),
+        familyKey=tostring(itemType) .. "\031" .. tostring(itemSubType),
+        itemID=itemID,
+        link=link,
+      }
+    end
+
+    function BagReplacement:DestinationAccepts(item, destination)
+      local family = destination and destination.family
+      if not family or not family.known then return false end
+      if family.general then return true end
+
+      if item.familyNumber and family.familyNumber
+         and item.familyNumber == family.familyNumber then
+        return true
+      end
+
+      if item.familyKey and family.familyKey
+         and item.familyKey == family.familyKey then
+        return true
+      end
+
+      return false
+    end
+
+    function BagReplacement:SnapshotTargetItem(bag, slot, targetFamily)
+      local link = GetContainerItemLink(bag, slot)
+      if not link then return nil end
+
+      local texture, count, locked = GetContainerItemInfo(bag, slot)
+      local itemID = ItemID(bag, slot)
+      local familyNumber = self:ItemFamilyNumber(itemID, link)
+      local familyKey
+
+      -- Anything already inside a specialty bag is necessarily compatible
+      -- with that bag family. This gives ordinary 1.12 clients an exact,
+      -- locale-independent family inference without requiring ClassicAPI.
+      if targetFamily and targetFamily.known and not targetFamily.general then
+        familyKey = targetFamily.familyKey
+        if not familyNumber then familyNumber = targetFamily.familyNumber end
+      end
+
+      return {
+        bag=bag,
+        slot=slot,
+        itemID=itemID,
+        link=link,
+        count=tonumber(count) or 1,
+        locked=locked and true or false,
+        texture=texture,
+        familyNumber=familyNumber,
+        familyKey=familyKey,
+      }
+    end
+
+    function BagReplacement:LocateReplacement(active)
+      local originID = ItemID(active.sourceBag, active.sourceSlot)
+      local atOrigin = originID and active.replacementItemID
+        and originID == active.replacementItemID
+      local cursor = type(CursorHasItem) == "function" and CursorHasItem() and true or false
+
+      return {
+        itemID=active.replacementItemID,
+        link=active.replacementLink,
+        originBag=active.sourceBag,
+        originSlot=active.sourceSlot,
+        insideTarget=active.sourceBag == active.targetBag,
+        location=atOrigin and "container" or (cursor and "cursor" or "unknown"),
+      }
+    end
+
+    function BagReplacement:BuildPreflightPlan()
+      local active = self.active
+      if not active then return nil end
+
+      local targetFamily = self:DescribeBag(active.targetBag)
+      local replacement = self:LocateReplacement(active)
+      local plan = {
+        view=active.view,
+        targetBag=active.targetBag,
+        targetFamily=targetFamily,
+        replacement=replacement,
+        targetItems={},
+        candidateDestinations={},
+        moves={},
+        replacementStage=nil,
+        missingSlots=0,
+        possible=false,
+        needsSort=false,
+      }
+
+      local targetSlots = tonumber(GetContainerNumSlots(active.targetBag)) or 0
+      if targetSlots <= 0 then
+        plan.reason = "target-unavailable"
+        plan.needsSort = false
+        return plan
+      end
+
+      if replacement.location == "unknown" then
+        plan.reason = "replacement-unavailable"
+        plan.needsSort = false
+        return plan
+      end
+
+      for slot = 1, targetSlots do
+        -- If the replacement originated inside the target, that source slot is
+        -- represented separately even if a client leaves the cursor/source
+        -- state visible until the drop target is clicked.
+        local isReplacementOrigin = replacement.insideTarget
+          and slot == active.sourceSlot
+
+        if not isReplacementOrigin then
+          local item = self:SnapshotTargetItem(active.targetBag, slot, targetFamily)
+          if item then table.insert(plan.targetItems, item) end
+        end
+      end
+
+      local bags = ViewBags(active.view) or {}
+      local general = {}
+      local specialty = {}
+
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+
+        if bag ~= active.targetBag then
+          local family = self:DescribeBag(bag)
+          local slots = tonumber(GetContainerNumSlots(bag)) or 0
+
+          if family.known and slots > 0 then
+            for slot = 1, slots do
+              local reservedOrigin = bag == active.sourceBag and slot == active.sourceSlot
+              if not reservedOrigin and not GetContainerItemLink(bag, slot) then
+                local destination = { bag=bag, slot=slot, family=family }
+                table.insert(plan.candidateDestinations, destination)
+                if family.general then
+                  table.insert(general, destination)
+                else
+                  table.insert(specialty, destination)
+                end
+              end
+            end
+          end
+        end
+      end
+
+      -- A cursor-held replacement that came from outside the target can be
+      -- returned to its own origin before evacuation. When it came from inside
+      -- a still-populated target, reserve a general-purpose external slot so
+      -- later execution can clear the cursor without putting the bag back into
+      -- the container that must be emptied.
+      if replacement.insideTarget and table.getn(plan.targetItems) > 0 then
+        if table.getn(general) > 0 then
+          plan.replacementStage = general[1]
+          table.remove(general, 1)
+        else
+          plan.missingSlots = plan.missingSlots + 1
+          plan.stageMissing = true
+        end
+      end
+
+      local remaining = {}
+
+      -- Use matching specialty capacity first for family-known items. This
+      -- preserves general slots for items whose family cannot be proven by the
+      -- native 1.12 API surface.
+      for i = 1, table.getn(plan.targetItems) do
+        local item = plan.targetItems[i]
+        local destination
+
+        if item.familyNumber or item.familyKey then
+          for n = 1, table.getn(specialty) do
+            if self:DestinationAccepts(item, specialty[n]) then
+              destination = specialty[n]
+              table.remove(specialty, n)
+              break
+            end
+          end
+        end
+
+        if destination then
+          table.insert(plan.moves, {
+            sourceBag=item.bag,
+            sourceSlot=item.slot,
+            itemID=item.itemID,
+            link=item.link,
+            count=item.count,
+            destinationBag=destination.bag,
+            destinationSlot=destination.slot,
+          })
+        else
+          table.insert(remaining, item)
+        end
+      end
+
+      for i = 1, table.getn(remaining) do
+        local item = remaining[i]
+        local destination = general[1]
+
+        if destination then
+          table.remove(general, 1)
+          table.insert(plan.moves, {
+            sourceBag=item.bag,
+            sourceSlot=item.slot,
+            itemID=item.itemID,
+            link=item.link,
+            count=item.count,
+            destinationBag=destination.bag,
+            destinationSlot=destination.slot,
+          })
+        else
+          plan.missingSlots = plan.missingSlots + 1
+        end
+      end
+
+      plan.emptyTarget = table.getn(plan.targetItems) == 0
+      plan.possible = plan.missingSlots == 0
+      plan.needsSort = not plan.possible
+      if not plan.possible then plan.reason = "insufficient-compatible-space" end
+
+      return plan
+    end
+
+    function BagReplacement:Preflight()
+      if not self.active then return nil end
+      self.active.phase = "preflight"
+      local plan = self:BuildPreflightPlan()
+      self.active.plan = plan
+      return plan
+    end
+
     function BagReplacement:RememberSource(bag, slot)
       if self.active then return end
 
@@ -781,6 +1090,7 @@ local function Initialize()
       if parent.bagslots then parent.bagslots:Hide() end
 
       self:ShowStatus(L.BAG_SWAP_PREPARING or "Preparing bag swap...", L.CANCEL or "Cancel")
+      self:Preflight()
       return true
     end
 
