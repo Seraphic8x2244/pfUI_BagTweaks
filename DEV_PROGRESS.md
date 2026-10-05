@@ -5,8 +5,8 @@
 - Version: `0.5.16-dev`
 - Development code head: `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Runtime-validate the corrected bag-open presentation path plus the compact ticked Available Account Inventories list.
-- Current scope boundary: `0.5.15-dev` is an isolated bag-open rendering regression fix; `0.5.16-dev` is a separate presentation-only shared-account list follow-up. The underlying Account Inventory scan coalescing, mutation scheduler, toolbar performance and open-all-containers work remain otherwise untouched.
+- Goal: Design and implement a safe **bag replacement workflow** for carried and bank bags without exposing BagTweaks' hidden physical bag layout to the user.
+- Current scope boundary: `0.5.16-dev` is runtime accepted. The next addon-affecting slice is bag replacement only. Do not mix in open-all-containers, toolbar performance work, or unrelated refactors.
 
 ## Current Design / Development Contract
 
@@ -83,7 +83,49 @@
 - If the bridge is unavailable during that first reset, local Inventory Tracking state still resets, but external custom files cannot be deleted/tombstoned at that moment. This limitation matters only when deliberately testing no-Nampower startup with old published data already present.
 - The reset is one-shot per WoW account. Subsequent logins on the same `0.5.12-dev` checkpoint must not repeatedly erase newly collected tracking data.
 
-- Open all containers on right click remains the next feature after Account Inventory review/runtime validation; exact interaction ownership/target surface still needs inspection before implementation, and it has not been started.
+### Bag Replacement Workflow — Agreed UX / Design
+- **Status:** UX/design approved by the user after audit. Documentation only at this point; implementation has not started.
+- Purpose: BagTweaks' filtered/category presentation deliberately hides the physical distribution of items across bags. Users therefore need a safe way to replace an equipped bag without manually finding and emptying that physical bag first.
+- Scope includes both carried equipped bags and purchased bank bags. The backpack itself is not replaceable.
+- Entry interactions:
+  - support normal **drag-and-drop**: drag a replacement bag item onto the equipped bag slot to replace;
+  - support **click-and-click**: select/click the replacement bag item, then click the equipped bag slot to replace.
+- Reuse pfUI's existing visible bag-slot controls rather than adding a separate Bag Swap toolbar button/window.
+- If the target equipped bag is already empty, preserve the normal/simple swap path; do not add unnecessary ceremony.
+- If the target bag contains items, BagTweaks takes ownership of the replacement workflow and performs the operation automatically when safe.
+- The user does not need to know where the evacuated items physically go. BagTweaks should treat physical placement as an implementation detail because the filtered presentation is the user's inventory model.
+- **Do not move evacuated items back into the newly equipped bag after the swap.** Their destination after evacuation is accepted. If the user later wants physical repacking, the existing pfUI Sort control remains available.
+- If the replacement bag itself is physically inside the target bag, stage it automatically into another compatible slot first and continue. Do not expose this special case to the user unless the operation cannot proceed.
+- Specialty bags (quivers, soul bags, profession/specialty bags) must be supported using compatibility-aware destination planning. Compatible general-purpose slots may be used where valid; illegal item/bag-family moves must never be attempted.
+- **Pre-sort before final space rejection:** before reporting insufficient space, run the normal pfUI bag sort for the relevant inventory so partial stacks can consolidate and real free slots can be created. Then re-run preflight against the actual post-sort state.
+- The workflow must continue by **inventory/equipment events**, not arbitrary timeouts and not per-frame polling. Use server-confirmed bag/equipment update events to advance the state machine.
+- Audit note: current pfUI `libbagsort` already uses `BAG_UPDATE_DELAYED` between its consolidate and final-placement phases but exposes no clean public completion callback. BagTweaks must therefore wait for/observe inventory events and verify the sort has actually completed before running post-sort preflight; do not assume one event means completion.
+- Movement execution must also be event-driven. After each issued physical move, wait for the expected inventory update, verify source/destination state, then issue the next operation.
+- **Safety boundary:** the old equipped bag remains equipped until every item has successfully evacuated from it. Never deliberately remove a populated bag.
+- Preflight and each execution step must revalidate reality rather than blindly trust the original plan. Unexpected state changes, locks, or incompatible destinations stop the transaction safely.
+- If there is enough compatible post-sort space: proceed automatically.
+- If there is not enough compatible post-sort space: move nothing further, keep the existing bag equipped, and fail gracefully.
+- Blocking UX while BagTweaks owns the transaction:
+  - place a click-intercepting overlay over the affected pfUI bag or bank window;
+  - inherit the overlay's **size and background styling/colour from pfUI**, rather than hard-coding BagTweaks styling;
+  - block item interaction, toolbar actions and bag-slot actions within the affected window while the transaction is active;
+  - show centered status text such as **Preparing bag swap…**, **Sorting bags…**, **Moving items 4 / 11…**, or **Equipping new bag…**;
+  - on an unexpected safe-stop, use the same overlay to explain why the operation stopped.
+- Insufficient-space failure UX:
+  - clear message, e.g. **Not enough space to replace this bag.**
+  - include the useful amount where known, e.g. **3 more compatible slots are needed.**
+  - acknowledgement button text: **I'll make some space...**
+  - the overlay remains until the user acknowledges the message, rather than disappearing before they can read it.
+- Bank-bag replacement uses the same transaction model and the overlay belongs to the pfUI bank window. Bank replacement is only available while the bank is open.
+- Dependency policy:
+  - target normal pfUI as the baseline; bag replacement must not require Nampower, SuperWoW, ClassicAPI or another DLL;
+  - use native/pfUI APIs where sufficient;
+  - ClassicAPI may be capability-detected as an **optional internal fast/reliability path** only if audit/implementation proves a real benefit;
+  - behaviour and UX must remain identical when ClassicAPI is absent; do not expose this as a user setting.
+- Do not introduce a separate physical sorting model for BagTweaks. pfUI remains the owner of ordinary physical Sort behaviour; BagTweaks performs only the minimum physical moves required for this explicit replacement transaction.
+- Implementation must preserve the already runtime-accepted `0.5.16-dev` bag-open, Auto Resort and Inventory Tracking behaviour.
+
+- **Priority changed:** bag replacement is now the next feature. Open all containers on right click moves behind the bag-replacement slice.
 
 ### Multi-Account Item Tracking — Agreed Design
 - Native WoW SavedVariables remain account-local. BagTweaks cannot use normal addon SavedVariables to directly read a sibling WoW account's `WTF\\Account\\<account>\\SavedVariables` data.
@@ -302,28 +344,19 @@
 ### Next Runtime Test
 - No additional runtime test is required for the `0.5.16-dev` Inventory Tracking / bag-open checkpoint before proceeding to the next feature slice.
 
-### Next Runtime Test
-1. Load `0.5.16-dev` / `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06`.
-2. **Bag-open regression check:** after looting, moving/splitting a stack, equipping/using an item or any other mutation that starts the Auto Resort inactivity delay, close/open the backpack several times during that delay. The bag should always appear fully categorized/layout-complete immediately; no transient pfUI/raw/half-generated state should be visible.
-3. Leave the bag open and perform the same mutations. Automatic re-layout should still respect the configured inactivity delay rather than snapping immediately, confirming only genuine opens bypass the visual wait.
-4. Open/close the bank as well and confirm its categorized layout is complete immediately on show while bank-content mutations still use normal delayed behaviour.
-5. Confirm **Available Account Inventories** now forms a compact block directly beneath its teal subheader: each visible shared account has a small teal/green tick plus white nickname; **None currently sharing** is grey and has no tick.
-6. With Settings open, toggle Cross-Account OFF/ON and rename Current Account Nickname; the compact/ticked row should still update immediately.
-7. Continue the second-WoW-account test and confirm both actively sharing accounts appear automatically, each with a tick and no include/exclude controls.
-8. Validate Character Bank and Cross-Character OFF/ON scope behaviour, then recheck corpse-loot/raid smoothness.
-
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
-2. Inspect and design **open all containers on right click** against the existing Open control and Auto Resort protection owner before changing runtime code.
-3. **Bag replacement workflow:** BagTweaks' filtered/category presentation means physical bag contents can be spread across equipped bags and cannot be reliably managed by normal drag/drop through the filtered view. Add a safe way to replace an equipped bag by identifying the target bag slot, moving all items physically out of that bag into available space in the other equipped bags/backpack, swapping the new bag into the now-empty slot, then allowing pfUI/BagTweaks to refresh/repack presentation. Define failure handling first: insufficient free space must abort cleanly before removing the equipped bag, and specialty-bag restrictions must be respected.
-4. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
-5. Rogue Pick Lock workflow test.
-6. Disenchant targeting-cursor / candidate-item hover discoverability.
-7. Remaining direct-toolbar edge-case checks.
-8. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+2. **Bag replacement workflow:** approved design above is now priority #1. Implement it as the next isolated addon-affecting checkpoint, starting with the transaction/state-machine foundation, pfUI-overlay ownership and carried/bank bag-slot interception.
+3. Runtime-test bag replacement across: empty target bag; populated target bag; replacement bag inside target; insufficient-space failure; post-sort-created space; specialty-bag compatibility; carried bags; bank bags; interruption/unexpected-state safe-stop.
+4. After bag replacement is accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
+5. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
+6. Rogue Pick Lock workflow test.
+7. Disenchant targeting-cursor / candidate-item hover discoverability.
+8. Remaining direct-toolbar edge-case checks.
+9. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
-- Bag replacement automation is a future usability feature, not part of the current Inventory Tracking/Auto Resort validation slice. Its design must operate on physical bag-slot ownership rather than the filtered visual order.
+- Open all containers on right click is deferred until the bag-replacement slice is implemented and runtime-accepted.
 - Packing optimisation unless future inventories show a real problem.
 - Unrelated refactors while addressing auto-sort interaction churn.
 - Persisted-schema redesign solely for raw SavedVariables text-order stability.
@@ -334,4 +367,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-The `0.5.16-dev` Inventory Tracking / bag-open checkpoint is runtime accepted. The next planned feature slice is to inspect/design **open all containers on right click** against the existing Open control and Auto Resort ownership before making runtime changes, unless the user selects another queued task first.
+The `0.5.16-dev` Inventory Tracking / bag-open checkpoint is runtime accepted and the **bag replacement UX/design is approved**. Begin the next isolated addon-affecting checkpoint for bag replacement. Before writing runtime code, verify the documented handoff/head and bump the addon version per `dev_rulebook.md`. Preserve the approved event-driven safety model, pfUI-derived blocking overlay, pre-sort/re-preflight flow, carried+bank scope and no-required-DLL policy.
