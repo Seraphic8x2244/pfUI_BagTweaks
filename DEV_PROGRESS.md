@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.16-dev`
-- Development code head: `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
+- Version: `0.5.17-dev`
+- Development code head: `2182a5b3336a6634b246133a1a634e4b7892c1b2` (latest addon-affecting checkpoint; the following DEV_PROGRESS handoff commit is documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Design and implement a safe **bag replacement workflow** for carried and bank bags without exposing BagTweaks' hidden physical bag layout to the user.
-- Current scope boundary: `0.5.16-dev` is runtime accepted. The next addon-affecting slice is bag replacement only. Do not mix in open-all-containers, toolbar performance work, or unrelated refactors.
+- Goal: Runtime-validate the **bag replacement interaction + blocking-overlay foundation** for carried and bank bags before adding any planner or movement logic.
+- Current scope boundary: `0.5.17-dev` is implemented and statically checked but not runtime tested. Do not begin `0.5.18-dev`, move inventory, or mix in open-all-containers, toolbar performance work, or unrelated refactors until this checkpoint is accepted.
 
 ## Current Design / Development Contract
 
@@ -84,7 +84,7 @@
 - The reset is one-shot per WoW account. Subsequent logins on the same `0.5.12-dev` checkpoint must not repeatedly erase newly collected tracking data.
 
 ### Bag Replacement Workflow — Agreed UX / Design
-- **Status:** UX/design approved by the user after audit. Documentation only at this point; implementation has not started.
+- **Status:** UX/design approved. The isolated `0.5.17-dev` interaction/overlay foundation is implemented and awaiting runtime validation; read-only planning, sorting and physical movement remain unimplemented.
 - Purpose: BagTweaks' filtered/category presentation deliberately hides the physical distribution of items across bags. Users therefore need a safe way to replace an equipped bag without manually finding and emptying that physical bag first.
 - Scope includes both carried equipped bags and purchased bank bags. The backpack itself is not replaceable.
 - Entry interactions:
@@ -131,6 +131,7 @@
 - Carried bags and bank bags must feed the same pipeline. Bank support must be an adapter/configuration of the shared transaction engine, not a second independently implemented workflow.
 
 #### `0.5.17-dev` — Interaction + overlay foundation
+- **Status:** implemented and statically checked at code checkpoint `2182a5b3336a6634b246133a1a634e4b7892c1b2`; awaiting runtime validation.
 - Hook the existing carried and bank bag-slot controls.
 - Recognize the replacement bag item and target equipped bag slot for both drag-and-drop and click-and-click.
 - Create the pfUI-derived blocking overlay and agreed status/failure presentation, including **I'll make some space...**.
@@ -323,6 +324,9 @@
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
 
 ## Recent Relevant Commits
+- `2182a5b3336a6634b246133a1a634e4b7892c1b2` — Add the non-mutating bag-replacement interaction, shared transaction skeleton and pfUI-derived blocking overlay (`0.5.17-dev`).
+- `4955c0a7925788685f6c2c940f89604da84dc8c0` — Add bag-replacement status/failure strings, including **I'll make some space...**.
+- `bf8c9b8a7f6de392d6f6a18b7c2e9bfb10a247b4` — Start the isolated `0.5.17-dev` checkpoint.
 - `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06` — Compact shared-account rows directly under their header and add passive shared-state ticks (`0.5.16-dev`).
 - `d3a1a12be4880ad511fddf1dd6c29159634316e1` — Start the isolated `0.5.16-dev` compact shared-account list checkpoint.
 - `f8bef1e3ac105c5dd75f544db71d801e298ad2c8` — Complete BagTweaks layout immediately for genuine visible bag/bank opens while keeping internal CreateBags work scheduled (`0.5.15-dev`).
@@ -355,6 +359,10 @@
 - Verified through that checkpoint: genuine bag opens complete the BagTweaks categorized layout immediately even during an active Auto Resort delay; mutation-driven re-layout still waits for the configured inactivity delay; bank open behaves correctly; the compact Available Account Inventories list sits directly under its header with ticked white shared-account rows and grey unticked empty state; Cross-Account OFF/ON and nickname changes update immediately; second-account sharing works without include/exclude controls; Character Bank and Cross-Character scope toggles work; corpse-loot/raid smoothness passed the requested recheck.
 
 ## Implemented / Awaiting Runtime Test
+- `0.5.17-dev` hooks the existing pfUI carried/bank bag-slot controls and recognizes a replacement bag selected from a visible BagTweaks item frame for both click-and-click and drag-and-drop targeting. Bag candidates are limited to bag/quiver equip locations at this foundation stage.
+- A shared `BagReplacement` transaction owner now records source, target view/slot and phase skeleton for the agreed pipeline, but deliberately has no preflight, sorting, evacuation or equip execution yet.
+- The affected pfUI bag/bank frame gets a full-size mouse-intercepting overlay using pfUI's own backdrop constructor/configuration, centered status text, cancellation cleanup and the agreed insufficient-space acknowledgement presentation. The bag-slot popout is hidden while ownership is active so it cannot bypass the blocker.
+- Recognized target clicks/drops are consumed instead of forwarding pfUI's normal bag-slot swap handler. Closing the affected view cancels ownership and returns any user-held cursor item to its source via normal cursor cleanup.
 - `0.5.0-dev` adds native same-WoW-account inventory snapshots under `db.itemTracking`: carried bags `0-4`, keyring `-2`, and last-known bank `-1,5-11` with an explicit `bankKnown` flag.
 - Native tracking reuses the existing pfUI `UpdateBag` and `CreateBags` ownership paths; it adds no competing bag-event scanner. The current character is initialized at `PLAYER_ENTERING_WORLD`.
 - `0.5.1-dev` adds the optional Nampower bridge. Native tracking remains functional when `ReadCustomFile` / `WriteCustomFile` are unavailable.
@@ -373,6 +381,13 @@
 - `0.1.43-dev` SavedVariables no-op normalization guards remain inherited unchanged.
 
 ## Static / Automated Checks
+- Resume verification: `dev` was exactly identical to requested handoff `b3a3f8a8bf6034c0c431829a8b45bcad7a3055b2` before `0.5.17-dev` work began.
+- `.toc` is now `0.5.17-dev`; latest addon-affecting code checkpoint is `2182a5b3336a6634b246133a1a634e4b7892c1b2`.
+- Compare from handoff `b3a3f8a8...` through the code checkpoint changes only `pfUI_BagTweaks.lua`, `locales/enUS.lua` and `pfUI_BagTweaks.toc`.
+- Exact call-count comparison shows `PickupContainerItem` remains 2 -> 2 and no `PickupBagFromSlot`, `PutItemInBag`, `SplitContainerItem` or `UseContainerItem` calls exist in either baseline or `0.5.17-dev`. The only new cursor mutation is `ClearCursor()` for cancellation/cleanup, returning the user's held item rather than relocating inventory.
+- Static later-Lua-syntax scan found none of the checked post-5.0 constructs (`#` length operator, `goto`/labels, `//`, or variable attributes).
+- Callback-level local-declaration heuristic is 154, below Lua 5.0.3's 200-local compiler limit.
+- Canonical vendored Lua 5.0.3 compiler check: **not run/unavailable**. The private GitHub-connected VanillaTemplate checker/source is not mounted in the executable environment; no system `lua`/`luac` is installed and runtime network access cannot fetch the source. A C compiler is present, but without the vendored source no canonical compiler pass can be claimed.
 - Before the new regression work, `dev` was verified identical to the documented `0.5.14-dev` handoff `1eb5b707beb1e73c058098ae6538f24df2cdfcb0`.
 - `.toc` is now `0.5.16-dev`; latest addon-affecting code checkpoint is `ce538b1a5a7b6e5d8fdd4357edc55d060f84af06`.
 - Compare from the `0.5.14-dev` handoff through the `0.5.16-dev` code checkpoint changes only `pfUI_BagTweaks.lua` and `pfUI_BagTweaks.toc`. The performance and UX adjustments are split into their own sequential versioned commits.
@@ -381,10 +396,10 @@
 - `0.5.15-dev` adds exactly one genuine-visible-open branch: when the current Vanilla script context `this` is the shown pfBag/pfBank frame, the matching BagTweaks view lays out immediately; all other CreateBags calls continue through `RequestRelayout()`.
 - `0.5.16-dev` uses the standard Blizzard `Interface\\Buttons\\UI-CheckBox-Check` texture as a passive indicator, tinted to the pfUI teal/green accent. It does not add a clickable per-account state.
 - The shared account rows are manually re-anchored to 18px rows with a 2px first-row gap and 1px subsequent-row gap beneath the existing pfUI teal header.
-- Static later-Lua-syntax scan found none of the checked post-5.0 constructs (`#` length operator, `goto`/labels, `//`, or variable attributes).
-- Canonical vendored Lua 5.0 compiler check: **not run**. The GitHub-connected source is not mounted in the executable environment and no system `lua`/`luac` is available. Do not treat these static checks as a compiler pass or an in-game test.
+- The earlier `0.5.16-dev` static checks remain historical context; do not treat either those checks or the new `0.5.17-dev` inspection as an in-game test.
 
 ## Current Issues
+- `0.5.17-dev` has no known static blocker but is **not runtime tested**; interaction semantics, overlay interception/styling and cancellation must be exercised in WoW before `0.5.18-dev`.
 - No active runtime blocker remains from the `0.5.12-dev` through `0.5.16-dev` Inventory Tracking / bag-open validation slice.
 - The previously reported half-generated bag-open symptom is considered resolved by the `0.5.15-dev` visible-OnShow immediate relayout change based on the user's passing runtime test.
 - The previously reported disjointed Available Account Inventories presentation is considered resolved by the `0.5.16-dev` compact ticked list based on the user's passing runtime test.
@@ -406,19 +421,25 @@
 - Corpse-loot/raid smoothness recheck: PASS.
 
 ### Next Runtime Test
-- No additional runtime test is required for the `0.5.16-dev` Inventory Tracking / bag-open checkpoint before proceeding to the next feature slice.
+- Version/code checkpoint: `0.5.17-dev` / `2182a5b3336a6634b246133a1a634e4b7892c1b2`.
+- Validate carried-bag click-and-click and drag-and-drop targeting; each recognized replacement attempt should open the backpack blocker and must not swap or move inventory.
+- Validate the same two interactions against purchased bank bag slots while the bank is open; ownership/overlay must belong to the bank window and must not move inventory.
+- Confirm the overlay follows the affected pfUI window's size/background/border styling and intercepts item, toolbar and bag-slot interaction while active.
+- Confirm the overlay Cancel control and closing the affected bag/bank view cleanly release ownership and restore the held cursor bag to its source.
+- Failure-presentation foundation may be exercised after starting a transaction with `/script pfUI.bagtweaks.BagReplacement:Fail(3)`: it should show the insufficient-space text, **3 more compatible slots are needed**, and **I'll make some space...**; acknowledging it should cleanly cancel.
 
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
-2. **Bag replacement workflow:** execute the documented bite-sized sequence `0.5.17-dev` through `0.5.22-dev`, one runtime-gated slice per chat.
-3. Start with `0.5.17-dev` interaction + overlay foundation only; no physical item movement in that slice.
-4. After each slice, stop for the user's runtime result before beginning the next checkpoint.
-5. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
-6. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
-7. Rogue Pick Lock workflow test.
-8. Disenchant targeting-cursor / candidate-item hover discoverability.
-9. Remaining direct-toolbar edge-case checks.
-10. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+2. `0.5.17-dev` interaction + overlay foundation: **implemented/checked; runtime gate pending**.
+3. Stop here for the user's `0.5.17-dev` runtime result; do not add planner or movement code in this handoff.
+4. If accepted, begin `0.5.18-dev` read-only preflight planner only; still no physical inventory movement.
+5. Continue the documented bag-replacement sequence one runtime-gated slice per chat.
+6. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
+7. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
+8. Rogue Pick Lock workflow test.
+9. Disenchant targeting-cursor / candidate-item hover discoverability.
+10. Remaining direct-toolbar edge-case checks.
+11. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Open all containers on right click is deferred until the bag-replacement slice is implemented and runtime-accepted.
@@ -432,4 +453,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-The `0.5.16-dev` Inventory Tracking / bag-open checkpoint is runtime accepted, the bag-replacement UX/design is approved, and the implementation sequence is now fixed. Begin **`0.5.17-dev` — Interaction + overlay foundation only**. Before writing runtime code, verify this documentation handoff/head and bump the addon version per `dev_rulebook.md`. Do not physically move inventory in `0.5.17-dev`; stop after the foundation/static checks/docs handoff so the user can runtime-test that slice before `0.5.18-dev`.
+Runtime-test **`0.5.17-dev` / code checkpoint `2182a5b3336a6634b246133a1a634e4b7892c1b2`** using the interaction/overlay checks above. Do not begin `0.5.18-dev` until the user reports this checkpoint accepted. If accepted, the next addon-affecting slice is **`0.5.18-dev` — read-only preflight planner only**, with no physical inventory movement.
