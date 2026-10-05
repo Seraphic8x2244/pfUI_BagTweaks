@@ -597,10 +597,10 @@ local function Initialize()
     -- 0.5.22-dev hardens that one pipeline with explicit safe-stop recovery.
     -- 0.5.23-dev through 0.5.25-dev investigated Vanilla entry fallbacks.
     -- 0.5.26-dev fixes source recognition through pfUI's C_Item metadata path.
-    -- 0.5.27-dev hardens replacement-return event ordering. 0.5.28-dev fixes
-    -- the demonstrated ClassicAPI source-shadow case by making cursor state
-    -- authoritative during initial preflight while retaining physical-source
-    -- preference for later execution verification:
+    -- 0.5.27-dev hardens replacement-return event ordering. 0.5.28-dev makes
+    -- cursor state authoritative during initial preflight. 0.5.29-dev keeps
+    -- replacement-return pending until the affected inventory is fully unlocked
+    -- before evacuation begins:
     -- select -> preflight -> optional sort -> re-preflight -> evacuate ->
     -- equip -> refresh.
     local BagReplacement = {
@@ -1773,6 +1773,13 @@ local function Initialize()
         if replacement.location ~= "container"
            or replacement.bag ~= pending.sourceBag
            or replacement.slot ~= pending.sourceSlot then return false end
+
+        -- Vanilla/ClassicAPI can restore the replacement to its source before
+        -- all container lock flags have settled. Do not begin evacuation until
+        -- the affected inventory is fully unlocked; ITEM_LOCK_CHANGED will
+        -- wake this same pending state again when that transition completes.
+        if not self:InventoryUnlocked(active.view) then return false end
+
         active.pending = nil
         return self:AdvanceTransaction()
       end
