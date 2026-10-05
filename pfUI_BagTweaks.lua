@@ -592,10 +592,11 @@ local function Initialize()
     -- Shared bag replacement transaction owner.
     --
     -- 0.5.17-dev introduced interaction/state/blocking UI; 0.5.18-dev and
-    -- 0.5.19-dev added read-only planning plus sort/re-preflight. 0.5.20-dev
-    -- advances this same owner through carried-bag evacuation/equip only:
+    -- 0.5.19-dev added planning plus sort/re-preflight; 0.5.20-dev and
+    -- 0.5.21-dev extended this same owner through carried/bank execution.
+    -- 0.5.22-dev hardens that one pipeline with explicit safe-stop recovery:
     -- select -> preflight -> optional sort -> re-preflight -> evacuate ->
-    -- equip -> refresh. Bank execution remains deferred to 0.5.21-dev.
+    -- equip -> refresh.
     local BagReplacement = {
       candidate = nil,
       active = nil,
@@ -1148,9 +1149,10 @@ local function Initialize()
       return plan
     end
 
+
     function BagReplacement:OnInventoryUpdated(bag)
       local active = self.active
-      if not active then return end
+      if not active or active.phase == "failed" then return end
 
       if active.phase == "sort" then
         if not active.sortEventArmed or not self:IsViewBag(active.view, bag) then return end
@@ -1168,9 +1170,20 @@ local function Initialize()
         return
       end
 
+      if not self:TargetAvailable(active) then
+        self:StopForUnavailableTarget()
+        return
+      end
+
       if active.pending and self:PendingUsesBag(active.pending, bag) then
         self:VerifyPending()
       end
+    end
+    function BagReplacement:ContainerSlotAvailable(bag, slot)
+      if bag == nil or slot == nil then return false end
+      local slots = tonumber(GetContainerNumSlots(bag)) or 0
+      local index = tonumber(slot) or 0
+      return index >= 1 and index <= slots
     end
 
     function BagReplacement:ContainerSlotMatches(bag, slot, itemID, link, count)
@@ -1189,12 +1202,12 @@ local function Initialize()
       return true
     end
 
+
     function BagReplacement:ContainerSlotUnlocked(bag, slot)
-      if bag == nil or slot == nil then return false end
+      if not self:ContainerSlotAvailable(bag, slot) then return false end
       local _, _, locked = GetContainerItemInfo(bag, slot)
       return not locked
     end
-
     function BagReplacement:TargetBagEmpty(active)
       if not active then return false end
       local slots = tonumber(GetContainerNumSlots(active.targetBag)) or 0
@@ -1222,6 +1235,70 @@ local function Initialize()
       if bankIndex < 1 or bankIndex > purchased then return false end
 
       return (tonumber(GetContainerNumSlots(active.targetBag)) or 0) > 0
+    end
+
+    function BagReplacement:StopForUnavailableTarget()
+      local active = self.active
+      if not active then return false end
+      if active.view == "bank" then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_BANK_ACCESS or
+          "Bag replacement stopped because bank access was lost."
+        )
+      end
+      return self:SafeStop(
+        L.BAG_SWAP_STOP_VIEW_CLOSED or
+        "Bag replacement stopped because the bag view was closed."
+      )
+    end
+
+    function BagReplacement:PendingHasLockedSlot(pending)
+      if not pending then return false end
+
+      local checks = {
+        { pending.sourceBag, pending.sourceSlot },
+        { pending.destinationBag, pending.destinationSlot },
+        { pending.storageBag, pending.storageSlot },
+      }
+      for i = 1, table.getn(checks) do
+        local bag = checks[i][1]
+        local slot = checks[i][2]
+        if bag ~= nil and slot ~= nil
+           and self:ContainerSlotAvailable(bag, slot)
+           and not self:ContainerSlotUnlocked(bag, slot) then
+          return true
+        end
+      end
+      return false
+    end
+
+    function BagReplacement:StopForPendingMismatch(pending)
+      local active = self.active
+      if not active then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+
+      if pending and pending.kind == "equip" and not self:ReplacementEquipped(active) then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_EQUIP_REJECTED or
+          "The new bag could not be equipped."
+        )
+      end
+      if type(CursorHasItem) == "function" and CursorHasItem() then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_CURSOR or
+          "The cursor changed unexpectedly during bag replacement."
+        )
+      end
+      if self:PendingHasLockedSlot(pending) then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_LOCKED or
+          "An item involved in the bag replacement became locked."
+        )
+      end
+      return self:SafeStop(
+        L.BAG_SWAP_STOP_STATE_CHANGED or
+        "Inventory changed unexpectedly during bag replacement."
+      )
     end
 
     function BagReplacement:TargetInventorySlot(active)
@@ -1288,13 +1365,25 @@ local function Initialize()
       })
     end
 
+
     function BagReplacement:IssueReplacementReturn()
       local active = self.active
       local replacement = active and active.plan and active.plan.replacement
-      if not active or not replacement or replacement.location ~= "cursor"
-         or replacement.insideTarget then return false end
-      if type(CursorHasItem) ~= "function" or not CursorHasItem() then return false end
-      if type(ClearCursor) ~= "function" then return false end
+      if not active then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+      if not replacement or replacement.location ~= "cursor" or replacement.insideTarget then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
+      if type(CursorHasItem) ~= "function" or not CursorHasItem()
+         or type(ClearCursor) ~= "function" then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_CURSOR or
+          "The cursor changed unexpectedly during bag replacement."
+        )
+      end
 
       active.pending = {
         kind="replacement-return",
@@ -1302,6 +1391,13 @@ local function Initialize()
         sourceSlot=replacement.originSlot,
       }
       ClearCursor()
+
+      if type(CursorHasItem) == "function" and CursorHasItem() then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_MOVE_REJECTED or
+          "A bag replacement move was rejected."
+        )
+      end
       return true
     end
 
@@ -1310,10 +1406,23 @@ local function Initialize()
       local plan = active and active.plan
       local replacement = plan and plan.replacement
       local stage = plan and plan.replacementStage
-      if not active or not replacement or not replacement.insideTarget or not stage then return false end
-      if stage.bag == active.targetBag then return false end
-      if GetContainerItemLink(stage.bag, stage.slot) then return false end
-      if not self:ContainerSlotUnlocked(stage.bag, stage.slot) then return false end
+      if not active then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+      if not replacement or not replacement.insideTarget or not stage
+         or stage.bag == active.targetBag
+         or not self:ContainerSlotAvailable(stage.bag, stage.slot)
+         or GetContainerItemLink(stage.bag, stage.slot) then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
+      if not self:ContainerSlotUnlocked(stage.bag, stage.slot) then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_LOCKED or
+          "An item involved in the bag replacement became locked."
+        )
+      end
 
       local pending = {
         kind="replacement-stage",
@@ -1324,36 +1433,100 @@ local function Initialize()
       }
 
       if replacement.location == "container" then
-        if replacement.bag ~= active.targetBag then return false end
-        if not self:ContainerSlotMatches(
-          replacement.bag,
-          replacement.slot,
-          active.replacementItemID,
-          active.replacementLink
-        ) then return false end
-        if not self:ContainerSlotUnlocked(replacement.bag, replacement.slot) then return false end
+        if replacement.bag ~= active.targetBag
+           or not self:ContainerSlotAvailable(replacement.bag, replacement.slot)
+           or not self:ContainerSlotMatches(
+             replacement.bag,
+             replacement.slot,
+             active.replacementItemID,
+             active.replacementLink
+           ) then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_STATE_CHANGED or
+            "Inventory changed unexpectedly during bag replacement."
+          )
+        end
+        if not self:ContainerSlotUnlocked(replacement.bag, replacement.slot) then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_LOCKED or
+            "An item involved in the bag replacement became locked."
+          )
+        end
+        if type(CursorHasItem) == "function" and CursorHasItem() then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_CURSOR or
+            "The cursor changed unexpectedly during bag replacement."
+          )
+        end
         pending.sourceBag = replacement.bag
         pending.sourceSlot = replacement.slot
-      elseif replacement.location ~= "cursor" then
-        return false
+      elseif replacement.location == "cursor" then
+        if type(CursorHasItem) ~= "function" or not CursorHasItem() then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_CURSOR or
+            "The cursor changed unexpectedly during bag replacement."
+          )
+        end
+      else
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
       end
 
       active.pending = pending
 
       if pending.sourceBag then
         PickupContainerItem(pending.sourceBag, pending.sourceSlot)
-      end
-      if type(CursorHasItem) ~= "function" or CursorHasItem() then
-        PickupContainerItem(pending.destinationBag, pending.destinationSlot)
+        if type(CursorHasItem) == "function" and not CursorHasItem() then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_MOVE_REJECTED or
+            "A bag replacement move was rejected."
+          )
+        end
       end
 
+      PickupContainerItem(pending.destinationBag, pending.destinationSlot)
+      if type(CursorHasItem) == "function" and CursorHasItem() then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_MOVE_REJECTED or
+          "A bag replacement move was rejected."
+        )
+      end
       return true
     end
 
     function BagReplacement:IssuePlannedMove(move, index, total)
       local active = self.active
-      if not active or not self:MoveStillValid(move) then return false end
-      if type(CursorHasItem) == "function" and CursorHasItem() then return false end
+      if not active then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+      if type(CursorHasItem) == "function" and CursorHasItem() then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_CURSOR or
+          "The cursor changed unexpectedly during bag replacement."
+        )
+      end
+      if not move
+         or not self:ContainerSlotAvailable(move.sourceBag, move.sourceSlot)
+         or not self:ContainerSlotAvailable(move.destinationBag, move.destinationSlot) then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
+      if not self:ContainerSlotUnlocked(move.sourceBag, move.sourceSlot)
+         or not self:ContainerSlotUnlocked(move.destinationBag, move.destinationSlot) then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_LOCKED or
+          "An item involved in the bag replacement became locked."
+        )
+      end
+      if not self:MoveStillValid(move) then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
 
       self:SetPhase(
         "evacuate",
@@ -1372,8 +1545,19 @@ local function Initialize()
       }
 
       PickupContainerItem(move.sourceBag, move.sourceSlot)
-      if type(CursorHasItem) ~= "function" or CursorHasItem() then
-        PickupContainerItem(move.destinationBag, move.destinationSlot)
+      if type(CursorHasItem) == "function" and not CursorHasItem() then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_MOVE_REJECTED or
+          "A bag replacement move was rejected."
+        )
+      end
+
+      PickupContainerItem(move.destinationBag, move.destinationSlot)
+      if type(CursorHasItem) == "function" and CursorHasItem() then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_MOVE_REJECTED or
+          "A bag replacement move was rejected."
+        )
       end
       return true
     end
@@ -1381,8 +1565,19 @@ local function Initialize()
     function BagReplacement:IssueEquip()
       local active = self.active
       if not active or not active.plan then return false end
-      if not self:OldBagStillEquipped(active) or not self:TargetBagEmpty(active) then return false end
-      if type(PutItemInBag) ~= "function" then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+      if not self:OldBagStillEquipped(active) or not self:TargetBagEmpty(active) then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
+      if type(PutItemInBag) ~= "function" then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_EQUIP_REJECTED or
+          "The new bag could not be equipped."
+        )
+      end
 
       local replacement = self:LocateReplacement(active)
       local sourceBag
@@ -1391,24 +1586,53 @@ local function Initialize()
       if replacement.location == "cursor" then
         sourceBag = replacement.originBag
         sourceSlot = replacement.originSlot
-        if type(CursorHasItem) ~= "function" or not CursorHasItem() then return false end
+        if type(CursorHasItem) ~= "function" or not CursorHasItem() then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_CURSOR or
+            "The cursor changed unexpectedly during bag replacement."
+          )
+        end
       elseif replacement.location == "container" then
         sourceBag = replacement.bag
         sourceSlot = replacement.slot
-        if sourceBag == active.targetBag then return false end
-        if not self:ContainerSlotMatches(
-          sourceBag,
-          sourceSlot,
-          active.replacementItemID,
-          active.replacementLink
-        ) then return false end
-        if not self:ContainerSlotUnlocked(sourceBag, sourceSlot) then return false end
-        if type(CursorHasItem) == "function" and CursorHasItem() then return false end
+        if sourceBag == active.targetBag
+           or not self:ContainerSlotAvailable(sourceBag, sourceSlot)
+           or not self:ContainerSlotMatches(
+             sourceBag,
+             sourceSlot,
+             active.replacementItemID,
+             active.replacementLink
+           ) then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_STATE_CHANGED or
+            "Inventory changed unexpectedly during bag replacement."
+          )
+        end
+        if not self:ContainerSlotUnlocked(sourceBag, sourceSlot) then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_LOCKED or
+            "An item involved in the bag replacement became locked."
+          )
+        end
+        if type(CursorHasItem) == "function" and CursorHasItem() then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_CURSOR or
+            "The cursor changed unexpectedly during bag replacement."
+          )
+        end
       else
-        return false
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
       end
 
-      if sourceBag == nil or sourceSlot == nil then return false end
+      if sourceBag == nil or sourceSlot == nil then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
 
       active.equipSourceBag = sourceBag
       active.equipSourceSlot = sourceSlot
@@ -1422,25 +1646,62 @@ local function Initialize()
 
       if replacement.location == "container" then
         PickupContainerItem(sourceBag, sourceSlot)
+        if type(CursorHasItem) == "function" and not CursorHasItem() then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_EQUIP_REJECTED or
+            "The new bag could not be equipped."
+          )
+        end
       end
 
-      if type(CursorHasItem) ~= "function" or CursorHasItem() then
-        PutItemInBag(active.targetInventorySlot)
+      PutItemInBag(active.targetInventorySlot)
+
+      -- Native item mutations are synchronous even though their wake-up events
+      -- are deferred. If the exact equipment slot still did not change here,
+      -- the equip was rejected and there may be no later event to wake us.
+      if not self:ReplacementEquipped(active) then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_EQUIP_REJECTED or
+          "The new bag could not be equipped."
+        )
       end
       return true
     end
 
     function BagReplacement:FinishTransaction()
       local active = self.active
-      if not active or not self:TargetAvailable(active) then return false end
-      if not self:ReplacementEquipped(active) then return false end
-      if type(CursorHasItem) == "function" and CursorHasItem() then return false end
-      if not self:ContainerSlotMatches(
-        active.equipSourceBag,
-        active.equipSourceSlot,
-        nil,
-        active.oldBagLink
-      ) then return false end
+      if not active then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+      if not self:ReplacementEquipped(active) then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
+      if type(CursorHasItem) == "function" and CursorHasItem() then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_CURSOR or
+          "The cursor changed unexpectedly during bag replacement."
+        )
+      end
+      if not self:ContainerSlotAvailable(active.equipSourceBag, active.equipSourceSlot)
+         or not self:ContainerSlotMatches(
+           active.equipSourceBag,
+           active.equipSourceSlot,
+           nil,
+           active.oldBagLink
+         ) then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
+      if not self:ContainerSlotUnlocked(active.equipSourceBag, active.equipSourceSlot) then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_LOCKED or
+          "An item involved in the bag replacement became locked."
+        )
+      end
 
       local view = active.view
       active.phase = "refresh"
@@ -1457,8 +1718,7 @@ local function Initialize()
       end
       return true
     end
-
-    function BagReplacement:VerifyPending()
+    function BagReplacement:VerifyPendingState()
       local active = self.active
       local pending = active and active.pending
       if not active or not pending then return false end
@@ -1525,6 +1785,12 @@ local function Initialize()
             targetBag=active.targetBag,
           }
           PickupContainerItem(pending.storageBag, pending.storageSlot)
+          if type(CursorHasItem) == "function" and CursorHasItem() then
+            return self:SafeStop(
+              L.BAG_SWAP_STOP_MOVE_REJECTED or
+              "A bag replacement move was rejected."
+            )
+          end
           return false
         end
 
@@ -1558,10 +1824,42 @@ local function Initialize()
       return false
     end
 
+    function BagReplacement:VerifyPending()
+      local active = self.active
+      local pending = active and active.pending
+      if not active or active.phase == "failed" or not pending then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+
+      local result = self:VerifyPendingState()
+      if not self.active or self.active ~= active or active.phase == "failed" then
+        return result
+      end
+
+      if active.pending ~= pending then return result end
+
+      -- A relevant inventory/equipment wake-up is only a signal to verify.
+      -- If it did not prove the exact pending operation, stop rather than
+      -- allowing a later unrelated event to advance stale transaction state.
+      return self:StopForPendingMismatch(pending)
+    end
+
+
     function BagReplacement:AdvanceTransaction()
       local active = self.active
-      if not active or active.pending or not self:TargetAvailable(active) then return false end
-      if not self:OldBagStillEquipped(active) then return false end
+      if not active or active.phase == "failed" or active.pending then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+      if not self:OldBagStillEquipped(active) then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
+      if type(CursorHasItem) == "function" and CursorHasItem() then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_CURSOR or
+          "The cursor changed unexpectedly during bag replacement."
+        )
+      end
 
       local moves = active.plan and active.plan.moves or {}
       local index = active.moveIndex or 1
@@ -1576,12 +1874,23 @@ local function Initialize()
 
     function BagReplacement:BeginTransaction(plan)
       local active = self.active
-      if not active or not self:TargetAvailable(active) then return false end
-      if not active.ready or active.plan ~= plan or not plan or not plan.possible then return false end
+      if not active then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+      if not active.ready or active.plan ~= plan or not plan or not plan.possible then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
 
       local inventorySlot = self:TargetInventorySlot(active)
       local oldBagLink = inventorySlot and GetInventoryItemLink("player", inventorySlot)
-      if not inventorySlot or not oldBagLink then return false end
+      if not inventorySlot or not oldBagLink then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
 
       active.targetInventorySlot = inventorySlot
       active.oldBagLink = oldBagLink
@@ -1604,13 +1913,16 @@ local function Initialize()
     function BagReplacement:OnEquipmentUpdated(unit)
       if unit and unit ~= "player" then return end
       local active = self.active
-      if not active or active.phase ~= "equip" then return end
+      if not active or active.phase == "failed" or active.phase ~= "equip" then return end
+      if not self:TargetAvailable(active) then
+        self:StopForUnavailableTarget()
+        return
+      end
       if active.pending
          and (active.pending.kind == "equip" or active.pending.kind == "store-old-bag") then
         self:VerifyPending()
       end
     end
-
     function BagReplacement:RememberSource(bag, slot)
       if self.active then return end
 
@@ -1729,6 +2041,25 @@ local function Initialize()
       self:ShowStatus(message, L.BAG_SWAP_MAKE_SPACE or "I'll make some space...")
     end
 
+    function BagReplacement:SafeStop(reason)
+      local active = self.active
+      if not active then return false end
+
+      active.phase = "failed"
+      active.ready = false
+      active.pending = nil
+      active.stopped = true
+      self.candidate = nil
+
+      local message = reason or
+        L.BAG_SWAP_STOP_STATE_CHANGED or
+        "Inventory changed unexpectedly during bag replacement."
+      local suffix = L.BAG_SWAP_STOPPED_SAFE or
+        "Bag replacement stopped safely. No further items will be moved."
+      self:ShowStatus(message .. "\n" .. suffix, L.CANCEL or "Cancel")
+      return false
+    end
+
     function BagReplacement:Cancel(clearCursor)
       local active = self.active
       self.active = nil
@@ -1831,9 +2162,22 @@ local function Initialize()
       end
     end
 
+
     function BagReplacement:OnViewHidden(view)
       if self.active and self.active.view == view then
-        self:Cancel(true)
+        if self.active.phase ~= "failed" then
+          if view == "bank" then
+            self:SafeStop(
+              L.BAG_SWAP_STOP_BANK_ACCESS or
+              "Bag replacement stopped because bank access was lost."
+            )
+          else
+            self:SafeStop(
+              L.BAG_SWAP_STOP_VIEW_CLOSED or
+              "Bag replacement stopped because the bag view was closed."
+            )
+          end
+        end
         return
       end
 
@@ -1843,7 +2187,6 @@ local function Initialize()
         self.candidate = nil
       end
     end
-
     pfUI.bagtweaks.BagReplacement = BagReplacement
 
     BagReplacement.eventFrame = CreateFrame("Frame")
