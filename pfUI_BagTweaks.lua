@@ -596,10 +596,11 @@ local function Initialize()
     -- 0.5.21-dev extended this same owner through carried/bank execution.
     -- 0.5.22-dev hardens that one pipeline with explicit safe-stop recovery.
     -- 0.5.23-dev through 0.5.25-dev investigated Vanilla entry fallbacks.
-    -- 0.5.26-dev fixes the demonstrated root compatibility issue: pfUI exposes
-    -- complete bag metadata through C_Item.GetItemInfo while legacy
-    -- GetItemInfo() returns nil on the target client. Source recognition now
-    -- follows pfUI's own metadata path first:
+    -- 0.5.26-dev fixes source recognition by following pfUI's C_Item metadata
+    -- path. 0.5.27-dev fixes the demonstrated Vanilla event-order edge where
+    -- BAG_UPDATE can arrive while ClearCursor() is still settling: pending
+    -- replacement return now waits for positive completion and also wakes on
+    -- CURSOR_UPDATE / ITEM_LOCK_CHANGED:
     -- select -> preflight -> optional sort -> re-preflight -> evacuate ->
     -- equip -> refresh.
     local BagReplacement = {
@@ -1863,9 +1864,15 @@ local function Initialize()
 
       if active.pending ~= pending then return result end
 
-      -- A relevant inventory/equipment wake-up is only a signal to verify.
-      -- If it did not prove the exact pending operation, stop rather than
-      -- allowing a later unrelated event to advance stale transaction state.
+      -- ClearCursor() can emit BAG_UPDATE before Vanilla has finished updating
+      -- cursor/lock/source-slot state. For replacement-return only, an
+      -- inconclusive wake-up is expected transitional evidence, not a mismatch.
+      -- CURSOR_UPDATE / ITEM_LOCK_CHANGED / later bag updates will re-verify.
+      if pending.kind == "replacement-return" then return false end
+
+      -- Other transaction steps still require each relevant wake-up to prove
+      -- the exact pending operation; otherwise stop instead of advancing stale
+      -- transaction state on a later unrelated event.
       return self:StopForPendingMismatch(pending)
     end
 
@@ -2347,6 +2354,8 @@ local function Initialize()
     BagReplacement.eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
     BagReplacement.eventFrame:RegisterEvent("PLAYERBANKBAGSLOTS_CHANGED")
     BagReplacement.eventFrame:RegisterEvent("UI_ERROR_MESSAGE")
+    BagReplacement.eventFrame:RegisterEvent("CURSOR_UPDATE")
+    BagReplacement.eventFrame:RegisterEvent("ITEM_LOCK_CHANGED")
     BagReplacement.eventFrame:SetScript("OnEvent", function()
       if event == "UNIT_INVENTORY_CHANGED" then
         BagReplacement:OnEquipmentUpdated(arg1)
@@ -2359,6 +2368,11 @@ local function Initialize()
         -- the Bagshui/Swapper recovery path even if another addon replaces
         -- UIErrorsFrame_OnEvent after BagTweaks initializes.
         BagReplacement:OnNativeNonEmptyBagError(arg1)
+      elseif event == "CURSOR_UPDATE" or event == "ITEM_LOCK_CHANGED" then
+        local active = BagReplacement.active
+        if active and active.pending and active.pending.kind == "replacement-return" then
+          BagReplacement:VerifyPending()
+        end
       end
     end)
 
