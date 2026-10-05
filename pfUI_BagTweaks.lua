@@ -597,8 +597,9 @@ local function Initialize()
     -- 0.5.22-dev hardens that one pipeline with explicit safe-stop recovery.
     -- 0.5.23-dev prefers numeric item-ID metadata over link metadata for source
     -- recognition. 0.5.24-dev adds the Vanilla error-triggered entry fallback
-    -- used by Bagshui/Swapper: raw source tracking + locked target detection
-    -- after ERR_DESTROY_NONEMPTY_BAG, feeding the same transaction owner:
+    -- used by Bagshui/Swapper. 0.5.25-dev also listens for UI_ERROR_MESSAGE on
+    -- BagTweaks' own event frame so later hook-chain replacements cannot bypass
+    -- recovery from ERR_DESTROY_NONEMPTY_BAG:
     -- select -> preflight -> optional sort -> re-preflight -> evacuate ->
     -- equip -> refresh.
     local BagReplacement = {
@@ -2334,6 +2335,7 @@ local function Initialize()
     BagReplacement.eventFrame = CreateFrame("Frame")
     BagReplacement.eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
     BagReplacement.eventFrame:RegisterEvent("PLAYERBANKBAGSLOTS_CHANGED")
+    BagReplacement.eventFrame:RegisterEvent("UI_ERROR_MESSAGE")
     BagReplacement.eventFrame:SetScript("OnEvent", function()
       if event == "UNIT_INVENTORY_CHANGED" then
         BagReplacement:OnEquipmentUpdated(arg1)
@@ -2341,6 +2343,11 @@ local function Initialize()
         -- Bank bag equipment changes use their dedicated Vanilla event rather
         -- than relying on carried-equipment notification ordering.
         BagReplacement:OnEquipmentUpdated(nil)
+      elseif event == "UI_ERROR_MESSAGE" then
+        -- Independent of the global UIErrorsFrame hook chain. This preserves
+        -- the Bagshui/Swapper recovery path even if another addon replaces
+        -- UIErrorsFrame_OnEvent after BagTweaks initializes.
+        BagReplacement:OnNativeNonEmptyBagError(arg1)
       end
     end)
 
