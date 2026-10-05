@@ -596,11 +596,11 @@ local function Initialize()
     -- 0.5.21-dev extended this same owner through carried/bank execution.
     -- 0.5.22-dev hardens that one pipeline with explicit safe-stop recovery.
     -- 0.5.23-dev through 0.5.25-dev investigated Vanilla entry fallbacks.
-    -- 0.5.26-dev fixes source recognition by following pfUI's C_Item metadata
-    -- path. 0.5.27-dev fixes the demonstrated Vanilla event-order edge where
-    -- BAG_UPDATE can arrive while ClearCursor() is still settling: pending
-    -- replacement return now waits for positive completion and also wakes on
-    -- CURSOR_UPDATE / ITEM_LOCK_CHANGED:
+    -- 0.5.26-dev fixes source recognition through pfUI's C_Item metadata path.
+    -- 0.5.27-dev hardens replacement-return event ordering. 0.5.28-dev fixes
+    -- the demonstrated ClassicAPI source-shadow case by making cursor state
+    -- authoritative during initial preflight while retaining physical-source
+    -- preference for later execution verification:
     -- select -> preflight -> optional sort -> re-preflight -> evacuate ->
     -- equip -> refresh.
     local BagReplacement = {
@@ -782,7 +782,7 @@ local function Initialize()
       }
     end
 
-    function BagReplacement:LocateReplacement(active)
+    function BagReplacement:LocateReplacement(active, preferCursor)
       local function Matches(bag, slot)
         local itemID = ItemID(bag, slot)
         if not itemID or itemID ~= active.replacementItemID then return false end
@@ -795,9 +795,27 @@ local function Initialize()
         return true
       end
 
-      -- Prefer the remembered source while it still contains the selected bag.
-      -- After pfUI Sort, scan the affected physical inventory because the
-      -- replacement itself may have been repacked into another slot.
+      local cursor = type(CursorHasItem) == "function" and CursorHasItem() and true or false
+
+      -- During initial preflight, the cursor is authoritative. Vanilla/ClassicAPI
+      -- can continue reporting the picked-up item in its source slot while it is
+      -- also on the cursor; treating that stale source-slot view as physical
+      -- storage skips replacement-return and immediately trips the cursor guard.
+      if preferCursor and cursor then
+        return {
+          itemID=active.replacementItemID,
+          link=active.replacementLink,
+          originBag=active.sourceBag,
+          originSlot=active.sourceSlot,
+          insideTarget=active.sourceBag == active.targetBag,
+          location="cursor",
+        }
+      end
+
+      -- Outside initial planning, prefer verified physical storage while the
+      -- remembered source still contains the selected bag. After pfUI Sort,
+      -- scan the affected physical inventory because the replacement itself may
+      -- have been repacked into another slot.
       if Matches(active.sourceBag, active.sourceSlot) then
         return {
           itemID=active.replacementItemID,
@@ -811,7 +829,6 @@ local function Initialize()
         }
       end
 
-      local cursor = type(CursorHasItem) == "function" and CursorHasItem() and true or false
       if cursor then
         return {
           itemID=active.replacementItemID,
@@ -858,7 +875,7 @@ local function Initialize()
       if not active then return nil end
 
       local targetFamily = self:DescribeBag(active.targetBag)
-      local replacement = self:LocateReplacement(active)
+      local replacement = self:LocateReplacement(active, true)
       local plan = {
         view=active.view,
         targetBag=active.targetBag,
