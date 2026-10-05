@@ -755,18 +755,73 @@ local function Initialize()
     end
 
     function BagReplacement:LocateReplacement(active)
-      local originID = ItemID(active.sourceBag, active.sourceSlot)
-      local atOrigin = originID and active.replacementItemID
-        and originID == active.replacementItemID
+      local function Matches(bag, slot)
+        local itemID = ItemID(bag, slot)
+        if not itemID or itemID ~= active.replacementItemID then return false end
+
+        local link = GetContainerItemLink(bag, slot)
+        if active.replacementLink and link and link ~= active.replacementLink then
+          return false
+        end
+
+        return true
+      end
+
+      -- Prefer the remembered source while it still contains the selected bag.
+      -- After pfUI Sort, scan the affected physical inventory because the
+      -- replacement itself may have been repacked into another slot.
+      if Matches(active.sourceBag, active.sourceSlot) then
+        return {
+          itemID=active.replacementItemID,
+          link=active.replacementLink,
+          originBag=active.sourceBag,
+          originSlot=active.sourceSlot,
+          bag=active.sourceBag,
+          slot=active.sourceSlot,
+          insideTarget=active.sourceBag == active.targetBag,
+          location="container",
+        }
+      end
+
       local cursor = type(CursorHasItem) == "function" and CursorHasItem() and true or false
+      if cursor then
+        return {
+          itemID=active.replacementItemID,
+          link=active.replacementLink,
+          originBag=active.sourceBag,
+          originSlot=active.sourceSlot,
+          insideTarget=active.sourceBag == active.targetBag,
+          location="cursor",
+        }
+      end
+
+      local bags = ViewBags(active.view) or {}
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+        local slots = tonumber(GetContainerNumSlots(bag)) or 0
+        for slot = 1, slots do
+          if Matches(bag, slot) then
+            return {
+              itemID=active.replacementItemID,
+              link=active.replacementLink,
+              originBag=active.sourceBag,
+              originSlot=active.sourceSlot,
+              bag=bag,
+              slot=slot,
+              insideTarget=bag == active.targetBag,
+              location="container",
+            }
+          end
+        end
+      end
 
       return {
         itemID=active.replacementItemID,
         link=active.replacementLink,
         originBag=active.sourceBag,
         originSlot=active.sourceSlot,
-        insideTarget=active.sourceBag == active.targetBag,
-        location=atOrigin and "container" or (cursor and "cursor" or "unknown"),
+        insideTarget=false,
+        location="unknown",
       }
     end
 
@@ -808,7 +863,8 @@ local function Initialize()
         -- represented separately even if a client leaves the cursor/source
         -- state visible until the drop target is clicked.
         local isReplacementOrigin = replacement.insideTarget
-          and slot == active.sourceSlot
+          and ((replacement.location == "container" and slot == replacement.slot)
+            or (replacement.location == "cursor" and slot == replacement.originSlot))
 
         if not isReplacementOrigin then
           local item = self:SnapshotTargetItem(active.targetBag, slot, targetFamily)
@@ -829,7 +885,8 @@ local function Initialize()
 
           if family.known and slots > 0 then
             for slot = 1, slots do
-              local reservedOrigin = bag == active.sourceBag and slot == active.sourceSlot
+              local reservedOrigin = replacement.location == "cursor"
+                and bag == replacement.originBag and slot == replacement.originSlot
               if not reservedOrigin and not GetContainerItemLink(bag, slot) then
                 local destination = { bag=bag, slot=slot, family=family }
                 table.insert(plan.candidateDestinations, destination)
@@ -924,9 +981,182 @@ local function Initialize()
     function BagReplacement:Preflight()
       if not self.active then return nil end
       self.active.phase = "preflight"
+      self.active.ready = false
       local plan = self:BuildPreflightPlan()
       self.active.plan = plan
       return plan
+    end
+
+    function BagReplacement:IsViewBag(view, bag)
+      local bags = ViewBags(view) or {}
+      for i = 1, table.getn(bags) do
+        if bags[i] == bag then return true end
+      end
+      return false
+    end
+
+    function BagReplacement:InventorySignature(view)
+      local parts = {}
+      local bags = ViewBags(view) or {}
+
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+        local slots = tonumber(GetContainerNumSlots(bag)) or 0
+        table.insert(parts, tostring(bag) .. "=" .. tostring(slots))
+
+        for slot = 1, slots do
+          local _, count, locked = GetContainerItemInfo(bag, slot)
+          table.insert(parts,
+            tostring(bag) .. ":" .. tostring(slot)
+            .. ":" .. tostring(ItemID(bag, slot) or 0)
+            .. ":" .. tostring(tonumber(count) or 0)
+            .. ":" .. (locked and "1" or "0")
+          )
+        end
+      end
+
+      return table.concat(parts, "|")
+    end
+
+    function BagReplacement:InventoryUnlocked(view)
+      local bags = ViewBags(view) or {}
+
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+        local slots = tonumber(GetContainerNumSlots(bag)) or 0
+        for slot = 1, slots do
+          local _, _, locked = GetContainerItemInfo(bag, slot)
+          if locked then return false end
+        end
+      end
+
+      return true
+    end
+
+    function BagReplacement:PfUISortBusy()
+      local sorter = pfUI.api and pfUI.api.libbagsort
+      return sorter and sorter.bagList ~= nil or false
+    end
+
+    function BagReplacement:MarkReady(plan)
+      if not self.active or not plan or not plan.possible then return plan end
+      self.active.phase = "repreflight"
+      self.active.plan = plan
+      self.active.ready = true
+      self:ShowStatus(L.BAG_SWAP_PREPARING or "Preparing bag swap...", L.CANCEL or "Cancel")
+      return plan
+    end
+
+    function BagReplacement:RePreflight()
+      if not self.active then return nil end
+      self.active.phase = "repreflight"
+      self.active.ready = false
+
+      local plan = self:BuildPreflightPlan()
+      self.active.plan = plan
+
+      if plan and plan.possible then
+        return self:MarkReady(plan)
+      end
+
+      self:Fail(plan and plan.missingSlots or nil)
+      return plan
+    end
+
+    function BagReplacement:InvokePfUISort()
+      local active = self.active
+      if not active then return nil end
+
+      local frame = ViewFrame(active.view)
+      local sortButton = frame and frame.sort
+      local sortFunc = sortButton and sortButton.GetScript and sortButton:GetScript("OnClick")
+      if type(sortFunc) ~= "function" then return nil end
+
+      -- Sorting with an item on the cursor is not a valid pfUI sort state.
+      -- Returning the selected replacement to its source is cleanup of the
+      -- click/drag interaction, not evacuation or equipment execution.
+      if type(CursorHasItem) == "function" and CursorHasItem() then
+        if type(ClearCursor) ~= "function" then return nil end
+        ClearCursor()
+        if CursorHasItem() then return nil end
+      end
+
+      active.sortBeforeSignature = self:InventorySignature(active.view)
+      active.sortEventCount = 0
+      active.sortEventArmed = false
+      active.sortObservedBusy = false
+      active.sortObservedLocked = false
+      active.sortObservedImmediateChange = false
+
+      local ok = pcall(sortFunc)
+      if not ok or not self.active or self.active ~= active then return nil end
+
+      local after = self:InventorySignature(active.view)
+      active.sortObservedBusy = self:PfUISortBusy()
+      active.sortObservedLocked = not self:InventoryUnlocked(active.view)
+      active.sortObservedImmediateChange = after ~= active.sortBeforeSignature
+      active.sortEventArmed = true
+
+      -- A true no-op sort launches no asynchronous inventory work and therefore
+      -- produces no inventory event to resume from. Only this positively idle,
+      -- zero-mutation case completes synchronously. Any observed/pending sort
+      -- mutation must resume through OnInventoryUpdated below.
+      if not active.sortObservedBusy
+         and not active.sortObservedLocked
+         and not active.sortObservedImmediateChange then
+        return "complete"
+      end
+
+      return "pending"
+    end
+
+    function BagReplacement:BeginSort(plan)
+      if not self.active then return nil end
+      self.active.ready = false
+      self:SetPhase("sort", L.BAG_SWAP_SORTING or "Sorting bags...")
+
+      local state = self:InvokePfUISort()
+      if state == "complete" then
+        return self:RePreflight()
+      elseif state == "pending" then
+        return plan
+      end
+
+      self:Fail(plan and plan.missingSlots or nil)
+      return plan
+    end
+
+    function BagReplacement:Prepare()
+      local plan = self:Preflight()
+      if not plan then return nil end
+
+      if plan.possible then
+        return self:MarkReady(plan)
+      end
+
+      if plan.needsSort then
+        return self:BeginSort(plan)
+      end
+
+      self:Fail(plan.missingSlots)
+      return plan
+    end
+
+    function BagReplacement:OnInventoryUpdated(bag)
+      local active = self.active
+      if not active or active.phase ~= "sort" or not active.sortEventArmed then return end
+      if not self:IsViewBag(active.view, bag) then return end
+
+      active.sortEventCount = (active.sortEventCount or 0) + 1
+
+      -- An inventory event is only the wake-up signal. Positive completion also
+      -- requires pfUI's sorter to have left its consolidation/final-placement
+      -- state and every slot in the affected inventory to be unlocked.
+      if self:PfUISortBusy() then return end
+      if not self:InventoryUnlocked(active.view) then return end
+
+      active.sortCompletedSignature = self:InventorySignature(active.view)
+      self:RePreflight()
     end
 
     function BagReplacement:RememberSource(bag, slot)
@@ -1036,6 +1266,7 @@ local function Initialize()
       if not self.active then return end
 
       self.active.phase = "failed"
+      self.active.ready = false
       local message = reason or L.BAG_SWAP_NOT_ENOUGH_SPACE or "Not enough space to replace this bag."
       if requiredSlots and tonumber(requiredSlots) and tonumber(requiredSlots) > 0 then
         message = message .. "\n" .. string.format(
@@ -1090,7 +1321,7 @@ local function Initialize()
       if parent.bagslots then parent.bagslots:Hide() end
 
       self:ShowStatus(L.BAG_SWAP_PREPARING or "Preparing bag swap...", L.CANCEL or "Cancel")
-      self:Preflight()
+      self:Prepare()
       return true
     end
 
@@ -3931,6 +4162,7 @@ local function Initialize()
     if oldUpdateBag then
       pfUI.bag.UpdateBag = function(self, bag)
         oldUpdateBag(self, bag)
+        BagReplacement:OnInventoryUpdated(bag)
         if bag and bag >= -2 and bag <= 11 then RequestRelayout(true) end
         pcall(InventoryTracker.OnBagUpdated, InventoryTracker, bag)
       end
