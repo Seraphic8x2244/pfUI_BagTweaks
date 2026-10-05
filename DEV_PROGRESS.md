@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.28-dev`
-- Development code head: `917857cbe1e182b139baba467610dfe53bb45567` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.29-dev`
+- Development code head: `ef5dedf0a0c396e49320e3a0d270128ef7da2fc3` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Resume runtime validation of the approved **bag replacement workflow** after correcting ClassicAPI's source-shadow classification during initial preflight.
-- Current scope boundary: `0.5.28-dev` keeps the `0.5.26-dev` pfUI/ClassicAPI metadata correction and `0.5.27-dev` event-order hardening, but changes initial preflight replacement-location authority: when the selected item is on the cursor, preflight now treats it as cursor-held even if ClassicAPI still reports the same item in its original source slot. Later execution verification still prefers physical container state. All physical move/equip primitives remain unchanged. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
+- Goal: Resume runtime validation of the approved **bag replacement workflow** after correcting the post-return inventory-lock settling transition.
+- Current scope boundary: `0.5.29-dev` keeps the accepted `0.5.28-dev` cursor-authoritative preflight classification and changes only the handoff from replacement-return into evacuation. After the replacement is visibly back in its source slot, BagTweaks now waits until the entire affected inventory reports unlocked before clearing the pending return and starting item moves. `ITEM_LOCK_CHANGED` already wakes that pending state, so the fix remains event-driven with no polling or timeout. All physical move/equip primitives remain unchanged. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
 
 ## Current Design / Development Contract
 
@@ -525,20 +525,26 @@
 - This disproves the prior working assumption that the first failure was inside the asynchronous `replacement-return` verifier.
 - Code inspection shows initial `LocateReplacement()` checked the remembered source slot before checking the cursor. In this ClassicAPI environment the picked-up bag can remain visible through the source-slot API while also being on the cursor, so preflight can classify it as `location="container"`, skip `replacement-return`, and immediately hit the transaction cursor guard.
 
-### 0.5.28-dev Static Validation
-- Targeted code checkpoint: `917857cbe1e182b139baba467610dfe53bb45567`.
-- Scope is limited to replacement-location classification during preflight plus the dev version marker.
-- `LocateReplacement(active, preferCursor)` now supports an explicit cursor-authoritative mode. `BuildPreflightPlan()` uses that mode; later execution callers retain physical-source-first behaviour.
-- This preserves the existing safety model for actual evacuation/equip verification while preventing ClassicAPI's stale source-slot shadow from bypassing the cursor-return path.
+### 0.5.28-dev Runtime Result
+- Focused retest no longer stopped on cursor state, proving the cursor-authoritative initial preflight correction works.
+- The next overlay safe-stop was **An item involved in the bag replacement became locked.**
+- This shows the transaction progressed through source recognition, target interception, preflight and replacement return, then advanced into the evacuation boundary while Vanilla/ClassicAPI still exposed transient lock flags.
+- The prior `0.5.27-dev` lock/cursor settling logic waited for cursor/source proof but did not require the whole affected inventory to be unlocked before starting the first planned move.
+
+### 0.5.29-dev Static Validation
+- Targeted code checkpoint: `ef5dedf0a0c396e49320e3a0d270128ef7da2fc3`.
+- Scope is limited to the replacement-return -> evacuation handoff plus the dev version marker.
+- `VerifyPendingState()` now requires `InventoryUnlocked(active.view)` after the replacement is back in its source slot and before clearing the pending return.
+- Existing `ITEM_LOCK_CHANGED` wake-up support re-verifies the same pending state as lock flags settle; no timer, polling loop or per-frame retry was added.
 - Executable physical mutation call counts remain `PickupContainerItem=8`, `ClearCursor=4`, `PutItemInBag=1`; `PickupBagFromSlot`, `SplitContainerItem`, `UseContainerItem`, `SwapItems` and `MoveItem` remain 0.
 - Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 
 ### Next Runtime Test
-- Retest `0.5.28-dev` / `917857cbe1e182b139baba467610dfe53bb45567` using the **same ordinary replacement bag and same populated carried target**.
-- Expected: preflight treats the selected bag as cursor-held, enters the replacement-return path, and proceeds into evacuation instead of immediately safe-stopping on cursor state.
-- If it still stops, report the exact overlay text/status shown; do not broaden the matrix yet.
-- Bind the result only to `0.5.28-dev`; do not mark later transaction phases runtime-passed until observed.
+- Retest `0.5.29-dev` / `ef5dedf0a0c396e49320e3a0d270128ef7da2fc3` using the **same ordinary replacement bag and same populated carried target**.
+- Expected: BagTweaks returns the replacement to its source, waits for lock flags to clear, then begins **Moving items ...** instead of safe-stopping with the locked-item message.
+- If that exact path progresses, report the next visible status/result before broadening the matrix.
+- Bind the result only to `0.5.29-dev`; do not mark later transaction phases runtime-passed until observed.
 
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
@@ -553,13 +559,14 @@
 10. `0.5.25-dev` independent `UI_ERROR_MESSAGE` recovery listener: **runtime failed at entry**; event fallback still did not own the attempt.
 11. `0.5.26-dev` pfUI/ClassicAPI `C_Item.GetItemInfo` source recognition: **runtime passed entry**, then exposed cursor-state failure.
 12. `0.5.27-dev` event-driven replacement-return settling: **runtime still failed with the same cursor safe-stop**, disproving the initial event-order-only diagnosis.
-13. `0.5.28-dev` cursor-authoritative initial preflight classification: **implemented/checked**; focused retest pending.
-14. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
-15. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
-16. Rogue Pick Lock workflow test.
-17. Disenchant targeting-cursor / candidate-item hover discoverability.
-18. Remaining direct-toolbar edge-case checks.
-19. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+13. `0.5.28-dev` cursor-authoritative initial preflight classification: **runtime passed that failure point**, then exposed transient lock-state failure at the evacuation boundary.
+14. `0.5.29-dev` wait-for-full-inventory-unlock before evacuation: **implemented/checked**; focused retest pending.
+15. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
+16. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
+17. Rogue Pick Lock workflow test.
+18. Disenchant targeting-cursor / candidate-item hover discoverability.
+19. Remaining direct-toolbar edge-case checks.
+20. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Open all containers on right click is deferred until the bag-replacement slice is implemented and runtime-accepted.
@@ -573,4 +580,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test **`0.5.28-dev` at checkpoint `917857cbe1e182b139baba467610dfe53bb45567`** first against the exact ordinary populated carried-bag swap that still reached the cursor safe-stop on `0.5.27-dev`. Confirm initial preflight treats the selected bag as cursor-held and proceeds into replacement return/evacuation. Do not broaden to the rest of the carried/bank matrix until that demonstrated failure point passes. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
+Runtime-test **`0.5.29-dev` at checkpoint `ef5dedf0a0c396e49320e3a0d270128ef7da2fc3`** first against the exact ordinary populated carried-bag swap that reached the locked-item safe-stop on `0.5.28-dev`. Confirm the replacement return waits for inventory unlock and proceeds into item evacuation. Do not broaden to the rest of the carried/bank matrix until that demonstrated failure point passes. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
