@@ -589,13 +589,13 @@ local function Initialize()
       return tonumber(id)
     end
 
-    -- Bag replacement transaction foundation.
+    -- Shared bag replacement transaction owner.
     --
-    -- 0.5.17-dev deliberately owns only interaction, state and blocking UI.
-    -- It never issues a physical inventory/equipment move. Later checkpoints
-    -- advance this same transaction through:
+    -- 0.5.17-dev introduced interaction/state/blocking UI; 0.5.18-dev and
+    -- 0.5.19-dev added read-only planning plus sort/re-preflight. 0.5.20-dev
+    -- advances this same owner through carried-bag evacuation/equip only:
     -- select -> preflight -> optional sort -> re-preflight -> evacuate ->
-    -- equip -> refresh.
+    -- equip -> refresh. Bank execution remains deferred to 0.5.21-dev.
     local BagReplacement = {
       candidate = nil,
       active = nil,
@@ -902,11 +902,11 @@ local function Initialize()
       end
 
       -- A cursor-held replacement that came from outside the target can be
-      -- returned to its own origin before evacuation. When it came from inside
-      -- a still-populated target, reserve a general-purpose external slot so
-      -- later execution can clear the cursor without putting the bag back into
-      -- the container that must be emptied.
-      if replacement.insideTarget and table.getn(plan.targetItems) > 0 then
+      -- returned to its own origin before evacuation. A replacement that
+      -- originated inside the target always needs a general-purpose external
+      -- staging slot: it clears the target for evacuation and provides a stable
+      -- landing point for the old equipped bag during the final carried swap.
+      if replacement.insideTarget then
         if table.getn(general) > 0 then
           plan.replacementStage = general[1]
           table.remove(general, 1)
@@ -1044,6 +1044,13 @@ local function Initialize()
       self.active.plan = plan
       self.active.ready = true
       self:ShowStatus(L.BAG_SWAP_PREPARING or "Preparing bag swap...", L.CANCEL or "Cancel")
+
+      -- 0.5.20-dev executes carried bags only. Bank plans deliberately stop at
+      -- the same verified-ready seam for the 0.5.21-dev adapter.
+      if self.active.view == "backpack" then
+        self:BeginCarriedTransaction(plan)
+      end
+
       return plan
     end
 
@@ -1144,19 +1151,425 @@ local function Initialize()
 
     function BagReplacement:OnInventoryUpdated(bag)
       local active = self.active
-      if not active or active.phase ~= "sort" or not active.sortEventArmed then return end
-      if not self:IsViewBag(active.view, bag) then return end
+      if not active then return end
 
-      active.sortEventCount = (active.sortEventCount or 0) + 1
+      if active.phase == "sort" then
+        if not active.sortEventArmed or not self:IsViewBag(active.view, bag) then return end
 
-      -- An inventory event is only the wake-up signal. Positive completion also
-      -- requires pfUI's sorter to have left its consolidation/final-placement
-      -- state and every slot in the affected inventory to be unlocked.
-      if self:PfUISortBusy() then return end
-      if not self:InventoryUnlocked(active.view) then return end
+        active.sortEventCount = (active.sortEventCount or 0) + 1
 
-      active.sortCompletedSignature = self:InventorySignature(active.view)
-      self:RePreflight()
+        -- An inventory event is only the wake-up signal. Positive completion also
+        -- requires pfUI's sorter to have left its consolidation/final-placement
+        -- state and every slot in the affected inventory to be unlocked.
+        if self:PfUISortBusy() then return end
+        if not self:InventoryUnlocked(active.view) then return end
+
+        active.sortCompletedSignature = self:InventorySignature(active.view)
+        self:RePreflight()
+        return
+      end
+
+      if active.view == "backpack" and active.pending
+         and self:PendingUsesBag(active.pending, bag) then
+        self:VerifyCarriedPending()
+      end
+    end
+
+    function BagReplacement:ContainerSlotMatches(bag, slot, itemID, link, count)
+      if bag == nil or slot == nil then return false end
+
+      local currentLink = GetContainerItemLink(bag, slot)
+      if not currentLink then return false end
+      if itemID and ItemID(bag, slot) ~= itemID then return false end
+      if link and currentLink ~= link then return false end
+
+      if count then
+        local _, currentCount = GetContainerItemInfo(bag, slot)
+        if (tonumber(currentCount) or 1) ~= tonumber(count) then return false end
+      end
+
+      return true
+    end
+
+    function BagReplacement:ContainerSlotUnlocked(bag, slot)
+      if bag == nil or slot == nil then return false end
+      local _, _, locked = GetContainerItemInfo(bag, slot)
+      return not locked
+    end
+
+    function BagReplacement:TargetBagEmpty(active)
+      if not active then return false end
+      local slots = tonumber(GetContainerNumSlots(active.targetBag)) or 0
+      for slot = 1, slots do
+        if GetContainerItemLink(active.targetBag, slot) then return false end
+      end
+      return true
+    end
+
+    function BagReplacement:OldBagStillEquipped(active)
+      if not active or not active.targetInventorySlot or not active.oldBagLink then return false end
+      return GetInventoryItemLink("player", active.targetInventorySlot) == active.oldBagLink
+    end
+
+    function BagReplacement:ReplacementEquipped(active)
+      if not active or not active.targetInventorySlot then return false end
+      local link = GetInventoryItemLink("player", active.targetInventorySlot)
+      if not link then return false end
+      if active.replacementLink then return link == active.replacementLink end
+      local _, _, id = string.find(link, "item:(%d+)")
+      return tonumber(id) == active.replacementItemID
+    end
+
+    function BagReplacement:PendingUsesBag(pending, bag)
+      if not pending or bag == nil then return false end
+      return pending.sourceBag == bag
+        or pending.destinationBag == bag
+        or pending.storageBag == bag
+        or pending.targetBag == bag
+    end
+
+    function BagReplacement:MoveStillValid(move)
+      local active = self.active
+      if not active or not move then return false end
+      if move.sourceBag ~= active.targetBag or move.destinationBag == active.targetBag then return false end
+      if not self:OldBagStillEquipped(active) then return false end
+      if not self:ContainerSlotUnlocked(move.sourceBag, move.sourceSlot) then return false end
+      if not self:ContainerSlotUnlocked(move.destinationBag, move.destinationSlot) then return false end
+      if GetContainerItemLink(move.destinationBag, move.destinationSlot) then return false end
+
+      local item = self:SnapshotTargetItem(
+        move.sourceBag,
+        move.sourceSlot,
+        active.plan and active.plan.targetFamily
+      )
+      if not item then return false end
+      if move.itemID and item.itemID ~= move.itemID then return false end
+      if move.link and item.link ~= move.link then return false end
+      if move.count and item.count ~= move.count then return false end
+
+      return self:DestinationAccepts(item, {
+        family=self:DescribeBag(move.destinationBag),
+      })
+    end
+
+    function BagReplacement:IssueReplacementReturn()
+      local active = self.active
+      local replacement = active and active.plan and active.plan.replacement
+      if not active or not replacement or replacement.location ~= "cursor"
+         or replacement.insideTarget then return false end
+      if type(CursorHasItem) ~= "function" or not CursorHasItem() then return false end
+      if type(ClearCursor) ~= "function" then return false end
+
+      active.pending = {
+        kind="replacement-return",
+        sourceBag=replacement.originBag,
+        sourceSlot=replacement.originSlot,
+      }
+      ClearCursor()
+      return true
+    end
+
+    function BagReplacement:IssueReplacementStage()
+      local active = self.active
+      local plan = active and active.plan
+      local replacement = plan and plan.replacement
+      local stage = plan and plan.replacementStage
+      if not active or not replacement or not replacement.insideTarget or not stage then return false end
+      if stage.bag == active.targetBag then return false end
+      if GetContainerItemLink(stage.bag, stage.slot) then return false end
+      if not self:ContainerSlotUnlocked(stage.bag, stage.slot) then return false end
+
+      local pending = {
+        kind="replacement-stage",
+        destinationBag=stage.bag,
+        destinationSlot=stage.slot,
+        itemID=active.replacementItemID,
+        link=active.replacementLink,
+      }
+
+      if replacement.location == "container" then
+        if replacement.bag ~= active.targetBag then return false end
+        if not self:ContainerSlotMatches(
+          replacement.bag,
+          replacement.slot,
+          active.replacementItemID,
+          active.replacementLink
+        ) then return false end
+        if not self:ContainerSlotUnlocked(replacement.bag, replacement.slot) then return false end
+        pending.sourceBag = replacement.bag
+        pending.sourceSlot = replacement.slot
+      elseif replacement.location ~= "cursor" then
+        return false
+      end
+
+      active.pending = pending
+
+      if pending.sourceBag then
+        PickupContainerItem(pending.sourceBag, pending.sourceSlot)
+      end
+      if type(CursorHasItem) ~= "function" or CursorHasItem() then
+        PickupContainerItem(pending.destinationBag, pending.destinationSlot)
+      end
+
+      return true
+    end
+
+    function BagReplacement:IssuePlannedMove(move, index, total)
+      local active = self.active
+      if not active or not self:MoveStillValid(move) then return false end
+      if type(CursorHasItem) == "function" and CursorHasItem() then return false end
+
+      self:SetPhase(
+        "evacuate",
+        string.format(L.BAG_SWAP_MOVING or "Moving items %d / %d...", index, total)
+      )
+
+      active.pending = {
+        kind="evacuate",
+        sourceBag=move.sourceBag,
+        sourceSlot=move.sourceSlot,
+        destinationBag=move.destinationBag,
+        destinationSlot=move.destinationSlot,
+        itemID=move.itemID,
+        link=move.link,
+        count=move.count,
+      }
+
+      PickupContainerItem(move.sourceBag, move.sourceSlot)
+      if type(CursorHasItem) ~= "function" or CursorHasItem() then
+        PickupContainerItem(move.destinationBag, move.destinationSlot)
+      end
+      return true
+    end
+
+    function BagReplacement:IssueEquip()
+      local active = self.active
+      if not active or not active.plan then return false end
+      if not self:OldBagStillEquipped(active) or not self:TargetBagEmpty(active) then return false end
+      if type(PutItemInBag) ~= "function" then return false end
+
+      local replacement = self:LocateReplacement(active)
+      local sourceBag
+      local sourceSlot
+
+      if replacement.location == "cursor" then
+        sourceBag = replacement.originBag
+        sourceSlot = replacement.originSlot
+        if type(CursorHasItem) ~= "function" or not CursorHasItem() then return false end
+      elseif replacement.location == "container" then
+        sourceBag = replacement.bag
+        sourceSlot = replacement.slot
+        if sourceBag == active.targetBag then return false end
+        if not self:ContainerSlotMatches(
+          sourceBag,
+          sourceSlot,
+          active.replacementItemID,
+          active.replacementLink
+        ) then return false end
+        if not self:ContainerSlotUnlocked(sourceBag, sourceSlot) then return false end
+        if type(CursorHasItem) == "function" and CursorHasItem() then return false end
+      else
+        return false
+      end
+
+      if sourceBag == nil or sourceSlot == nil then return false end
+
+      active.equipSourceBag = sourceBag
+      active.equipSourceSlot = sourceSlot
+      self:SetPhase("equip", L.BAG_SWAP_EQUIPPING or "Equipping new bag...")
+      active.pending = {
+        kind="equip",
+        storageBag=sourceBag,
+        storageSlot=sourceSlot,
+        targetBag=active.targetBag,
+      }
+
+      if replacement.location == "container" then
+        PickupContainerItem(sourceBag, sourceSlot)
+      end
+
+      if type(CursorHasItem) ~= "function" or CursorHasItem() then
+        PutItemInBag(active.targetInventorySlot)
+      end
+      return true
+    end
+
+    function BagReplacement:FinishCarried()
+      local active = self.active
+      if not active or active.view ~= "backpack" then return false end
+      if not self:ReplacementEquipped(active) then return false end
+      if type(CursorHasItem) == "function" and CursorHasItem() then return false end
+      if not self:ContainerSlotMatches(
+        active.equipSourceBag,
+        active.equipSourceSlot,
+        nil,
+        active.oldBagLink
+      ) then return false end
+
+      active.phase = "refresh"
+      self:Cancel(false)
+
+      if pfUI.bag and type(pfUI.bag.CreateBags) == "function" then
+        pfUI.bag:CreateBags()
+      else
+        RequestRelayout()
+      end
+      return true
+    end
+
+    function BagReplacement:VerifyCarriedPending()
+      local active = self.active
+      local pending = active and active.pending
+      if not active or active.view ~= "backpack" or not pending then return false end
+
+      if pending.kind == "replacement-return" then
+        local replacement = self:LocateReplacement(active)
+        if type(CursorHasItem) == "function" and CursorHasItem() then return false end
+        if replacement.location ~= "container"
+           or replacement.bag ~= pending.sourceBag
+           or replacement.slot ~= pending.sourceSlot then return false end
+        active.pending = nil
+        return self:AdvanceCarried()
+      end
+
+      if pending.kind == "replacement-stage" then
+        if type(CursorHasItem) == "function" and CursorHasItem() then return false end
+        if pending.sourceBag and GetContainerItemLink(pending.sourceBag, pending.sourceSlot) then
+          return false
+        end
+        if not self:ContainerSlotMatches(
+          pending.destinationBag,
+          pending.destinationSlot,
+          pending.itemID,
+          pending.link
+        ) then return false end
+        if not self:ContainerSlotUnlocked(pending.destinationBag, pending.destinationSlot) then
+          return false
+        end
+        active.pending = nil
+        return self:AdvanceCarried()
+      end
+
+      if pending.kind == "evacuate" then
+        if type(CursorHasItem) == "function" and CursorHasItem() then return false end
+        if GetContainerItemLink(pending.sourceBag, pending.sourceSlot) then return false end
+        if not self:ContainerSlotMatches(
+          pending.destinationBag,
+          pending.destinationSlot,
+          pending.itemID,
+          pending.link,
+          pending.count
+        ) then return false end
+        if not self:ContainerSlotUnlocked(pending.sourceBag, pending.sourceSlot)
+           or not self:ContainerSlotUnlocked(pending.destinationBag, pending.destinationSlot) then
+          return false
+        end
+
+        active.pending = nil
+        active.moveIndex = (active.moveIndex or 1) + 1
+        return self:AdvanceCarried()
+      end
+
+      if pending.kind == "equip" then
+        if not self:ReplacementEquipped(active) then return false end
+
+        if type(CursorHasItem) == "function" and CursorHasItem() then
+          if GetContainerItemLink(pending.storageBag, pending.storageSlot) then return false end
+          if not self:ContainerSlotUnlocked(pending.storageBag, pending.storageSlot) then return false end
+
+          active.pending = {
+            kind="store-old-bag",
+            storageBag=pending.storageBag,
+            storageSlot=pending.storageSlot,
+            targetBag=active.targetBag,
+          }
+          PickupContainerItem(pending.storageBag, pending.storageSlot)
+          return false
+        end
+
+        if self:ContainerSlotMatches(
+          pending.storageBag,
+          pending.storageSlot,
+          nil,
+          active.oldBagLink
+        ) then
+          active.pending = nil
+          return self:FinishCarried()
+        end
+
+        return false
+      end
+
+      if pending.kind == "store-old-bag" then
+        if not self:ReplacementEquipped(active) then return false end
+        if type(CursorHasItem) == "function" and CursorHasItem() then return false end
+        if not self:ContainerSlotMatches(
+          pending.storageBag,
+          pending.storageSlot,
+          nil,
+          active.oldBagLink
+        ) then return false end
+
+        active.pending = nil
+        return self:FinishCarried()
+      end
+
+      return false
+    end
+
+    function BagReplacement:AdvanceCarried()
+      local active = self.active
+      if not active or active.view ~= "backpack" or active.pending then return false end
+      if not self:OldBagStillEquipped(active) then return false end
+
+      local moves = active.plan and active.plan.moves or {}
+      local index = active.moveIndex or 1
+      local total = table.getn(moves)
+
+      if index <= total then
+        return self:IssuePlannedMove(moves[index], index, total)
+      end
+
+      return self:IssueEquip()
+    end
+
+    function BagReplacement:BeginCarriedTransaction(plan)
+      local active = self.active
+      if not active or active.view ~= "backpack" then return false end
+      if active.targetBag < 1 or active.targetBag > 4 then return false end
+      if not active.ready or active.plan ~= plan or not plan or not plan.possible then return false end
+      if type(ContainerIDToInventoryID) ~= "function" then return false end
+
+      local inventorySlot = ContainerIDToInventoryID(active.targetBag)
+      local oldBagLink = inventorySlot and GetInventoryItemLink("player", inventorySlot)
+      if not inventorySlot or not oldBagLink then return false end
+
+      active.targetInventorySlot = inventorySlot
+      active.oldBagLink = oldBagLink
+      active.moveIndex = 1
+      active.pending = nil
+      active.ready = false
+
+      if plan.replacement and plan.replacement.insideTarget then
+        return self:IssueReplacementStage()
+      end
+
+      if plan.replacement and plan.replacement.location == "cursor"
+         and table.getn(plan.moves or {}) > 0 then
+        return self:IssueReplacementReturn()
+      end
+
+      return self:AdvanceCarried()
+    end
+
+    function BagReplacement:OnEquipmentUpdated(unit)
+      if unit and unit ~= "player" then return end
+      local active = self.active
+      if not active or active.view ~= "backpack" or active.phase ~= "equip" then return end
+      if active.pending
+         and (active.pending.kind == "equip" or active.pending.kind == "store-old-bag") then
+        self:VerifyCarriedPending()
+      end
     end
 
     function BagReplacement:RememberSource(bag, slot)
@@ -1286,8 +1699,8 @@ local function Initialize()
         self.overlays[active.view]:Hide()
       end
 
-      -- Returning the cursor item to its source is cleanup only; 0.5.17 never
-      -- deliberately places it into another inventory/equipment location.
+      -- Native cursor cleanup returns any currently-held item to its source.
+      -- Execution-specific placement is owned by the transaction before cleanup.
       if clearCursor and type(CursorHasItem) == "function" and CursorHasItem()
          and type(ClearCursor) == "function" then
         ClearCursor()
@@ -1393,6 +1806,14 @@ local function Initialize()
     end
 
     pfUI.bagtweaks.BagReplacement = BagReplacement
+
+    BagReplacement.eventFrame = CreateFrame("Frame")
+    BagReplacement.eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+    BagReplacement.eventFrame:SetScript("OnEvent", function()
+      if event == "UNIT_INVENTORY_CHANGED" then
+        BagReplacement:OnEquipmentUpdated(arg1)
+      end
+    end)
 
     -- Account Inventory: native same-account snapshots. Cross-account transport and
     -- presentation are layered on this local authority in later 0.5.x checkpoints.
