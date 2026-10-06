@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.31-dev`
-- Development code head: `195e58e3229183994f6be23a9dce3059e756f512` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.32-dev`
+- Development code head: `f30a308adff0d3de8829ad6311880e79a87680f6` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Runtime-validate the corrected **Bagshui/Swapper-style bag replacement executor**, with synchronous ClassicAPI equip-cache proof removed and BagTweaks relayout frozen during active physical replacement.
-- Current scope boundary: `0.5.31-dev` keeps the Bagshui/Swapper-style executor from `0.5.30-dev`, but fixes two runtime-demonstrated divergences: equip success is no longer judged synchronously through the laggy ClassicAPI inventory cache, and BagTweaks category relayout is frozen while the active replacement owns the affected view. Native cursor completion decides whether `EquipCursorItem` was accepted; equipped-slot cache confirmation happens only after a settling delay without repeating the physical equip. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
+- Goal: Runtime-validate the **direct Bagshui-style physical bag-swap pathway** now used by BagTweaks, with the prior custom physical executor removed.
+- Current scope boundary: `0.5.32-dev` removes the old strict/pending physical executor and the partial `0.5.30/0.5.31` hybrid. Normal physical replacement now follows Bagshui's `MoveItem -> MoveItems retry queue -> delayed EquipBag callback` semantics, including modifier neutralization, bounded 0.15/0.5/1.0 second retry timing, native cursor-result success, and `EQUIP_BIND` popup waiting. BagTweaks retains only its planner/overlay, bank inventory-slot adapter, and the explicit requirement not to refill evacuated items into the newly equipped bag. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
 
 ## Current Design / Development Contract
 
@@ -84,7 +84,7 @@
 - The reset is one-shot per WoW account. Subsequent logins on the same `0.5.12-dev` checkpoint must not repeatedly erase newly collected tracking data.
 
 ### Bag Replacement Workflow — Agreed UX / Design
-- **Status:** UX/design approved; implementation assembled. Runtime on brues-code/ClassicAPI proved the original strict event-proof execution model incompatible with real transient cursor/lock ordering. `0.5.30-dev` therefore preserves the approved UI/planner/sort behavior but replaces normal execution with Bagshui/Swapper-style delayed retry semantics.
+- **Status:** UX/design approved; implementation assembled. Runtime on brues-code/ClassicAPI proved both the original strict executor and the later partial Bagshui adaptation were too divergent from known-good behavior. `0.5.32-dev` removes the old physical executor and directly follows Bagshui's move queue/equip callback semantics while preserving BagTweaks-specific planning/UI requirements.
 - Purpose: BagTweaks' filtered/category presentation deliberately hides the physical distribution of items across bags. Users therefore need a safe way to replace an equipped bag without manually finding and emptying that physical bag first.
 - Scope includes both carried equipped bags and purchased bank bags. The backpack itself is not replaceable.
 - Entry interactions:
@@ -128,7 +128,7 @@
 ### Bag Replacement Workflow — Development Sequence
 - Use a **one-slice-per-chat** workflow for this feature. Each development chat should verify the documented `dev` head, implement only that slice, run the available static checks, update `DEV_PROGRESS.md` in a final documentation-only handoff commit, and stop at that implementation checkpoint so the next slice can continue in a fresh chat.
 - **Runtime testing is deferred until the complete `0.5.17-dev` through `0.5.22-dev` workflow is assembled.** The per-slice runtime-target bullets define the eventual integrated test coverage; they are not runtime gates between implementation slices. Only stop early for a targeted runtime check if the user explicitly requests it or a concrete implementation uncertainty cannot be resolved safely through inspection/static checks.
-- Preserve one shared high-level pipeline throughout: **select → preflight → optional pfUI sort → re-preflight → evacuate → equip → refresh**. `0.5.30-dev` changes the implementation of the evacuate/equip stages to the Bagshui/Swapper delayed-retry model rather than the earlier strict pending-event verifier.
+- Preserve one shared high-level pipeline throughout: **select → preflight → optional pfUI sort → re-preflight → evacuate → equip → refresh**. As of `0.5.32-dev`, evacuate/equip use the direct Bagshui-style move queue and equip callback semantics; the earlier strict pending-event verifier has been removed.
 - Carried bags and bank bags must feed the same pipeline. Bank support must be an adapter/configuration of the shared transaction engine, not a second independently implemented workflow.
 
 #### `0.5.17-dev` — Interaction + overlay foundation
@@ -155,7 +155,7 @@
 - **Status:** implemented and statically checked at code checkpoint `2dfad7a586b6f5cdf19e44f5509738b780bd5ab0`; intentionally not runtime-tested as a standalone slice. Continued into `0.5.20-dev`.
 - If initial preflight lacks usable space, invoke pfUI's normal sort for the relevant inventory.
 - Show **Sorting bags…** on the blocking overlay.
-- Sort completion remains event/state driven. The `0.5.30-dev` execution pivot does **not** change pfUI Sort ownership/completion verification; the Bagshui-style short-delay retries apply only after a plan is ready for physical replacement.
+- Sort completion remains event/state driven. The `0.5.32-dev` Bagshui execution pathway does **not** change pfUI Sort ownership/completion verification; Bagshui-style short-delay retries apply only after a plan is ready for physical replacement.
 - Positively verify pfUI sorting has completed before proceeding. The current pfUI `libbagsort` uses `BAG_UPDATE_DELAYED` internally and exposes no public completion callback, so one observed event must not be treated as proof of completion by itself.
 - Rebuild preflight from the actual post-sort inventory state.
 - End in either a verified ready-to-execute plan or the agreed insufficient-space failure overlay.
@@ -166,7 +166,7 @@
 - **Status:** implemented and statically checked at code checkpoint `a42f2c2b7b4eb6731cf6ae338b5473b4a1bcc876`; intentionally not runtime-tested as a standalone slice. Continued into `0.5.21-dev`.
 - Execute only a verified plan.
 - Evacuate one planned move at a time.
-- `0.5.20-dev` originally waited for exact inventory-event proof after every move. That behavior is historical as of `0.5.30-dev`; the active executor now mirrors Bagshui by treating cursor-empty completion plus bounded delayed retries as the move contract.
+- `0.5.20-dev` originally waited for exact inventory-event proof after every move. That behavior is historical as of `0.5.32-dev`; the active executor now directly mirrors Bagshui's cursor-result move completion plus bounded delayed retry queue.
 - Keep the old bag equipped until it is confirmed empty.
 - If the replacement bag started inside the target bag, stage it automatically using the verified plan.
 - Equip the replacement into the exact target carried-bag slot only after evacuation is complete.
@@ -183,7 +183,7 @@
 
 #### `0.5.22-dev` — Recovery + edge-case hardening
 - **Status:** implemented and statically checked at code checkpoint `da4e8b1832897ff23a3e8b2883524d957ce08f95`; not runtime-tested yet.
-- Historical `0.5.22-dev` behavior safe-stopped immediately on unexpected locks/cursor/mismatched wake-ups. Runtime showed transient Vanilla states repeatedly triggered false failures, so `0.5.30-dev` supersedes that rule for normal physical execution with Bagshui-style retries. Bag/bank closure or lost target access still stops safely.
+- Historical `0.5.22-dev` behavior safe-stopped immediately on unexpected locks/cursor/mismatched wake-ups. Runtime showed transient Vanilla states repeatedly triggered false failures, so `0.5.32-dev` removes that physical verifier and uses Bagshui-style retries instead. Bag/bank closure or lost target access still stops safely.
 - Safe-stop clears pending/ready transaction state, performs no further automatic movement, and leaves the existing overlay latched with the specific reason plus a no-further-moves message until the user explicitly cancels.
 - Carried and bank paths continue to use the same `BagReplacement` transaction engine; no parallel recovery or bank state machine was added.
 - Final runtime target: the complete carried/bank replacement matrix plus regression coverage for Auto Resort, Inventory Tracking, pfUI Sort and normal bag interaction.
@@ -544,22 +544,28 @@
   - after `EquipCursorItem()`, BagTweaks still called `ReplacementEquipped()` synchronously and could re-run the physical equip if the ClassicAPI cache lagged;
   - pfUI `UpdateBag` / internal `CreateBags` mutations still scheduled BagTweaks category relayout while the replacement overlay owned the view.
 
-### 0.5.31-dev Static Validation
-- Targeted code checkpoint: `195e58e3229183994f6be23a9dce3059e756f512`.
-- `SwapEquip()` now mirrors the Bagshui/Swapper acceptance rule more closely: after `EquipCursorItem`, an empty cursor means the native physical operation was accepted.
-- Cache verification is moved into new `SwapConfirmEquip()`, which waits before checking `ReplacementEquipped()` and only rechecks the cache; it never repeats the physical equip.
-- The affected BagTweaks view suppresses category `RequestRelayout()` work during active replacement mutations/internal `CreateBags`. The final `SwapFinish()` cancels ownership and performs one clean pfUI `CreateBags` refresh.
-- pfUI native `UpdateBag` still runs throughout, and Inventory Tracking callbacks still receive mutations; only BagTweaks presentation relayout is held.
-- Executable mutation primitives remain confined to the executor/historical code: `PickupContainerItem=11`, `ClearCursor=10`, `EquipCursorItem=1`; the historical inactive executor still contains `PutItemInBag=1`. No `PickupBagFromSlot`, `SplitContainerItem`, `UseContainerItem`, `SwapItems` or `MoveItem` calls are introduced.
+### 0.5.31-dev Status
+- Implemented and statically checked, but **not runtime-tested**. It was superseded before retest after the user requested a direct Bagshui pathway audit rather than another adapted hybrid.
+- Audit found that `0.5.31-dev` still diverged materially from Bagshui: it retained custom equip-cache confirmation, omitted Bagshui's `EQUIP_BIND` popup wait, retained the old strict executor as dead code, and used custom failure semantics.
+
+### 0.5.32-dev Direct Bagshui Pathway Static Validation
+- Targeted code checkpoint: `f30a308adff0d3de8829ad6311880e79a87680f6`.
+- The old physical methods are removed: no `VerifyPending`, `IssuePlannedMove`, `IssueEquip`, `AdvanceTransaction`, `OnEquipmentUpdated`, or `ReplacementEquipped` execution functions remain.
+- The old physical wake-up registrations are removed: no `CURSOR_UPDATE` or `ITEM_LOCK_CHANGED` replacement-executor listeners remain. `UI_ERROR_MESSAGE` is retained only for Bagshui-style non-empty-bag entry fallback.
+- Active container movement now follows Bagshui's move contract: `ClearCursor`, modifier-key neutralization, `PickupContainerItem(source)`, `PickupContainerItem(target)`, success from `not CursorHasItem()`, and a bounded retry queue using 0.15 / 0.5 / 1.0 second delays.
+- Active equip now follows Bagshui's equip contract: `ClearCursor`, `PickupContainerItem(source)`, `EquipCursorItem(targetInventorySlot)`, wait for `EQUIP_BIND` to close, then consume the native cursor result. There is no post-equip inventory-cache confirmation loop.
+- If evacuation exhausts retries or equip fails/cancels, successfully evacuated items are moved back into the still-equipped old bag before the failure overlay is latched. This is the Bagshui phase-3 recovery concept adapted to the explicit user requirement not to refill after a successful swap.
+- Intentional differences from Bagshui are limited to BagTweaks requirements: compatibility-aware preflight destinations, pfUI Sort/re-preflight, BagTweaks overlay/presentation ownership, bank inventory-slot mapping, and **no successful post-swap refill into the new bag**.
+- Executable mutation call counts are now `PickupContainerItem=4`, `ClearCursor=5`, `EquipCursorItem=1`, `PutItemInBag=0`; `PickupBagFromSlot` and `PutItemInBackpack` remain 0.
 - Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 
 ### Next Runtime Test
-- Retest `0.5.31-dev` / `195e58e3229183994f6be23a9dce3059e756f512` using the same Onyxia Scale Backpack and same populated carried target.
-- Expected progression: **Preparing bag swap... → Moving items ... → Equipping new bag... → one clean final bag refresh**, with the Onyxia Scale Backpack remaining equipped in the target slot.
-- The intermediate categorized bag presentation should no longer visibly reshuffle while the overlay owns the transaction.
-- If this exact ordinary swap succeeds, then continue the remaining matrix from this executor baseline.
-- Bind the result only to `0.5.31-dev`; do not mark other cases passed until observed.
+- Retest `0.5.32-dev` / `f30a308adff0d3de8829ad6311880e79a87680f6` using the same Onyxia Scale Backpack and populated carried target.
+- Expected progression: **Preparing bag swap... → Moving items ... → Equipping new bag... → one clean final refresh**, with any `EQUIP_BIND` confirmation handled before completion.
+- On success, evacuated items remain in their external destinations by design; they are not refilled into the Onyxia Scale Backpack.
+- If this ordinary carried swap passes, resume the remaining matrix from this direct Bagshui-path baseline.
+- Bind the result only to `0.5.32-dev`; do not mark other cases passed until observed.
 
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
@@ -577,13 +583,14 @@
 13. `0.5.28-dev` cursor-authoritative initial preflight classification: **runtime passed that failure point**, then exposed transient lock-state failure at the evacuation boundary.
 14. `0.5.29-dev` wait-for-full-inventory-unlock before evacuation: **runtime still failed with the locked-item safe-stop**.
 15. `0.5.30-dev` Bagshui/Swapper-style delayed-retry executor: **runtime reached item movement**, but final equip/presentation were incorrect because synchronous ClassicAPI cache proof and active relayout remained.
-16. `0.5.31-dev` delayed equip confirmation + active-view relayout freeze: **implemented/checked**; focused ordinary carried-bag retest pending.
-17. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
-18. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
-19. Rogue Pick Lock workflow test.
-20. Disenchant targeting-cursor / candidate-item hover discoverability.
-21. Remaining direct-toolbar edge-case checks.
-22. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+16. `0.5.31-dev` partial Bagshui adaptation cleanup: **implemented/checked but superseded before runtime retest** after audit showed material divergence from Bagshui remained.
+17. `0.5.32-dev` direct Bagshui move-queue/equip-callback pathway with old physical executor removed: **implemented/checked**; focused ordinary carried-bag retest pending.
+18. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
+19. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
+20. Rogue Pick Lock workflow test.
+21. Disenchant targeting-cursor / candidate-item hover discoverability.
+22. Remaining direct-toolbar edge-case checks.
+23. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Open all containers on right click is deferred until the bag-replacement slice is implemented and runtime-accepted.
@@ -597,4 +604,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test **`0.5.31-dev` at checkpoint `195e58e3229183994f6be23a9dce3059e756f512`** using the same Onyxia Scale Backpack and populated carried target from the `0.5.30-dev` test. Confirm the executor reaches equip, leaves the replacement equipped, and performs one clean final presentation refresh without intermediate BagTweaks relayout churn. If that ordinary swap succeeds, continue the remaining bag-replacement matrix from this executor baseline. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
+Runtime-test **`0.5.32-dev` at checkpoint `f30a308adff0d3de8829ad6311880e79a87680f6`** using the same Onyxia Scale Backpack and populated carried target. This is the first build with the old physical executor removed and Bagshui's move queue/equip callback semantics, including `EQUIP_BIND` handling, used directly. If that ordinary swap succeeds, continue the remaining bag-replacement matrix from this baseline. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
