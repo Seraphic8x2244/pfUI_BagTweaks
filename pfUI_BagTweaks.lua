@@ -597,10 +597,11 @@ local function Initialize()
     -- 0.5.22-dev through 0.5.29-dev built and hardened a strict event-proof
     -- transaction engine. Runtime on brues-code/ClassicAPI showed that Vanilla's
     -- transient cursor/lock ordering makes that model fight the client.
-    -- 0.5.30-dev pivots normal execution to the proven Bagshui/Swapper pattern:
-    -- return/stage the replacement, move old contents with delayed lock retries,
-    -- then equip via EquipCursorItem so the old bag swaps into the source slot.
-    -- Planning/sort/space checks and overlay ownership remain BagTweaks-owned.
+    -- 0.5.30-dev pivots normal execution to the proven Bagshui/Swapper pattern.
+    -- 0.5.31-dev removes the remaining synchronous cache proof after
+    -- EquipCursorItem(): native cursor completion owns the physical result,
+    -- equipped-slot cache proof happens only after a settling delay, and visual
+    -- BagTweaks relayout is held until the swap finishes.
     local BagReplacement = {
       candidate = nil,
       potentialSource = nil,
@@ -2073,6 +2074,29 @@ local function Initialize()
       )
     end
 
+    function BagReplacement:SwapConfirmEquip(attempt)
+      local active = self.active
+      if not active or active.phase == "failed" then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+
+      if self:ReplacementEquipped(active) then
+        return self:SwapFinish()
+      end
+
+      attempt = tonumber(attempt) or 0
+      if attempt < 5 then
+        local delay = attempt > 1 and 0.5 or 0.15
+        return self:QueueSwap(delay, function()
+          BagReplacement:SwapConfirmEquip(attempt + 1)
+        end)
+      end
+
+      return self:SafeStop(
+        L.BAG_SWAP_STOP_EQUIP_REJECTED or
+        "The new bag could not be confirmed after the client finished updating."
+      )
+    end
+
     function BagReplacement:SwapEquip(attempt)
       local active = self.active
       if not active or active.phase == "failed" then return false end
@@ -2111,7 +2135,7 @@ local function Initialize()
         and type(IsInventoryItemLocked) == "function"
         and IsInventoryItemLocked(active.targetInventorySlot)
 
-      local equipped = false
+      local accepted = false
       if sourceBag ~= nil and sourceSlot ~= nil and not sourceLocked and not targetLocked then
         if type(ClearCursor) == "function" then ClearCursor() end
 
@@ -2133,19 +2157,22 @@ local function Initialize()
         G.IsControlKeyDown = oldControl
         G.IsShiftKeyDown = oldShift
 
-        equipped = self:ReplacementEquipped(active)
-          and (type(CursorHasItem) ~= "function" or not CursorHasItem())
+        -- Match Bagshui/Swapper: the native cursor result determines whether
+        -- the physical equip action was accepted. Do not immediately consult
+        -- the inventory cache here; ClassicAPI can lag the native operation.
+        accepted = type(CursorHasItem) ~= "function" or not CursorHasItem()
       end
 
-      if equipped then
+      if accepted then
         active.equipSourceBag = sourceBag
         active.equipSourceSlot = sourceSlot
         return self:QueueSwap(0.15, function()
-          BagReplacement:SwapFinish()
+          BagReplacement:SwapConfirmEquip(0)
         end)
       end
 
       if attempt < 5 then
+        if type(ClearCursor) == "function" then ClearCursor() end
         local delay = attempt > 1 and 1.0 or 0.5
         return self:QueueSwap(delay, function()
           BagReplacement:SwapEquip(attempt + 1)
@@ -5440,15 +5467,25 @@ local function Initialize()
       oldCreateBags(self, object)
       BagReplacement:HookBagSlots()
 
-      -- A genuine frame OnShow must finish BagTweaks' presentation immediately.
-      -- Deferring this path can expose pfUI's intermediate/raw bag layout while
-      -- an older Auto resort inactivity deadline is still active. Internal
-      -- CreateBags calls still use the scheduler so mutation-driven rebuilds
-      -- retain the coalescing/delay behaviour.
-      if openingVisibleView then
-        RelayoutView(view)
-      else
-        RequestRelayout()
+      local replacementOwnsView = BagReplacement.active
+        and BagReplacement.active.phase ~= "failed"
+        and BagReplacement.active.view == view
+
+      -- While replacement owns the view, pfUI still receives its native bag
+      -- updates but BagTweaks freezes category relayout. Repeated intermediate
+      -- relayouts expose partially-mutated physical state under the overlay.
+      -- SwapFinish() performs one clean CreateBags/relayout after ownership ends.
+      if not replacementOwnsView then
+        -- A genuine frame OnShow must finish BagTweaks' presentation immediately.
+        -- Deferring this path can expose pfUI's intermediate/raw bag layout while
+        -- an older Auto resort inactivity deadline is still active. Internal
+        -- CreateBags calls still use the scheduler so mutation-driven rebuilds
+        -- retain the coalescing/delay behaviour.
+        if openingVisibleView then
+          RelayoutView(view)
+        else
+          RequestRelayout()
+        end
       end
 
       pcall(InventoryTracker.OnCreateBags, InventoryTracker, object)
@@ -5458,7 +5495,18 @@ local function Initialize()
       pfUI.bag.UpdateBag = function(self, bag)
         oldUpdateBag(self, bag)
         BagReplacement:OnInventoryUpdated(bag)
-        if bag and bag >= -2 and bag <= 11 then RequestRelayout(true) end
+
+        local activeReplacement = BagReplacement.active
+        local ownsMutation = activeReplacement
+          and activeReplacement.phase ~= "failed"
+          and (
+            (activeReplacement.view == "backpack" and bag and bag >= -2 and bag <= 4)
+            or (activeReplacement.view == "bank" and bag and (bag == -1 or (bag >= 5 and bag <= 11)))
+          )
+
+        if bag and bag >= -2 and bag <= 11 and not ownsMutation then
+          RequestRelayout(true)
+        end
         pcall(InventoryTracker.OnBagUpdated, InventoryTracker, bag)
       end
     end
