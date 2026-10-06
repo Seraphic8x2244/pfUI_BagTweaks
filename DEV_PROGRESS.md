@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.29-dev`
-- Development code head: `ef5dedf0a0c396e49320e3a0d270128ef7da2fc3` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.30-dev`
+- Development code head: `31d6c08a8337b53327bda75587fb8ef32e50c805` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Resume runtime validation of the approved **bag replacement workflow** after correcting the post-return inventory-lock settling transition.
-- Current scope boundary: `0.5.29-dev` keeps the accepted `0.5.28-dev` cursor-authoritative preflight classification and changes only the handoff from replacement-return into evacuation. After the replacement is visibly back in its source slot, BagTweaks now waits until the entire affected inventory reports unlocked before clearing the pending return and starting item moves. `ITEM_LOCK_CHANGED` already wakes that pending state, so the fix remains event-driven with no polling or timeout. All physical move/equip primitives remain unchanged. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
+- Goal: Runtime-validate the **Bagshui/Swapper-style bag replacement executor** now used by BagTweaks after the strict event-proof executor repeatedly failed against real Vanilla/ClassicAPI cursor/lock ordering.
+- Current scope boundary: `0.5.30-dev` keeps BagTweaks' source recognition, planner, pfUI Sort/re-preflight and overlay ownership, but **replaces normal execution semantics**. The old strict `AdvanceTransaction -> VerifyPending -> SafeStop` path is no longer used for normal replacement. Execution now follows the proven Bagshui/Swapper pattern: short settling delays, retry locked/rejected moves, clear the cursor before physical moves, evacuate into the verified plan destinations, and equip with `EquipCursorItem` so the old bag swaps into the replacement source/staging slot. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
 
 ## Current Design / Development Contract
 
@@ -84,7 +84,7 @@
 - The reset is one-shot per WoW account. Subsequent logins on the same `0.5.12-dev` checkpoint must not repeatedly erase newly collected tracking data.
 
 ### Bag Replacement Workflow — Agreed UX / Design
-- **Status:** UX/design approved. The isolated `0.5.17-dev` interaction/overlay foundation, `0.5.18-dev` read-only preflight planner and `0.5.19-dev` pfUI sort/re-preflight pipeline are implemented and statically checked. Standalone runtime validation remains deliberately deferred until the complete workflow through `0.5.22-dev`; evacuation/equip execution remains unimplemented.
+- **Status:** UX/design approved; implementation assembled. Runtime on brues-code/ClassicAPI proved the original strict event-proof execution model incompatible with real transient cursor/lock ordering. `0.5.30-dev` therefore preserves the approved UI/planner/sort behavior but replaces normal execution with Bagshui/Swapper-style delayed retry semantics.
 - Purpose: BagTweaks' filtered/category presentation deliberately hides the physical distribution of items across bags. Users therefore need a safe way to replace an equipped bag without manually finding and emptying that physical bag first.
 - Scope includes both carried equipped bags and purchased bank bags. The backpack itself is not replaceable.
 - Entry interactions:
@@ -98,11 +98,11 @@
 - If the replacement bag itself is physically inside the target bag, stage it automatically into another compatible slot first and continue. Do not expose this special case to the user unless the operation cannot proceed.
 - Specialty bags (quivers, soul bags, profession/specialty bags) must be supported using compatibility-aware destination planning. Compatible general-purpose slots may be used where valid; illegal item/bag-family moves must never be attempted.
 - **Pre-sort before final space rejection:** before reporting insufficient space, run the normal pfUI bag sort for the relevant inventory so partial stacks can consolidate and real free slots can be created. Then re-run preflight against the actual post-sort state.
-- The workflow must continue by **inventory/equipment events**, not arbitrary timeouts and not per-frame polling. Use server-confirmed bag/equipment update events to advance the state machine.
+- **Execution timing decision changed after runtime evidence:** pfUI Sort completion remains event/state verified, but physical bag-swap execution now intentionally follows Bagshui/Swapper's proven short-delay/retry model. Transient Vanilla lock/cursor states are retried instead of treated as immediate fatal mismatches.
 - Audit note: current pfUI `libbagsort` already uses `BAG_UPDATE_DELAYED` between its consolidate and final-placement phases but exposes no clean public completion callback. BagTweaks must therefore wait for/observe inventory events and verify the sort has actually completed before running post-sort preflight; do not assume one event means completion.
-- Movement execution must also be event-driven. After each issued physical move, wait for the expected inventory update, verify source/destination state, then issue the next operation.
+- Movement execution uses Bagshui-style queued retries: normal successful moves advance after a short settling delay; locked/rejected attempts retry with longer delays up to a bounded limit. This supersedes the original one-event/one-proof requirement for the physical swap executor.
 - **Safety boundary:** the old equipped bag remains equipped until every item has successfully evacuated from it. Never deliberately remove a populated bag.
-- Preflight and each execution step must revalidate reality rather than blindly trust the original plan. Unexpected state changes, locks, or incompatible destinations stop the transaction safely.
+- Preflight remains compatibility-aware and authoritative for destination selection. During execution, transient locks are normal retry conditions; only exhausted retries, unavailable targets, or genuinely rejected operations stop the transaction.
 - If there is enough compatible post-sort space: proceed automatically.
 - If there is not enough compatible post-sort space: move nothing further, keep the existing bag equipped, and fail gracefully.
 - Blocking UX while BagTweaks owns the transaction:
@@ -128,7 +128,7 @@
 ### Bag Replacement Workflow — Development Sequence
 - Use a **one-slice-per-chat** workflow for this feature. Each development chat should verify the documented `dev` head, implement only that slice, run the available static checks, update `DEV_PROGRESS.md` in a final documentation-only handoff commit, and stop at that implementation checkpoint so the next slice can continue in a fresh chat.
 - **Runtime testing is deferred until the complete `0.5.17-dev` through `0.5.22-dev` workflow is assembled.** The per-slice runtime-target bullets define the eventual integrated test coverage; they are not runtime gates between implementation slices. Only stop early for a targeted runtime check if the user explicitly requests it or a concrete implementation uncertainty cannot be resolved safely through inspection/static checks.
-- Preserve one shared transaction pipeline throughout: **select → preflight → optional pfUI sort → re-preflight → evacuate → equip → refresh**.
+- Preserve one shared high-level pipeline throughout: **select → preflight → optional pfUI sort → re-preflight → evacuate → equip → refresh**. `0.5.30-dev` changes the implementation of the evacuate/equip stages to the Bagshui/Swapper delayed-retry model rather than the earlier strict pending-event verifier.
 - Carried bags and bank bags must feed the same pipeline. Bank support must be an adapter/configuration of the shared transaction engine, not a second independently implemented workflow.
 
 #### `0.5.17-dev` — Interaction + overlay foundation
@@ -155,7 +155,7 @@
 - **Status:** implemented and statically checked at code checkpoint `2dfad7a586b6f5cdf19e44f5509738b780bd5ab0`; intentionally not runtime-tested as a standalone slice. Continued into `0.5.20-dev`.
 - If initial preflight lacks usable space, invoke pfUI's normal sort for the relevant inventory.
 - Show **Sorting bags…** on the blocking overlay.
-- Resume only from inventory events; no arbitrary delay and no per-frame polling.
+- Sort completion remains event/state driven. The `0.5.30-dev` execution pivot does **not** change pfUI Sort ownership/completion verification; the Bagshui-style short-delay retries apply only after a plan is ready for physical replacement.
 - Positively verify pfUI sorting has completed before proceeding. The current pfUI `libbagsort` uses `BAG_UPDATE_DELAYED` internally and exposes no public completion callback, so one observed event must not be treated as proof of completion by itself.
 - Rebuild preflight from the actual post-sort inventory state.
 - End in either a verified ready-to-execute plan or the agreed insufficient-space failure overlay.
@@ -166,7 +166,7 @@
 - **Status:** implemented and statically checked at code checkpoint `a42f2c2b7b4eb6731cf6ae338b5473b4a1bcc876`; intentionally not runtime-tested as a standalone slice. Continued into `0.5.21-dev`.
 - Execute only a verified plan.
 - Evacuate one planned move at a time.
-- After every issued move, wait for the relevant inventory event and verify the expected source/destination state before continuing.
+- `0.5.20-dev` originally waited for exact inventory-event proof after every move. That behavior is historical as of `0.5.30-dev`; the active executor now mirrors Bagshui by treating cursor-empty completion plus bounded delayed retries as the move contract.
 - Keep the old bag equipped until it is confirmed empty.
 - If the replacement bag started inside the target bag, stage it automatically using the verified plan.
 - Equip the replacement into the exact target carried-bag slot only after evacuation is complete.
@@ -183,7 +183,7 @@
 
 #### `0.5.22-dev` — Recovery + edge-case hardening
 - **Status:** implemented and statically checked at code checkpoint `da4e8b1832897ff23a3e8b2883524d957ce08f95`; not runtime-tested yet.
-- Unexpected locks, relevant wake-ups that do not prove the pending operation, bag/bank closure or lost bank access, unexpected cursor state and rejected movement/equip operations now latch the shared transaction into a safe-stop instead of silently waiting or advancing.
+- Historical `0.5.22-dev` behavior safe-stopped immediately on unexpected locks/cursor/mismatched wake-ups. Runtime showed transient Vanilla states repeatedly triggered false failures, so `0.5.30-dev` supersedes that rule for normal physical execution with Bagshui-style retries. Bag/bank closure or lost target access still stops safely.
 - Safe-stop clears pending/ready transaction state, performs no further automatic movement, and leaves the existing overlay latched with the specific reason plus a no-further-moves message until the user explicitly cancels.
 - Carried and bank paths continue to use the same `BagReplacement` transaction engine; no parallel recovery or bank state machine was added.
 - Final runtime target: the complete carried/bank replacement matrix plus regression coverage for Auto Resort, Inventory Tracking, pfUI Sort and normal bag interaction.
@@ -531,20 +531,32 @@
 - This shows the transaction progressed through source recognition, target interception, preflight and replacement return, then advanced into the evacuation boundary while Vanilla/ClassicAPI still exposed transient lock flags.
 - The prior `0.5.27-dev` lock/cursor settling logic waited for cursor/source proof but did not require the whole affected inventory to be unlocked before starting the first planned move.
 
-### 0.5.29-dev Static Validation
-- Targeted code checkpoint: `ef5dedf0a0c396e49320e3a0d270128ef7da2fc3`.
-- Scope is limited to the replacement-return -> evacuation handoff plus the dev version marker.
-- `VerifyPendingState()` now requires `InventoryUnlocked(active.view)` after the replacement is back in its source slot and before clearing the pending return.
-- Existing `ITEM_LOCK_CHANGED` wake-up support re-verifies the same pending state as lock flags settle; no timer, polling loop or per-frame retry was added.
-- Executable physical mutation call counts remain `PickupContainerItem=8`, `ClearCursor=4`, `PutItemInBag=1`; `PickupBagFromSlot`, `SplitContainerItem`, `UseContainerItem`, `SwapItems` and `MoveItem` remain 0.
+### 0.5.29-dev Runtime Result
+- Focused retest still stopped with **An item involved in the bag replacement became locked.**
+- This is the point where the implementation recommendation changed: continuing to add stricter event/lock settling rules was no longer justified when Bagshui already ships a proven Vanilla bag-swap mover that explicitly retries transient locks.
+- The prior custom executor is therefore retained only as historical/dead-path code for now; normal execution is redirected in `0.5.30-dev`.
+
+### 0.5.30-dev Bagshui/Swapper Execution Pivot
+- Targeted code checkpoint: `31d6c08a8337b53327bda75587fb8ef32e50c805`.
+- Reference behavior traced directly from Bagshui `Inventory:SwapBag()`, `MoveItems()/ProcessMoveQueue()`, `MoveItem()`, and the original Swapper addon that Bagshui cites.
+- Bagshui behavior adopted:
+  - clear the cursor before physical pickup/place work;
+  - neutralize modifier-key hooks during the move;
+  - advance successful moves after ~0.15 s;
+  - retry locked/rejected moves after ~0.5 s, increasing to ~1.0 s on later retries, with a bounded retry count;
+  - wait briefly between evacuation and equip;
+  - equip via `EquipCursorItem(inventorySlot)` rather than the previous BagTweaks `PutItemInBag` + strict pending-state sequence.
+- BagTweaks-specific pieces retained: C_Item-first source recognition for brues-code/ClassicAPI, compatibility-aware preflight destinations, replacement-inside-target staging plan, pfUI Sort/re-preflight, bank target adapter and blocking overlay.
+- The high-level old transaction methods remain in source temporarily, but `BeginTransaction()` now routes normal ready plans into the Bagshui/Swapper-style executor and does not create the old pending event chain.
+- Executable mutation primitives now include the new active executor calls: `PickupContainerItem=11`, `ClearCursor=9`, `EquipCursorItem=1`; the historical inactive path still contains `PutItemInBag=1`. No `PickupBagFromSlot`, `SplitContainerItem`, `UseContainerItem`, `SwapItems` or `MoveItem` calls are introduced.
 - Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 
 ### Next Runtime Test
-- Retest `0.5.29-dev` / `ef5dedf0a0c396e49320e3a0d270128ef7da2fc3` using the **same ordinary replacement bag and same populated carried target**.
-- Expected: BagTweaks returns the replacement to its source, waits for lock flags to clear, then begins **Moving items ...** instead of safe-stopping with the locked-item message.
-- If that exact path progresses, report the next visible status/result before broadening the matrix.
-- Bind the result only to `0.5.29-dev`; do not mark later transaction phases runtime-passed until observed.
+- Retest `0.5.30-dev` / `31d6c08a8337b53327bda75587fb8ef32e50c805` using the **same ordinary replacement bag and same populated carried target**.
+- This is no longer a test of another lock-guard tweak. It validates the replacement execution model itself: expected progression is **Preparing bag swap... → Moving items ... → Equipping new bag... → normal bag view refresh**.
+- If the ordinary carried swap succeeds, then resume the remaining matrix from that known-good executor baseline: click/click vs drag/drop, replacement-inside-target, specialty bags, pfUI-sort-created space, insufficient-space refusal and bank bags.
+- Bind the result only to `0.5.30-dev`; do not mark the remaining matrix passed until observed.
 
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
@@ -560,13 +572,14 @@
 11. `0.5.26-dev` pfUI/ClassicAPI `C_Item.GetItemInfo` source recognition: **runtime passed entry**, then exposed cursor-state failure.
 12. `0.5.27-dev` event-driven replacement-return settling: **runtime still failed with the same cursor safe-stop**, disproving the initial event-order-only diagnosis.
 13. `0.5.28-dev` cursor-authoritative initial preflight classification: **runtime passed that failure point**, then exposed transient lock-state failure at the evacuation boundary.
-14. `0.5.29-dev` wait-for-full-inventory-unlock before evacuation: **implemented/checked**; focused retest pending.
-15. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
-16. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
-17. Rogue Pick Lock workflow test.
-18. Disenchant targeting-cursor / candidate-item hover discoverability.
-19. Remaining direct-toolbar edge-case checks.
-20. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+14. `0.5.29-dev` wait-for-full-inventory-unlock before evacuation: **runtime still failed with the locked-item safe-stop**.
+15. `0.5.30-dev` Bagshui/Swapper-style delayed-retry executor: **implemented/checked**; focused ordinary carried-bag retest pending.
+16. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
+17. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
+18. Rogue Pick Lock workflow test.
+19. Disenchant targeting-cursor / candidate-item hover discoverability.
+20. Remaining direct-toolbar edge-case checks.
+21. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Open all containers on right click is deferred until the bag-replacement slice is implemented and runtime-accepted.
@@ -580,4 +593,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test **`0.5.29-dev` at checkpoint `ef5dedf0a0c396e49320e3a0d270128ef7da2fc3`** first against the exact ordinary populated carried-bag swap that reached the locked-item safe-stop on `0.5.28-dev`. Confirm the replacement return waits for inventory unlock and proceeds into item evacuation. Do not broaden to the rest of the carried/bank matrix until that demonstrated failure point passes. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
+Runtime-test **`0.5.30-dev` at checkpoint `31d6c08a8337b53327bda75587fb8ef32e50c805`** against the exact ordinary populated carried-bag swap that repeatedly failed under the old strict executor. This build uses the Bagshui/Swapper-style delayed-retry mover and `EquipCursorItem` path instead. If that ordinary swap succeeds, continue the remaining bag-replacement matrix from this executor baseline. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
