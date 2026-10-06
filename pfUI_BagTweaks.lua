@@ -594,15 +594,13 @@ local function Initialize()
     -- 0.5.17-dev introduced interaction/state/blocking UI; 0.5.18-dev and
     -- 0.5.19-dev added planning plus sort/re-preflight; 0.5.20-dev and
     -- 0.5.21-dev extended this same owner through carried/bank execution.
-    -- 0.5.22-dev hardens that one pipeline with explicit safe-stop recovery.
-    -- 0.5.23-dev through 0.5.25-dev investigated Vanilla entry fallbacks.
-    -- 0.5.26-dev fixes source recognition through pfUI's C_Item metadata path.
-    -- 0.5.27-dev hardens replacement-return event ordering. 0.5.28-dev makes
-    -- cursor state authoritative during initial preflight. 0.5.29-dev keeps
-    -- replacement-return pending until the affected inventory is fully unlocked
-    -- before evacuation begins:
-    -- select -> preflight -> optional sort -> re-preflight -> evacuate ->
-    -- equip -> refresh.
+    -- 0.5.22-dev through 0.5.29-dev built and hardened a strict event-proof
+    -- transaction engine. Runtime on brues-code/ClassicAPI showed that Vanilla's
+    -- transient cursor/lock ordering makes that model fight the client.
+    -- 0.5.30-dev pivots normal execution to the proven Bagshui/Swapper pattern:
+    -- return/stage the replacement, move old contents with delayed lock retries,
+    -- then equip via EquipCursorItem so the old bag swaps into the source slot.
+    -- Planning/sort/space checks and overlay ownership remain BagTweaks-owned.
     local BagReplacement = {
       candidate = nil,
       potentialSource = nil,
@@ -1929,6 +1927,259 @@ local function Initialize()
       return self:IssueEquip()
     end
 
+    -- Bagshui/Swapper-style executor. Unlike the older strict event-proof
+    -- engine above, this path treats transient Vanilla locks as normal and
+    -- retries after short settling delays. The planner still decides exactly
+    -- where evacuation items may go; only execution semantics are replaced.
+    function BagReplacement:ClearSwapSchedule()
+      self.swapScheduledAt = nil
+      self.swapScheduledCallback = nil
+      if self.swapDriver then self.swapDriver:Hide() end
+    end
+
+    function BagReplacement:QueueSwap(delay, callback)
+      if not self.active or type(callback) ~= "function" then return false end
+      self.swapScheduledAt = (GetTime and GetTime() or 0) + (tonumber(delay) or 0)
+      self.swapScheduledCallback = callback
+
+      if not self.swapDriver then
+        self.swapDriver = CreateFrame("Frame")
+        self.swapDriver:SetScript("OnUpdate", function()
+          local due = BagReplacement.swapScheduledAt
+          if not due then
+            this:Hide()
+            return
+          end
+          local now = GetTime and GetTime() or 0
+          if now < due then return end
+
+          local callback = BagReplacement.swapScheduledCallback
+          BagReplacement.swapScheduledAt = nil
+          BagReplacement.swapScheduledCallback = nil
+          this:Hide()
+
+          if callback and BagReplacement.active then callback() end
+        end)
+        self.swapDriver:Hide()
+      end
+
+      self.swapDriver:Show()
+      return true
+    end
+
+    function BagReplacement:SwapMove(sourceBag, sourceSlot, destinationBag, destinationSlot, onComplete, attempt)
+      local active = self.active
+      if not active or active.phase == "failed" then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+
+      attempt = tonumber(attempt) or 0
+
+      local _, _, sourceLocked = GetContainerItemInfo(sourceBag, sourceSlot)
+      local _, _, destinationLocked = GetContainerItemInfo(destinationBag, destinationSlot)
+      local moved = false
+
+      if not sourceLocked and not destinationLocked then
+        if type(ClearCursor) == "function" then ClearCursor() end
+
+        local oldAlt = G.IsAltKeyDown
+        local oldControl = G.IsControlKeyDown
+        local oldShift = G.IsShiftKeyDown
+        local function ReturnFalse() return false end
+
+        G.IsAltKeyDown = ReturnFalse
+        G.IsControlKeyDown = ReturnFalse
+        G.IsShiftKeyDown = ReturnFalse
+
+        PickupContainerItem(sourceBag, sourceSlot)
+        PickupContainerItem(destinationBag, destinationSlot)
+
+        G.IsAltKeyDown = oldAlt
+        G.IsControlKeyDown = oldControl
+        G.IsShiftKeyDown = oldShift
+
+        moved = type(CursorHasItem) ~= "function" or not CursorHasItem()
+      end
+
+      if moved then
+        return self:QueueSwap(0.15, function()
+          if onComplete then onComplete(true) end
+        end)
+      end
+
+      if attempt < 5 then
+        local delay = attempt > 1 and 1.0 or 0.5
+        return self:QueueSwap(delay, function()
+          BagReplacement:SwapMove(
+            sourceBag,
+            sourceSlot,
+            destinationBag,
+            destinationSlot,
+            onComplete,
+            attempt + 1
+          )
+        end)
+      end
+
+      if type(ClearCursor) == "function" then ClearCursor() end
+      if onComplete then onComplete(false) end
+      return false
+    end
+
+    function BagReplacement:SwapEvacuateNext()
+      local active = self.active
+      if not active or active.phase == "failed" then return false end
+
+      local moves = active.swapMoves or {}
+      local index = active.swapMoveIndex or 1
+      local total = table.getn(moves)
+
+      if index > total then
+        return self:QueueSwap(0.15, function()
+          BagReplacement:SwapEquip(0)
+        end)
+      end
+
+      local move = moves[index]
+      self:SetPhase(
+        "evacuate",
+        string.format(L.BAG_SWAP_MOVING or "Moving items %d / %d...", index, total)
+      )
+
+      return self:SwapMove(
+        move.sourceBag,
+        move.sourceSlot,
+        move.destinationBag,
+        move.destinationSlot,
+        function(success)
+          local current = BagReplacement.active
+          if not current then return end
+
+          if not success then
+            BagReplacement:SafeStop(
+              L.BAG_SWAP_STOP_MOVE_REJECTED or
+              "A bag replacement move was rejected after several retries."
+            )
+            return
+          end
+
+          if move.replacementStage then
+            current.swapSourceBag = move.destinationBag
+            current.swapSourceSlot = move.destinationSlot
+          end
+
+          current.swapMoveIndex = index + 1
+          BagReplacement:SwapEvacuateNext()
+        end
+      )
+    end
+
+    function BagReplacement:SwapEquip(attempt)
+      local active = self.active
+      if not active or active.phase == "failed" then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+
+      attempt = tonumber(attempt) or 0
+      self:SetPhase("equip", L.BAG_SWAP_EQUIPPING or "Equipping new bag...")
+
+      -- The first move in Bagshui always clears the cursor, which returns a
+      -- cursor-held replacement to its source. If the target was empty and no
+      -- evacuation move ran, do the same here before locating the source.
+      if type(ClearCursor) == "function" and type(CursorHasItem) == "function"
+         and CursorHasItem() then
+        ClearCursor()
+      end
+
+      local sourceBag = active.swapSourceBag
+      local sourceSlot = active.swapSourceSlot
+
+      if sourceBag == nil or sourceSlot == nil then
+        local replacement = self:LocateReplacement(active)
+        if replacement.location == "container" then
+          sourceBag = replacement.bag
+          sourceSlot = replacement.slot
+          active.swapSourceBag = sourceBag
+          active.swapSourceSlot = sourceSlot
+        end
+      end
+
+      local sourceLocked
+      if sourceBag ~= nil and sourceSlot ~= nil then
+        local _, _, locked = GetContainerItemInfo(sourceBag, sourceSlot)
+        sourceLocked = locked
+      end
+      local targetLocked = active.targetInventorySlot
+        and type(IsInventoryItemLocked) == "function"
+        and IsInventoryItemLocked(active.targetInventorySlot)
+
+      local equipped = false
+      if sourceBag ~= nil and sourceSlot ~= nil and not sourceLocked and not targetLocked then
+        if type(ClearCursor) == "function" then ClearCursor() end
+
+        local oldAlt = G.IsAltKeyDown
+        local oldControl = G.IsControlKeyDown
+        local oldShift = G.IsShiftKeyDown
+        local function ReturnFalse() return false end
+
+        G.IsAltKeyDown = ReturnFalse
+        G.IsControlKeyDown = ReturnFalse
+        G.IsShiftKeyDown = ReturnFalse
+
+        PickupContainerItem(sourceBag, sourceSlot)
+        if type(EquipCursorItem) == "function" then
+          EquipCursorItem(active.targetInventorySlot)
+        end
+
+        G.IsAltKeyDown = oldAlt
+        G.IsControlKeyDown = oldControl
+        G.IsShiftKeyDown = oldShift
+
+        equipped = self:ReplacementEquipped(active)
+          and (type(CursorHasItem) ~= "function" or not CursorHasItem())
+      end
+
+      if equipped then
+        active.equipSourceBag = sourceBag
+        active.equipSourceSlot = sourceSlot
+        return self:QueueSwap(0.15, function()
+          BagReplacement:SwapFinish()
+        end)
+      end
+
+      if attempt < 5 then
+        local delay = attempt > 1 and 1.0 or 0.5
+        return self:QueueSwap(delay, function()
+          BagReplacement:SwapEquip(attempt + 1)
+        end)
+      end
+
+      if type(ClearCursor) == "function" then ClearCursor() end
+      return self:SafeStop(
+        L.BAG_SWAP_STOP_EQUIP_REJECTED or
+        "The new bag could not be equipped after several retries."
+      )
+    end
+
+    function BagReplacement:SwapFinish()
+      local active = self.active
+      if not active then return false end
+
+      local view = active.view
+      active.phase = "refresh"
+      self:ClearSwapSchedule()
+      self:Cancel(false)
+
+      if pfUI.bag and type(pfUI.bag.CreateBags) == "function" then
+        if view == "bank" then
+          pfUI.bag:CreateBags("bank")
+        else
+          pfUI.bag:CreateBags()
+        end
+      else
+        RequestRelayout()
+      end
+      return true
+    end
+
     function BagReplacement:BeginTransaction(plan)
       local active = self.active
       if not active then return false end
@@ -1951,20 +2202,56 @@ local function Initialize()
 
       active.targetInventorySlot = inventorySlot
       active.oldBagLink = oldBagLink
-      active.moveIndex = 1
       active.pending = nil
       active.ready = false
+      active.execution = "bagshui-swapper"
+      active.swapMoves = {}
+      active.swapMoveIndex = 1
+      active.swapSourceBag = nil
+      active.swapSourceSlot = nil
 
-      if plan.replacement and plan.replacement.insideTarget then
-        return self:IssueReplacementStage()
+      local replacement = plan.replacement
+      if not replacement then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
       end
 
-      if plan.replacement and plan.replacement.location == "cursor"
-         and table.getn(plan.moves or {}) > 0 then
-        return self:IssueReplacementReturn()
+      if replacement.insideTarget then
+        local stage = plan.replacementStage
+        if not stage then
+          return self:SafeStop(
+            L.BAG_SWAP_NOT_ENOUGH_SPACE or
+            "Not enough space to replace this bag."
+          )
+        end
+        table.insert(active.swapMoves, {
+          sourceBag=replacement.location == "container" and replacement.bag or replacement.originBag,
+          sourceSlot=replacement.location == "container" and replacement.slot or replacement.originSlot,
+          destinationBag=stage.bag,
+          destinationSlot=stage.slot,
+          replacementStage=true,
+        })
+      elseif replacement.location == "container" then
+        active.swapSourceBag = replacement.bag
+        active.swapSourceSlot = replacement.slot
+      else
+        -- Cursor-held replacement will be returned to its remembered source by
+        -- ClearCursor() before the first evacuation/equip attempt.
+        active.swapSourceBag = replacement.originBag
+        active.swapSourceSlot = replacement.originSlot
       end
 
-      return self:AdvanceTransaction()
+      local moves = plan.moves or {}
+      for i = 1, table.getn(moves) do
+        table.insert(active.swapMoves, moves[i])
+      end
+
+      self:ClearSwapSchedule()
+      return self:QueueSwap(0.15, function()
+        BagReplacement:SwapEvacuateNext()
+      end)
     end
 
     function BagReplacement:OnEquipmentUpdated(unit)
@@ -2215,6 +2502,7 @@ local function Initialize()
       active.pending = nil
       active.stopped = true
       self.candidate = nil
+      self:ClearSwapSchedule()
 
       local message = reason or
         L.BAG_SWAP_STOP_STATE_CHANGED or
@@ -2227,6 +2515,7 @@ local function Initialize()
 
     function BagReplacement:Cancel(clearCursor)
       local active = self.active
+      self:ClearSwapSchedule()
       self.active = nil
       self.candidate = nil
       self.potentialSource = nil
