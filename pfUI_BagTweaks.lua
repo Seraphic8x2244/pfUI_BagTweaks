@@ -599,8 +599,8 @@ local function Initialize()
     -- still diverged from the known-good Vanilla pathway.
     -- 0.5.32-dev removes the old physical executor and follows Bagshui's actual
     -- MoveItem -> MoveItems retry queue -> delayed EquipBag callback semantics,
-    -- including EQUIP_BIND popup waiting. BagTweaks keeps only its planner/UI,
-    -- bank-slot adapter, and the explicit user choice not to refill the new bag.
+    -- including EQUIP_BIND popup waiting. 0.5.33-dev changes UI cleanup only:
+    -- the pfUI bag-slot popout is restored if it was open before the swap.
     local BagReplacement = {
       candidate = nil,
       potentialSource = nil,
@@ -1963,6 +1963,16 @@ local function Initialize()
         self.overlays[active.view]:Hide()
       end
 
+      -- Restore the pfUI bag-slot popout only if it was open when BagTweaks
+      -- took ownership. Do not force it open after a bank/view has closed.
+      if active and active.bagSlotsWasShown then
+        local parent = ViewFrame(active.view)
+        if parent and parent.IsShown and parent:IsShown()
+           and parent.bagslots and parent.bagslots.Show then
+          parent.bagslots:Show()
+        end
+      end
+
       -- Native cursor cleanup returns any currently-held item to its source.
       -- Execution-specific placement is owned by the transaction before cleanup.
       if clearCursor and type(CursorHasItem) == "function" and CursorHasItem()
@@ -1989,12 +1999,16 @@ local function Initialize()
         replacementItemID=self.candidate.itemID,
         replacementLink=self.candidate.link,
         phase="select",
+        bagSlotsWasShown=parent.bagslots
+          and parent.bagslots.IsShown
+          and parent.bagslots:IsShown()
+          and true
+          or false,
       }
       self.candidate = nil
 
       -- The bag-slot popout lives partly outside the unified window, so hide
-      -- it once ownership begins. Its slot scripts are also intercepted while
-      -- the transaction is active.
+      -- it while ownership is active. Cleanup restores the user's prior state.
       if parent.bagslots then parent.bagslots:Hide() end
 
       self:ShowStatus(L.BAG_SWAP_PREPARING or "Preparing bag swap...", L.CANCEL or "Cancel")
