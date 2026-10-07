@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.32-dev`
-- Development code head: `f30a308adff0d3de8829ad6311880e79a87680f6` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.33-dev`
+- Development code head: `f3d29c957cde09b1c751b4063f529b010c9326b7` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Runtime-validate the **direct Bagshui-style physical bag-swap pathway** now used by BagTweaks, with the prior custom physical executor removed.
-- Current scope boundary: `0.5.32-dev` removes the old strict/pending physical executor and the partial `0.5.30/0.5.31` hybrid. Normal physical replacement now follows Bagshui's `MoveItem -> MoveItems retry queue -> delayed EquipBag callback` semantics, including modifier neutralization, bounded 0.15/0.5/1.0 second retry timing, native cursor-result success, and `EQUIP_BIND` popup waiting. BagTweaks retains only its planner/overlay, bank inventory-slot adapter, and the explicit requirement not to refill evacuated items into the newly equipped bag. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
+- Goal: Continue runtime validation from the first successful direct Bagshui-style ordinary carried swap, with `0.5.33-dev` fixing only pfUI bag-slot popout restoration.
+- Current scope boundary: `0.5.33-dev` preserves the runtime-successful `0.5.32-dev` physical Bagshui pathway unchanged and fixes only UI cleanup. BagTweaks records whether pfUI's bag-slot popout was open before transaction ownership, hides it while the overlay owns the swap, then restores it on cleanup if the parent view is still open. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
 
 ## Current Design / Development Contract
 
@@ -548,24 +548,25 @@
 - Implemented and statically checked, but **not runtime-tested**. It was superseded before retest after the user requested a direct Bagshui pathway audit rather than another adapted hybrid.
 - Audit found that `0.5.31-dev` still diverged materially from Bagshui: it retained custom equip-cache confirmation, omitted Bagshui's `EQUIP_BIND` popup wait, retained the old strict executor as dead code, and used custom failure semantics.
 
-### 0.5.32-dev Direct Bagshui Pathway Static Validation
-- Targeted code checkpoint: `f30a308adff0d3de8829ad6311880e79a87680f6`.
-- The old physical methods are removed: no `VerifyPending`, `IssuePlannedMove`, `IssueEquip`, `AdvanceTransaction`, `OnEquipmentUpdated`, or `ReplacementEquipped` execution functions remain.
-- The old physical wake-up registrations are removed: no `CURSOR_UPDATE` or `ITEM_LOCK_CHANGED` replacement-executor listeners remain. `UI_ERROR_MESSAGE` is retained only for Bagshui-style non-empty-bag entry fallback.
-- Active container movement now follows Bagshui's move contract: `ClearCursor`, modifier-key neutralization, `PickupContainerItem(source)`, `PickupContainerItem(target)`, success from `not CursorHasItem()`, and a bounded retry queue using 0.15 / 0.5 / 1.0 second delays.
-- Active equip now follows Bagshui's equip contract: `ClearCursor`, `PickupContainerItem(source)`, `EquipCursorItem(targetInventorySlot)`, wait for `EQUIP_BIND` to close, then consume the native cursor result. There is no post-equip inventory-cache confirmation loop.
-- If evacuation exhausts retries or equip fails/cancels, successfully evacuated items are moved back into the still-equipped old bag before the failure overlay is latched. This is the Bagshui phase-3 recovery concept adapted to the explicit user requirement not to refill after a successful swap.
-- Intentional differences from Bagshui are limited to BagTweaks requirements: compatibility-aware preflight destinations, pfUI Sort/re-preflight, BagTweaks overlay/presentation ownership, bank inventory-slot mapping, and **no successful post-swap refill into the new bag**.
-- Executable mutation call counts are now `PickupContainerItem=4`, `ClearCursor=5`, `EquipCursorItem=1`, `PutItemInBag=0`; `PickupBagFromSlot` and `PutItemInBackpack` remain 0.
+### 0.5.32-dev Runtime Result
+- **PASS for the ordinary populated carried-bag replacement path.**
+- User reported the same Onyxia Scale Backpack replacement finally completed successfully end-to-end.
+- This runtime result proves the direct Bagshui-style physical executor for this ordinary case: evacuation, equip, and completion all succeeded.
+- One presentation defect remained: the pfUI bag-slot popout used to initiate/observe the swap was closed afterward.
+- Inspection found this was BagTweaks-owned behavior, not Bagshui execution: `Start()` deliberately hid `parent.bagslots` while transaction ownership was active but cleanup did not restore its previous state.
+
+### 0.5.33-dev UI Cleanup
+- Targeted code checkpoint: `f3d29c957cde09b1c751b4063f529b010c9326b7`.
+- Transaction start now records whether the pfUI bag-slot popout was already shown.
+- Cleanup restores the popout only when it was previously shown and the parent inventory/bank view is still open; it does not force-open a closed view.
+- The direct Bagshui physical pathway is unchanged. Executable mutation counts remain `PickupContainerItem=4`, `ClearCursor=5`, `EquipCursorItem=1`, `PutItemInBag=0`; `PickupBagFromSlot` and `PutItemInBackpack` remain 0.
 - Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 
 ### Next Runtime Test
-- Retest `0.5.32-dev` / `f30a308adff0d3de8829ad6311880e79a87680f6` using the same Onyxia Scale Backpack and populated carried target.
-- Expected progression: **Preparing bag swap... → Moving items ... → Equipping new bag... → one clean final refresh**, with any `EQUIP_BIND` confirmation handled before completion.
-- On success, evacuated items remain in their external destinations by design; they are not refilled into the Onyxia Scale Backpack.
-- If this ordinary carried swap passes, resume the remaining matrix from this direct Bagshui-path baseline.
-- Bind the result only to `0.5.32-dev`; do not mark other cases passed until observed.
+- Retest the same ordinary Onyxia Scale Backpack swap on `0.5.33-dev` / `f3d29c957cde09b1c751b4063f529b010c9326b7` only to confirm the previously-open pfUI bag-slot popout remains/restores open after successful completion.
+- If that passes, resume the remaining matrix from the `0.5.32-dev` successful physical baseline: click/click vs drag/drop, replacement-inside-target, specialty bags, pfUI-sort-created space, insufficient-space refusal, and bank bags.
+- Do not re-open the already-passed ordinary physical executor unless new evidence demonstrates a regression.
 
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
@@ -584,8 +585,10 @@
 14. `0.5.29-dev` wait-for-full-inventory-unlock before evacuation: **runtime still failed with the locked-item safe-stop**.
 15. `0.5.30-dev` Bagshui/Swapper-style delayed-retry executor: **runtime reached item movement**, but final equip/presentation were incorrect because synchronous ClassicAPI cache proof and active relayout remained.
 16. `0.5.31-dev` partial Bagshui adaptation cleanup: **implemented/checked but superseded before runtime retest** after audit showed material divergence from Bagshui remained.
-17. `0.5.32-dev` direct Bagshui move-queue/equip-callback pathway with old physical executor removed: **implemented/checked**; focused ordinary carried-bag retest pending.
-18. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
+17. `0.5.32-dev` direct Bagshui move-queue/equip-callback pathway with old physical executor removed: **ordinary populated carried-bag runtime PASS**.
+18. `0.5.33-dev` restore previously-open pfUI bag-slot popout after transaction cleanup: **implemented/checked**; focused UI retest pending.
+19. Continue the remaining replacement matrix after that UI confirmation.
+20. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
 19. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
 20. Rogue Pick Lock workflow test.
 21. Disenchant targeting-cursor / candidate-item hover discoverability.
@@ -604,4 +607,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test **`0.5.32-dev` at checkpoint `f30a308adff0d3de8829ad6311880e79a87680f6`** using the same Onyxia Scale Backpack and populated carried target. This is the first build with the old physical executor removed and Bagshui's move queue/equip callback semantics, including `EQUIP_BIND` handling, used directly. If that ordinary swap succeeds, continue the remaining bag-replacement matrix from this baseline. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
+Runtime-test **`0.5.33-dev` at checkpoint `f3d29c957cde09b1c751b4063f529b010c9326b7`** using the same already-passed ordinary Onyxia Scale Backpack swap only to verify the pfUI bag-slot popout restores to its prior open state. Then continue the remaining replacement matrix from the `0.5.32-dev` successful physical baseline. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
