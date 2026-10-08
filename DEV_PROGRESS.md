@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.34-dev`
-- Development code head: `146b6cc4cb5b5a1656cb3054252ec90882b5f161` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.35-dev`
+- Development code head: `75a016d68457b6253f29b222477debff94f960fb` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Preserve the successful direct Bagshui swap baseline while extending Account Inventory tooltip output to arbitrary item hyperlinks such as pfQuest database results.
-- Current scope boundary: `0.5.34-dev` preserves the `0.5.32-dev` physical Bagshui pathway and `0.5.33-dev` popout restoration unchanged. The only new behavior is Account Inventory tooltip presentation on generic `GameTooltip:SetHyperlink("item:...")` calls, covering pfQuest database item hovers and other item-link tooltips. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
+- Goal: Preserve the successful direct Bagshui swap baseline while runtime-validating the refreshed cross-account tooltip layout on bag and generic item-link tooltips.
+- Current scope boundary: `0.5.35-dev` preserves the `0.5.32-dev` physical Bagshui pathway, `0.5.33-dev` popout restoration, and `0.5.34-dev` generic item-link hook unchanged. The only new behavior is tooltip presentation: `Across Accounts: <total>` as the title, pfUI green/blue for title/account labels, gold character names, white counts, and Bags/Keys/Bank detail only for the currently logged-in character. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
 
 ## Current Design / Development Contract
 
@@ -578,6 +578,20 @@
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 - Focused runtime check: search an item in pfQuest's database browser, hover it, and confirm the same **Account Inventory** section appears when tracked count is greater than zero.
 
+### 0.5.35-dev Tooltip Layout / Colour Pass
+- Targeted code checkpoint: `75a016d68457b6253f29b222477debff94f960fb`.
+- Title is now **Across Accounts: <total>**. The title label and account names use pfUI green/blue (`0.3, 1.0, 0.8` / `#4DFFCC`); the total itself is white.
+- Account names are indented one level; character rows are indented one further level.
+- Character names are gold (`1.0, 0.82, 0` / `#FFD100`); character totals are white.
+- Only the currently logged-in character shows physical location detail. Its Bags/Keys/Bank labels and punctuation are light grey, with location counts white. Same-account alts and cross-account characters show total only.
+- Removed the rendered word **tracked** and the separate **Tracked total** footer.
+- The local tracker marks the current character by its canonical character key, not by display-name comparison.
+- Generic pfQuest/item-link tooltip support from `0.5.34-dev` remains present.
+- Bag-swap physical mutation counts remain unchanged: `PickupContainerItem=4`, `ClearCursor=5`, `EquipCursorItem=1`, `PutItemInBag=0`, `PickupBagFromSlot=0`.
+- Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
+- Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
+- Focused runtime check: hover an item owned by the current character and at least one alt/account, both in a pfUI bag tooltip and a pfQuest database result, and verify the new hierarchy/colours plus current-character-only Bags/Bank detail.
+
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
 2. `0.5.17-dev` interaction + overlay foundation: **implemented/checked**; standalone runtime testing intentionally deferred.
@@ -598,7 +612,8 @@
 17. `0.5.32-dev` direct Bagshui move-queue/equip-callback pathway with old physical executor removed: **ordinary populated carried-bag runtime PASS**.
 18. `0.5.33-dev` restore previously-open pfUI bag-slot popout after transaction cleanup: **implemented/checked**; focused UI retest pending.
 19. `0.5.34-dev` Account Inventory on generic item hyperlinks/pfQuest database results: **implemented/checked**; focused tooltip retest pending.
-20. Continue the remaining replacement matrix after those focused confirmations.
+20. `0.5.35-dev` Across Accounts tooltip layout/colour pass + current-character-only location detail: **implemented/checked**; focused tooltip retest pending.
+21. Continue the remaining replacement matrix after those focused confirmations.
 20. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
 19. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
 20. Rogue Pick Lock workflow test.
@@ -618,4 +633,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test **`0.5.34-dev` at checkpoint `146b6cc4cb5b5a1656cb3054252ec90882b5f161`** first by hovering a tracked item in the pfQuest database browser and confirming Account Inventory appears there. Also retain the pending `0.5.33-dev` bag-slot-popout confirmation on the next bag-swap pass. The `0.5.32-dev` ordinary physical swap baseline remains runtime-passed. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
+Runtime-test **`0.5.35-dev` at checkpoint `75a016d68457b6253f29b222477debff94f960fb`** by hovering the same owned item in both a pfUI bag and the pfQuest database browser. Confirm **Across Accounts: <total>**, pfUI green/blue title/account names, gold character names, white counts, and Bags/Keys/Bank detail only on the logged-in character. Also retain the pending `0.5.33-dev` bag-slot-popout confirmation on the next bag-swap pass. The `0.5.32-dev` ordinary physical swap baseline remains runtime-passed. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
