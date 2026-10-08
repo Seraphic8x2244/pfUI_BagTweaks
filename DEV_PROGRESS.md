@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.33-dev`
-- Development code head: `f3d29c957cde09b1c751b4063f529b010c9326b7` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.34-dev`
+- Development code head: `146b6cc4cb5b5a1656cb3054252ec90882b5f161` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
-- Goal: Continue runtime validation from the first successful direct Bagshui-style ordinary carried swap, with `0.5.33-dev` fixing only pfUI bag-slot popout restoration.
-- Current scope boundary: `0.5.33-dev` preserves the runtime-successful `0.5.32-dev` physical Bagshui pathway unchanged and fixes only UI cleanup. BagTweaks records whether pfUI's bag-slot popout was open before transaction ownership, hides it while the overlay owns the swap, then restores it on cleanup if the parent view is still open. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
+- Goal: Preserve the successful direct Bagshui swap baseline while extending Account Inventory tooltip output to arbitrary item hyperlinks such as pfQuest database results.
+- Current scope boundary: `0.5.34-dev` preserves the `0.5.32-dev` physical Bagshui pathway and `0.5.33-dev` popout restoration unchanged. The only new behavior is Account Inventory tooltip presentation on generic `GameTooltip:SetHyperlink("item:...")` calls, covering pfQuest database item hovers and other item-link tooltips. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
 
 ## Current Design / Development Contract
 
@@ -568,6 +568,16 @@
 - If that passes, resume the remaining matrix from the `0.5.32-dev` successful physical baseline: click/click vs drag/drop, replacement-inside-target, specialty bags, pfUI-sort-created space, insufficient-space refusal, and bank bags.
 - Do not re-open the already-passed ordinary physical executor unless new evidence demonstrates a regression.
 
+### 0.5.34-dev Generic Item Tooltip Integration
+- Targeted code checkpoint: `146b6cc4cb5b5a1656cb3054252ec90882b5f161`.
+- Runtime report before the change: Account Inventory appeared when hovering items in pfUI bags, but not when hovering an item result in the pfQuest database browser.
+- Root cause confirmed by code inspection: BagTweaks hooked only `GameTooltip:SetBagItem()`, while pfQuest item results call `GameTooltip:SetHyperlink("item:" .. id .. ...)`.
+- BagTweaks now also wraps `GameTooltip:SetHyperlink()`, parses only `item:<id>` hyperlinks, and passes that ID to the existing `InventoryTracker:AppendTooltip()` renderer. Quest/spell/other hyperlink types are left untouched.
+- Existing bag tooltip behavior remains unchanged.
+- Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
+- Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
+- Focused runtime check: search an item in pfQuest's database browser, hover it, and confirm the same **Account Inventory** section appears when tracked count is greater than zero.
+
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
 2. `0.5.17-dev` interaction + overlay foundation: **implemented/checked**; standalone runtime testing intentionally deferred.
@@ -587,7 +597,8 @@
 16. `0.5.31-dev` partial Bagshui adaptation cleanup: **implemented/checked but superseded before runtime retest** after audit showed material divergence from Bagshui remained.
 17. `0.5.32-dev` direct Bagshui move-queue/equip-callback pathway with old physical executor removed: **ordinary populated carried-bag runtime PASS**.
 18. `0.5.33-dev` restore previously-open pfUI bag-slot popout after transaction cleanup: **implemented/checked**; focused UI retest pending.
-19. Continue the remaining replacement matrix after that UI confirmation.
+19. `0.5.34-dev` Account Inventory on generic item hyperlinks/pfQuest database results: **implemented/checked**; focused tooltip retest pending.
+20. Continue the remaining replacement matrix after those focused confirmations.
 20. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
 19. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
 20. Rogue Pick Lock workflow test.
@@ -607,4 +618,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test **`0.5.33-dev` at checkpoint `f3d29c957cde09b1c751b4063f529b010c9326b7`** using the same already-passed ordinary Onyxia Scale Backpack swap only to verify the pfUI bag-slot popout restores to its prior open state. Then continue the remaining replacement matrix from the `0.5.32-dev` successful physical baseline. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
+Runtime-test **`0.5.34-dev` at checkpoint `146b6cc4cb5b5a1656cb3054252ec90882b5f161`** first by hovering a tracked item in the pfQuest database browser and confirming Account Inventory appears there. Also retain the pending `0.5.33-dev` bag-slot-popout confirmation on the next bag-swap pass. The `0.5.32-dev` ordinary physical swap baseline remains runtime-passed. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
