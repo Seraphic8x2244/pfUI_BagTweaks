@@ -600,8 +600,9 @@ local function Initialize()
     -- 0.5.32-dev removes the old physical executor and follows Bagshui's actual
     -- MoveItem -> MoveItems retry queue -> delayed EquipBag callback semantics,
     -- including EQUIP_BIND popup waiting. 0.5.33-dev changes UI cleanup only.
-    -- 0.5.34-dev extends Account Inventory tooltip presentation from pfUI bag
-    -- slots to generic item hyperlinks such as pfQuest database results.
+    -- 0.5.34-dev extends Account Inventory to generic item hyperlinks.
+    -- 0.5.35-dev refreshes that tooltip hierarchy/colour treatment and shows
+    -- Bags/Bank/Keys detail only for the currently logged-in character.
     local BagReplacement = {
       candidate = nil,
       potentialSource = nil,
@@ -2741,6 +2742,7 @@ local function Initialize()
             local summary = CharacterItemSummary(record, itemID, includeBank)
             if summary then
               summary.name = DisplayCharacterName(record)
+              summary.isCurrent = key == currentKey
               table.insert(group.characters, summary)
               group.total = group.total + summary.total
             end
@@ -2790,28 +2792,68 @@ local function Initialize()
         local groups, total = self:GetTrackedItemGroups(itemID)
         if total <= 0 then return end
 
+        local pfColor = "|cff4dffcc"
+        local gold = "|cffffd100"
+        local white = "|cffffffff"
+        local grey = "|cffd9d9d9"
+        local reset = "|r"
+
         GameTooltip:AddLine(" ")
-        GameTooltip:AddLine(L.ACCOUNT_TRACKING_TOOLTIP_HEADER or "Account Inventory")
+        GameTooltip:AddLine(
+          pfColor .. (L.ACCOUNT_TRACKING_TOOLTIP_HEADER or "Across Accounts:") ..
+          reset .. " " .. white .. tostring(total) .. reset
+        )
 
         for i = 1, table.getn(groups) do
           local group = groups[i]
-          GameTooltip:AddLine(group.label, 1, .82, 0)
+          GameTooltip:AddLine("   " .. pfColor .. tostring(group.label or "") .. reset)
+
           for n = 1, table.getn(group.characters) do
             local item = group.characters[n]
-            local parts = {}
-            if item.carried > 0 then table.insert(parts, string.format(L.ACCOUNT_BAGS_COUNT or "Bags %d", item.carried)) end
-            if item.keyring > 0 then table.insert(parts, string.format(L.ACCOUNT_KEYS_COUNT or "Keys %d", item.keyring)) end
-            if item.bank > 0 then table.insert(parts, string.format(L.ACCOUNT_BANK_COUNT or "Bank %d", item.bank)) end
-            if item.bankIncluded and not item.bankKnown then table.insert(parts, L.ACCOUNT_BANK_UNSCANNED or "bank unscanned") end
+            local line =
+              "      " ..
+              gold .. tostring(item.name or "") .. ":" .. reset ..
+              " " .. white .. tostring(item.total or 0) .. reset
 
-            local details = table.concat(parts, ", ")
-            local line = string.format(L.ACCOUNT_CHARACTER_COUNT or "%s: %d tracked", item.name, item.total)
-            if details ~= "" then line = line .. " (" .. details .. ")" end
-            GameTooltip:AddLine("  " .. line, .85, .85, .85)
+            if item.isCurrent then
+              local parts = {}
+
+              if item.carried > 0 then
+                table.insert(parts,
+                  grey .. (L.ACCOUNT_BAGS_LABEL or "Bags:") .. reset ..
+                  " " .. white .. tostring(item.carried) .. reset
+                )
+              end
+
+              if item.keyring > 0 then
+                table.insert(parts,
+                  grey .. (L.ACCOUNT_KEYS_LABEL or "Keys:") .. reset ..
+                  " " .. white .. tostring(item.keyring) .. reset
+                )
+              end
+
+              if item.bank > 0 then
+                table.insert(parts,
+                  grey .. (L.ACCOUNT_BANK_LABEL or "Bank:") .. reset ..
+                  " " .. white .. tostring(item.bank) .. reset
+                )
+              elseif item.bankIncluded and not item.bankKnown then
+                table.insert(parts,
+                  grey .. (L.ACCOUNT_BANK_UNSCANNED or "bank unscanned") .. reset
+                )
+              end
+
+              if table.getn(parts) > 0 then
+                line = line .. " " .. grey .. "(" .. reset ..
+                  table.concat(parts, grey .. ", " .. reset) ..
+                  grey .. ")" .. reset
+              end
+            end
+
+            GameTooltip:AddLine(line)
           end
         end
 
-        GameTooltip:AddLine(string.format(L.ACCOUNT_TRACKED_TOTAL or "Tracked total: %d", total), .3, 1, .8)
         GameTooltip:Show()
       end
 
