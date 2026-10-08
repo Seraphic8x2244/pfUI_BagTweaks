@@ -599,8 +599,9 @@ local function Initialize()
     -- still diverged from the known-good Vanilla pathway.
     -- 0.5.32-dev removes the old physical executor and follows Bagshui's actual
     -- MoveItem -> MoveItems retry queue -> delayed EquipBag callback semantics,
-    -- including EQUIP_BIND popup waiting. 0.5.33-dev changes UI cleanup only:
-    -- the pfUI bag-slot popout is restored if it was open before the swap.
+    -- including EQUIP_BIND popup waiting. 0.5.33-dev changes UI cleanup only.
+    -- 0.5.34-dev extends Account Inventory tooltip presentation from pfUI bag
+    -- slots to generic item hyperlinks such as pfQuest database results.
     local BagReplacement = {
       candidate = nil,
       potentialSource = nil,
@@ -2964,7 +2965,7 @@ local function Initialize()
     -- Add Account Inventory after pfUI has populated a bag-item tooltip. Hooking
     -- SetBagItem is more durable than replacing each slot's OnEnter script, which
     -- other bag/tooltip code may replace after BagTweaks lays out the slot.
-    if GameTooltip and type(GameTooltip.SetBagItem) == "function" and not GameTooltip.bagtweaks_inventory_hooked then
+    if GameTooltip and type(GameTooltip.SetBagItem) == "function" and not GameTooltip.bagtweaks_inventory_bag_hooked then
       local oldSetBagItem = GameTooltip.SetBagItem
       GameTooltip.SetBagItem = function(self, bag, slot)
         local result = oldSetBagItem(self, bag, slot)
@@ -2977,7 +2978,24 @@ local function Initialize()
         end
         return result
       end
-      GameTooltip.bagtweaks_inventory_hooked = true
+      GameTooltip.bagtweaks_inventory_bag_hooked = true
+    end
+
+    -- Arbitrary item tooltips (pfQuest database results, item links, etc.) use
+    -- SetHyperlink rather than SetBagItem. Append the same Account Inventory
+    -- summary for item hyperlinks only; leave quests/spells/other hyperlinks
+    -- untouched.
+    if GameTooltip and type(GameTooltip.SetHyperlink) == "function" and not GameTooltip.bagtweaks_inventory_link_hooked then
+      local oldSetHyperlink = GameTooltip.SetHyperlink
+      GameTooltip.SetHyperlink = function(self, link)
+        local result = oldSetHyperlink(self, link)
+        if type(link) == "string" then
+          local _, _, itemID = string.find(link, "^item:(%d+)")
+          if itemID then InventoryTracker:AppendTooltip(tonumber(itemID)) end
+        end
+        return result
+      end
+      GameTooltip.bagtweaks_inventory_link_hooked = true
     end
 
     local function NameFromLink(link)
