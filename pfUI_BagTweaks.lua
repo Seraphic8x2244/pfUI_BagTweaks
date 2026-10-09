@@ -157,6 +157,15 @@ local function Initialize()
     if db.showEmptyCategories == nil then db.showEmptyCategories = true end
     if db.autoResortDelay == nil then db.autoResortDelay = "3" end
 
+    local toolbarIconSize = tonumber(db.toolbarIconSize)
+    if not toolbarIconSize then toolbarIconSize = 10 end
+    if toolbarIconSize < 8 then toolbarIconSize = 8 end
+    if toolbarIconSize > 16 then toolbarIconSize = 16 end
+    toolbarIconSize = math.floor(toolbarIconSize + .5)
+    if db.toolbarIconSize ~= tostring(toolbarIconSize) then
+      db.toolbarIconSize = tostring(toolbarIconSize)
+    end
+
     local legacyQuestSubcategoryID = tonumber(db.questCategoryID or db.questGroupID)
     local legacyQuestEnabled = legacyQuestSubcategoryID ~= nil
 
@@ -5063,6 +5072,28 @@ local function Initialize()
         end)
       end
 
+      local toolbarIconSize = pfUI.gui.CreateConfig(
+        function() end,
+        L.TOOLBAR_ICON_SIZE,
+        _G.pfUIBagTweaksDB,
+        "toolbarIconSize",
+        "dropdown",
+        { "8", "9", "10", "11", "12", "13", "14", "15", "16" }
+      )
+
+      if toolbarIconSize then
+        toolbarIconSize:EnableMouse(1)
+        toolbarIconSize:SetScript("OnEnter", function()
+          if not GameTooltip then return end
+          GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+          GameTooltip:SetText(L.TOOLBAR_ICON_SIZE_TOOLTIP)
+          GameTooltip:Show()
+        end)
+        toolbarIconSize:SetScript("OnLeave", function()
+          if GameTooltip then GameTooltip:Hide() end
+        end)
+      end
+
       local tracker = pfUI.bagtweaks and pfUI.bagtweaks.InventoryTracker
       if tracker then
         local store = tracker:EnsureStore()
@@ -5233,9 +5264,16 @@ local function ToolbarFontSize()
   return size
 end
 
+local function ToolbarConfiguredIconSize()
+  local value = _G.pfUIBagTweaksDB and tonumber(_G.pfUIBagTweaksDB.toolbarIconSize) or 10
+  if value < 8 then value = 8 end
+  if value > 16 then value = 16 end
+  return math.floor(value + .5)
+end
+
 local function ToolbarMetrics(bag)
   local close = bag and bag.close
-  local height = close and close:GetHeight() or 12
+  local currentHeight = close and close:GetHeight() or 12
   local border = 1
   local topInset = 1
 
@@ -5247,6 +5285,18 @@ local function ToolbarMetrics(bag)
 
   if border < 1 then border = 1 end
   if topInset < 1 then topInset = border end
+
+  local nativeHeight = currentHeight
+  if close then
+    if close.bagtweaks_toolbar_native_height == nil then
+      close.bagtweaks_toolbar_native_height = currentHeight
+    end
+    nativeHeight = tonumber(close.bagtweaks_toolbar_native_height) or currentHeight
+  end
+
+  local height = nativeHeight
+  local requestedHeight = ToolbarConfiguredIconSize() + border * 2
+  if requestedHeight > height then height = requestedHeight end
 
   return height, border, border * 3, topInset
 end
@@ -5368,10 +5418,10 @@ local function ToolbarSizeIcon(button, height, border)
   local icon = button and button.bagtweaks_toolbar_icon
   if not icon then return end
 
-  local size = (tonumber(height) or 12) - (tonumber(border) or 1) * 2
-  if size > 14 then size = 14 end
-  if size < 8 then size = 8 end
-  if height and size > height then size = height end
+  local size = ToolbarConfiguredIconSize()
+  local maximum = (tonumber(height) or 12) - (tonumber(border) or 1) * 2
+  if maximum < 1 then maximum = 1 end
+  if size > maximum then size = maximum end
 
   icon:ClearAllPoints()
   icon:SetWidth(size)
@@ -6277,9 +6327,17 @@ local function BankToolbarLayout()
     bank, buttons, height, border, gap, topInset
   )
 
+  local layoutChanged = false
+  if bank.bagtweaks_toolbar_row_height ~= height then
+    bank.bagtweaks_toolbar_row_height = height
+    layoutChanged = true
+  end
   if bank.bagtweaks_toolbar_extra_height ~= extraHeight then
     bank.bagtweaks_toolbar_extra_height = extraHeight
-    if pfUI.bagtweaks and pfUI.bagtweaks.Relayout then pfUI.bagtweaks.Relayout() end
+    layoutChanged = true
+  end
+  if layoutChanged and pfUI.bagtweaks and pfUI.bagtweaks.Relayout then
+    pfUI.bagtweaks.Relayout()
   end
 
   BankToolbarApplySearchState()
@@ -6397,9 +6455,17 @@ local function ToolbarLayout()
     bag, buttons, height, border, gap, topInset
   )
 
+  local layoutChanged = false
+  if bag.bagtweaks_toolbar_row_height ~= height then
+    bag.bagtweaks_toolbar_row_height = height
+    layoutChanged = true
+  end
   if bag.bagtweaks_toolbar_extra_height ~= extraHeight then
     bag.bagtweaks_toolbar_extra_height = extraHeight
-    if pfUI.bagtweaks and pfUI.bagtweaks.Relayout then pfUI.bagtweaks.Relayout() end
+    layoutChanged = true
+  end
+  if layoutChanged and pfUI.bagtweaks and pfUI.bagtweaks.Relayout then
+    pfUI.bagtweaks.Relayout()
   end
 
   ToolbarApplySearchState()
