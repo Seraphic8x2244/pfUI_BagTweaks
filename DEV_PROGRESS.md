@@ -621,8 +621,8 @@
 23. Current focused tooltip/popout/regression set is fully runtime-passed; continue the remaining replacement matrix.
 20. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
 19. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
-20. Rogue Pick Lock workflow test.
-21. Disenchant targeting-cursor / candidate-item hover discoverability.
+20. Rogue Pick Lock workflow test: **runtime PASS on stable 0.5.35**.
+21. Disenchant targeting-cursor / candidate-item hover discoverability: **runtime PASS on stable 0.5.35**.
 22. Remaining direct-toolbar edge-case checks.
 23. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
@@ -639,4 +639,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Have Gaia runtime-test stable `0.5.35` from `main`. Record any findings against release commit `8d538035b85c08bd1f91bee2acbf05484f56e61c`; the remaining unexercised replacement edge cases stay explicitly unpassed until observed.
+Continue ordinary Gaia use of stable `0.5.35` from `main`. Pick Lock and Disenchant edge-case checks are now runtime-passed; record any further findings against the stable release. The remaining unexercised bag-replacement edge cases stay explicitly unpassed until observed.
