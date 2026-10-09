@@ -70,6 +70,7 @@ local function Initialize()
     }
 
     local oldCreateBags = pfUI.bag.CreateBags
+    local oldCreateBagSlots = pfUI.bag.CreateBagSlots
     local oldUpdateBag = pfUI.bag.UpdateBag
 
     local headers = { backpack={}, bank={} }
@@ -114,25 +115,28 @@ local function Initialize()
     local legacyDefinitions = legacySchema and (db.categories or db.groups or {}) or nil
     local legacyNextSubcategoryID = legacySchema and (db.nextCategoryID or db.nextGroupID) or nil
 
+    -- Only write defaults/migrations when the stored value actually needs it.
+    -- A normal login with an already-valid DB should leave the SavedVariables
+    -- structure untouched.
     if legacySchema then
       db.subcategories = legacyDefinitions or {}
       db.categories = {}
     else
-      db.subcategories = db.subcategories or {}
-      db.categories = db.categories or {}
+      if db.subcategories == nil then db.subcategories = {} end
+      if db.categories == nil then db.categories = {} end
     end
 
-    db.groups = nil
-    db.rows = nil
+    if db.groups ~= nil then db.groups = nil end
+    if db.rows ~= nil then db.rows = nil end
 
     local nextSubcategoryID = tonumber(db.nextSubcategoryID or legacyNextSubcategoryID)
     if not nextSubcategoryID or nextSubcategoryID < 1 then nextSubcategoryID = 1 end
-    db.nextSubcategoryID = nextSubcategoryID
-    db.nextGroupID = nil
+    if db.nextSubcategoryID ~= nextSubcategoryID then db.nextSubcategoryID = nextSubcategoryID end
+    if db.nextGroupID ~= nil then db.nextGroupID = nil end
 
     local nextCategoryID = tonumber(db.nextCategoryID)
     if legacySchema or not nextCategoryID or nextCategoryID < 1 then nextCategoryID = 1 end
-    db.nextCategoryID = nextCategoryID
+    if db.nextCategoryID ~= nextCategoryID then db.nextCategoryID = nextCategoryID end
 
     if db.generalSort == nil then db.generalSort = "bag" end
     if db.generalReverse == nil then db.generalReverse = false end
@@ -140,17 +144,18 @@ local function Initialize()
     if db.accountSubcategories == nil then
       db.accountSubcategories = db.accountCategories or db.accountAssignments or db.assignments or {}
     end
-    db.accountCategories = nil
-    db.accountAssignments = nil
-    db.assignments = nil
+    if db.accountCategories ~= nil then db.accountCategories = nil end
+    if db.accountAssignments ~= nil then db.accountAssignments = nil end
+    if db.assignments ~= nil then db.assignments = nil end
 
     if db.characterSubcategories == nil then
       db.characterSubcategories = db.characterCategories or db.charAssignments or {}
     end
-    db.characterCategories = nil
-    db.charAssignments = nil
+    if db.characterCategories ~= nil then db.characterCategories = nil end
+    if db.charAssignments ~= nil then db.charAssignments = nil end
 
     if db.showEmptyCategories == nil then db.showEmptyCategories = true end
+    if db.autoResortDelay == nil then db.autoResortDelay = "3" end
 
     local legacyQuestSubcategoryID = tonumber(db.questCategoryID or db.questGroupID)
     local legacyQuestEnabled = legacyQuestSubcategoryID ~= nil
@@ -246,7 +251,7 @@ local function Initialize()
         subcategory.id = id
         db.nextSubcategoryID = id + 1
       else
-        subcategory.id = id
+        if subcategory.id ~= id then subcategory.id = id end
         if id >= db.nextSubcategoryID then db.nextSubcategoryID = id + 1 end
       end
 
@@ -272,7 +277,7 @@ local function Initialize()
         legacyQuestEnabled = true
         legacyQuestSystem = subcategory
       end
-      subcategory.quest = nil
+      if subcategory.quest ~= nil then subcategory.quest = nil end
 
       if subcategory.system == "quest" and not questSystem then questSystem = subcategory end
     end
@@ -282,8 +287,8 @@ local function Initialize()
     -- so its saved assignments do not become higher-priority manual overrides.
     if not questSystem and legacyQuestSystem then questSystem = legacyQuestSystem end
 
-    db.questCategoryID = nil
-    db.questGroupID = nil
+    if db.questCategoryID ~= nil then db.questCategoryID = nil end
+    if db.questGroupID ~= nil then db.questGroupID = nil end
     if db.questEnabled == nil then
       db.questEnabled = legacyQuestEnabled
     elseif db.questEnabled ~= true and db.questEnabled ~= false then
@@ -301,9 +306,9 @@ local function Initialize()
       db.nextSubcategoryID = db.nextSubcategoryID + 1
       table.insert(db.subcategories, questSystem)
     else
-      questSystem.scope = "account"
-      questSystem.owner = nil
-      questSystem.system = "quest"
+      if questSystem.scope ~= "account" then questSystem.scope = "account" end
+      if questSystem.owner ~= nil then questSystem.owner = nil end
+      if questSystem.system ~= "quest" then questSystem.system = "quest" end
     end
 
     if legacySchema then
@@ -335,7 +340,7 @@ local function Initialize()
         subcategories=ordered,
       })
       db.nextCategoryID = db.nextCategoryID + 1
-      db.schemaVersion = 2
+      if db.schemaVersion ~= 2 then db.schemaVersion = 2 end
     end
 
     local function NormalizeCategories()
@@ -353,12 +358,12 @@ local function Initialize()
           db.nextCategoryID = id + 1
         end
 
-        category.id = id
+        if category.id ~= id then category.id = id end
         seenCategoryIDs[id] = true
         if not category.name or Trim(category.name) == "" then
           category.name = string.format(L.DEFAULT_CATEGORY, id)
         end
-        category.subcategories = category.subcategories or {}
+        if category.subcategories == nil then category.subcategories = {} end
       end
 
       if table.getn(db.categories) == 0 then
@@ -383,7 +388,17 @@ local function Initialize()
           end
         end
 
-        category.subcategories = clean
+        local stored = category.subcategories
+        local changed = table.getn(stored) ~= table.getn(clean)
+        if not changed then
+          for n = 1, table.getn(clean) do
+            if stored[n] ~= clean[n] then
+              changed = true
+              break
+            end
+          end
+        end
+        if changed then category.subcategories = clean end
       end
 
       local fallback = db.categories[1]
@@ -395,7 +410,7 @@ local function Initialize()
         end
       end
 
-      db.schemaVersion = 2
+      if db.schemaVersion ~= 2 then db.schemaVersion = 2 end
     end
 
     local function ActiveCategories(categorized)
@@ -572,6 +587,2457 @@ local function Initialize()
       if not link then return nil end
       local _, _, id = string.find(link, "item:(%d+)")
       return tonumber(id)
+    end
+
+    -- Shared bag replacement transaction owner.
+    --
+    -- 0.5.17-dev introduced interaction/state/blocking UI; 0.5.18-dev and
+    -- 0.5.19-dev added planning plus sort/re-preflight; 0.5.20-dev and
+    -- 0.5.21-dev extended this same owner through carried/bank execution.
+    -- 0.5.22-dev through 0.5.31-dev iterated on a custom strict transaction
+    -- executor and then a partial Bagshui adaptation. Runtime proved that hybrid
+    -- still diverged from the known-good Vanilla pathway.
+    -- 0.5.32-dev removes the old physical executor and follows Bagshui's actual
+    -- MoveItem -> MoveItems retry queue -> delayed EquipBag callback semantics,
+    -- including EQUIP_BIND popup waiting. 0.5.33-dev changes UI cleanup only.
+    -- 0.5.34-dev extends Account Inventory to generic item hyperlinks.
+    -- 0.5.35-dev refreshes that tooltip hierarchy/colour treatment and shows
+    -- Bags/Bank/Keys detail only for the currently logged-in character.
+    local BagReplacement = {
+      candidate = nil,
+      potentialSource = nil,
+      active = nil,
+      overlays = {},
+      phases = {
+        select=true,
+        preflight=true,
+        sort=true,
+        repreflight=true,
+        evacuate=true,
+        equip=true,
+        refresh=true,
+        failed=true,
+      },
+    }
+
+    function BagReplacement:IsReplacementBag(bag, slot)
+      local link = GetContainerItemLink(bag, slot)
+      if not link then return false end
+
+      local itemID = ItemID(bag, slot)
+      local equipLoc
+
+      -- pfUI's Vanilla compatibility layer exposes complete item metadata
+      -- through C_Item.GetItemInfo even when the legacy global GetItemInfo()
+      -- returns nil for the same bag. Prefer the same API pfUI itself uses.
+      if itemID and G.C_Item and type(G.C_Item.GetItemInfo) == "function" then
+        local _, _, _, _, _, _, _, _, value = G.C_Item.GetItemInfo(itemID)
+        equipLoc = value
+      end
+
+      -- Preserve compatibility with clients that only expose the legacy API.
+      if not equipLoc or equipLoc == "" then
+        local _, _, _, _, _, _, _, _, value = GetItemInfo(itemID or link)
+        equipLoc = value
+      end
+      if (not equipLoc or equipLoc == "") and itemID then
+        local _, _, _, _, _, _, _, _, value = GetItemInfo(link)
+        equipLoc = value
+      end
+
+      return equipLoc == "INVTYPE_BAG" or equipLoc == "INVTYPE_QUIVER"
+    end
+
+    -- Return an item-family bit when the client exposes one. Vanilla 1.12 does
+    -- not require this API, so the planner treats it as an optional refinement
+    -- rather than a dependency.
+    function BagReplacement:ItemFamilyNumber(itemID, link)
+      local family
+
+      if G.C_Item and type(G.C_Item.GetItemFamily) == "function" then
+        local ok, value = pcall(G.C_Item.GetItemFamily, itemID or link)
+        if ok then family = tonumber(value) end
+      elseif type(G.GetItemFamily) == "function" then
+        local ok, value = pcall(G.GetItemFamily, itemID or link)
+        if ok then family = tonumber(value) end
+      end
+
+      if family and family > 0 then return family end
+      return nil
+    end
+
+    -- Describe an equipped container without depending on localized family
+    -- names. pfUI already knows whether a container is general-purpose. For a
+    -- specialty container, its own localized type/subtype pair is a stable
+    -- equality key within the running client: two Herb Bags (for example)
+    -- receive the same key regardless of the client's locale.
+    function BagReplacement:DescribeBag(bag)
+      if bag == 0 or bag == -1 then
+        return { bag=bag, known=true, general=true, familyNumber=0, familyKey="GENERAL" }
+      end
+
+      if bag == -2 then
+        return { bag=bag, known=true, general=false, familyKey="KEYRING" }
+      end
+
+      local invSlot
+      if type(ContainerIDToInventoryID) == "function" then
+        invSlot = ContainerIDToInventoryID(bag)
+      end
+
+      local link
+      if invSlot and type(GetInventoryItemLink) == "function" then
+        link = GetInventoryItemLink("player", invSlot)
+      end
+
+      local itemID
+      if link then
+        local _, _, parsed = string.find(link, "item:(%d+)")
+        itemID = tonumber(parsed)
+      end
+
+      local pfFamily
+      if pfUI.api and type(pfUI.api.GetBagFamily) == "function" then
+        local ok, value = pcall(pfUI.api.GetBagFamily, bag)
+        if ok then pfFamily = value end
+      end
+
+      if pfFamily == "BAG" then
+        return {
+          bag=bag,
+          known=true,
+          general=true,
+          familyNumber=0,
+          familyKey="GENERAL",
+          itemID=itemID,
+          link=link,
+        }
+      end
+
+      if not link then
+        return { bag=bag, known=false, general=false }
+      end
+
+      local _, _, _, _, _, itemType, itemSubType = GetItemInfo(link)
+      if not itemType or not itemSubType then
+        return { bag=bag, known=false, general=false, itemID=itemID, link=link }
+      end
+
+      return {
+        bag=bag,
+        known=true,
+        general=false,
+        familyNumber=self:ItemFamilyNumber(itemID, link),
+        familyKey=tostring(itemType) .. "\031" .. tostring(itemSubType),
+        itemID=itemID,
+        link=link,
+      }
+    end
+
+    function BagReplacement:DestinationAccepts(item, destination)
+      local family = destination and destination.family
+      if not family or not family.known then return false end
+      if family.general then return true end
+
+      if item.familyNumber and family.familyNumber
+         and item.familyNumber == family.familyNumber then
+        return true
+      end
+
+      if item.familyKey and family.familyKey
+         and item.familyKey == family.familyKey then
+        return true
+      end
+
+      return false
+    end
+
+    function BagReplacement:SnapshotTargetItem(bag, slot, targetFamily)
+      local link = GetContainerItemLink(bag, slot)
+      if not link then return nil end
+
+      local texture, count, locked = GetContainerItemInfo(bag, slot)
+      local itemID = ItemID(bag, slot)
+      local familyNumber = self:ItemFamilyNumber(itemID, link)
+      local familyKey
+
+      -- Anything already inside a specialty bag is necessarily compatible
+      -- with that bag family. This gives ordinary 1.12 clients an exact,
+      -- locale-independent family inference without requiring ClassicAPI.
+      if targetFamily and targetFamily.known and not targetFamily.general then
+        familyKey = targetFamily.familyKey
+        if not familyNumber then familyNumber = targetFamily.familyNumber end
+      end
+
+      return {
+        bag=bag,
+        slot=slot,
+        itemID=itemID,
+        link=link,
+        count=tonumber(count) or 1,
+        locked=locked and true or false,
+        texture=texture,
+        familyNumber=familyNumber,
+        familyKey=familyKey,
+      }
+    end
+
+    function BagReplacement:LocateReplacement(active, preferCursor)
+      local function Matches(bag, slot)
+        local itemID = ItemID(bag, slot)
+        if not itemID or itemID ~= active.replacementItemID then return false end
+
+        local link = GetContainerItemLink(bag, slot)
+        if active.replacementLink and link and link ~= active.replacementLink then
+          return false
+        end
+
+        return true
+      end
+
+      local cursor = type(CursorHasItem) == "function" and CursorHasItem() and true or false
+
+      -- During initial preflight, the cursor is authoritative. Vanilla/ClassicAPI
+      -- can continue reporting the picked-up item in its source slot while it is
+      -- also on the cursor; treating that stale source-slot view as physical
+      -- storage skips replacement-return and immediately trips the cursor guard.
+      if preferCursor and cursor then
+        return {
+          itemID=active.replacementItemID,
+          link=active.replacementLink,
+          originBag=active.sourceBag,
+          originSlot=active.sourceSlot,
+          insideTarget=active.sourceBag == active.targetBag,
+          location="cursor",
+        }
+      end
+
+      -- Outside initial planning, prefer verified physical storage while the
+      -- remembered source still contains the selected bag. After pfUI Sort,
+      -- scan the affected physical inventory because the replacement itself may
+      -- have been repacked into another slot.
+      if Matches(active.sourceBag, active.sourceSlot) then
+        return {
+          itemID=active.replacementItemID,
+          link=active.replacementLink,
+          originBag=active.sourceBag,
+          originSlot=active.sourceSlot,
+          bag=active.sourceBag,
+          slot=active.sourceSlot,
+          insideTarget=active.sourceBag == active.targetBag,
+          location="container",
+        }
+      end
+
+      if cursor then
+        return {
+          itemID=active.replacementItemID,
+          link=active.replacementLink,
+          originBag=active.sourceBag,
+          originSlot=active.sourceSlot,
+          insideTarget=active.sourceBag == active.targetBag,
+          location="cursor",
+        }
+      end
+
+      local bags = ViewBags(active.view) or {}
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+        local slots = tonumber(GetContainerNumSlots(bag)) or 0
+        for slot = 1, slots do
+          if Matches(bag, slot) then
+            return {
+              itemID=active.replacementItemID,
+              link=active.replacementLink,
+              originBag=active.sourceBag,
+              originSlot=active.sourceSlot,
+              bag=bag,
+              slot=slot,
+              insideTarget=bag == active.targetBag,
+              location="container",
+            }
+          end
+        end
+      end
+
+      return {
+        itemID=active.replacementItemID,
+        link=active.replacementLink,
+        originBag=active.sourceBag,
+        originSlot=active.sourceSlot,
+        insideTarget=false,
+        location="unknown",
+      }
+    end
+
+    function BagReplacement:BuildPreflightPlan()
+      local active = self.active
+      if not active then return nil end
+
+      local targetFamily = self:DescribeBag(active.targetBag)
+      local replacement = self:LocateReplacement(active, true)
+      local plan = {
+        view=active.view,
+        targetBag=active.targetBag,
+        targetFamily=targetFamily,
+        replacement=replacement,
+        targetItems={},
+        candidateDestinations={},
+        moves={},
+        replacementStage=nil,
+        missingSlots=0,
+        possible=false,
+        needsSort=false,
+      }
+
+      local targetSlots = tonumber(GetContainerNumSlots(active.targetBag)) or 0
+      if targetSlots <= 0 then
+        plan.reason = "target-unavailable"
+        plan.needsSort = false
+        return plan
+      end
+
+      if replacement.location == "unknown" then
+        plan.reason = "replacement-unavailable"
+        plan.needsSort = false
+        return plan
+      end
+
+      for slot = 1, targetSlots do
+        -- If the replacement originated inside the target, that source slot is
+        -- represented separately even if a client leaves the cursor/source
+        -- state visible until the drop target is clicked.
+        local isReplacementOrigin = replacement.insideTarget
+          and ((replacement.location == "container" and slot == replacement.slot)
+            or (replacement.location == "cursor" and slot == replacement.originSlot))
+
+        if not isReplacementOrigin then
+          local item = self:SnapshotTargetItem(active.targetBag, slot, targetFamily)
+          if item then table.insert(plan.targetItems, item) end
+        end
+      end
+
+      local bags = ViewBags(active.view) or {}
+      local general = {}
+      local specialty = {}
+
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+
+        if bag ~= active.targetBag then
+          local family = self:DescribeBag(bag)
+          local slots = tonumber(GetContainerNumSlots(bag)) or 0
+
+          if family.known and slots > 0 then
+            for slot = 1, slots do
+              local reservedOrigin = replacement.location == "cursor"
+                and bag == replacement.originBag and slot == replacement.originSlot
+              if not reservedOrigin and not GetContainerItemLink(bag, slot) then
+                local destination = { bag=bag, slot=slot, family=family }
+                table.insert(plan.candidateDestinations, destination)
+                if family.general then
+                  table.insert(general, destination)
+                else
+                  table.insert(specialty, destination)
+                end
+              end
+            end
+          end
+        end
+      end
+
+      -- A cursor-held replacement that came from outside the target can be
+      -- returned to its own origin before evacuation. A replacement that
+      -- originated inside the target always needs a general-purpose external
+      -- staging slot: it clears the target for evacuation and provides a stable
+      -- landing point for the old equipped bag during the final carried swap.
+      if replacement.insideTarget then
+        if table.getn(general) > 0 then
+          plan.replacementStage = general[1]
+          table.remove(general, 1)
+        else
+          plan.missingSlots = plan.missingSlots + 1
+          plan.stageMissing = true
+        end
+      end
+
+      local remaining = {}
+
+      -- Use matching specialty capacity first for family-known items. This
+      -- preserves general slots for items whose family cannot be proven by the
+      -- native 1.12 API surface.
+      for i = 1, table.getn(plan.targetItems) do
+        local item = plan.targetItems[i]
+        local destination
+
+        if item.familyNumber or item.familyKey then
+          for n = 1, table.getn(specialty) do
+            if self:DestinationAccepts(item, specialty[n]) then
+              destination = specialty[n]
+              table.remove(specialty, n)
+              break
+            end
+          end
+        end
+
+        if destination then
+          table.insert(plan.moves, {
+            sourceBag=item.bag,
+            sourceSlot=item.slot,
+            itemID=item.itemID,
+            link=item.link,
+            count=item.count,
+            destinationBag=destination.bag,
+            destinationSlot=destination.slot,
+          })
+        else
+          table.insert(remaining, item)
+        end
+      end
+
+      for i = 1, table.getn(remaining) do
+        local item = remaining[i]
+        local destination = general[1]
+
+        if destination then
+          table.remove(general, 1)
+          table.insert(plan.moves, {
+            sourceBag=item.bag,
+            sourceSlot=item.slot,
+            itemID=item.itemID,
+            link=item.link,
+            count=item.count,
+            destinationBag=destination.bag,
+            destinationSlot=destination.slot,
+          })
+        else
+          plan.missingSlots = plan.missingSlots + 1
+        end
+      end
+
+      plan.emptyTarget = table.getn(plan.targetItems) == 0
+      plan.possible = plan.missingSlots == 0
+      plan.needsSort = not plan.possible
+      if not plan.possible then plan.reason = "insufficient-compatible-space" end
+
+      return plan
+    end
+
+    function BagReplacement:Preflight()
+      if not self.active then return nil end
+      self.active.phase = "preflight"
+      self.active.ready = false
+      local plan = self:BuildPreflightPlan()
+      self.active.plan = plan
+      return plan
+    end
+
+    function BagReplacement:IsViewBag(view, bag)
+      local bags = ViewBags(view) or {}
+      for i = 1, table.getn(bags) do
+        if bags[i] == bag then return true end
+      end
+      return false
+    end
+
+    function BagReplacement:InventorySignature(view)
+      local parts = {}
+      local bags = ViewBags(view) or {}
+
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+        local slots = tonumber(GetContainerNumSlots(bag)) or 0
+        table.insert(parts, tostring(bag) .. "=" .. tostring(slots))
+
+        for slot = 1, slots do
+          local _, count, locked = GetContainerItemInfo(bag, slot)
+          table.insert(parts,
+            tostring(bag) .. ":" .. tostring(slot)
+            .. ":" .. tostring(ItemID(bag, slot) or 0)
+            .. ":" .. tostring(tonumber(count) or 0)
+            .. ":" .. (locked and "1" or "0")
+          )
+        end
+      end
+
+      return table.concat(parts, "|")
+    end
+
+    function BagReplacement:InventoryUnlocked(view)
+      local bags = ViewBags(view) or {}
+
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+        local slots = tonumber(GetContainerNumSlots(bag)) or 0
+        for slot = 1, slots do
+          local _, _, locked = GetContainerItemInfo(bag, slot)
+          if locked then return false end
+        end
+      end
+
+      return true
+    end
+
+    function BagReplacement:PfUISortBusy()
+      local sorter = pfUI.api and pfUI.api.libbagsort
+      return sorter and sorter.bagList ~= nil or false
+    end
+
+    function BagReplacement:MarkReady(plan)
+      if not self.active or not plan or not plan.possible then return plan end
+      self.active.phase = "repreflight"
+      self.active.plan = plan
+      self.active.ready = true
+      self:ShowStatus(L.BAG_SWAP_PREPARING or "Preparing bag swap...", L.CANCEL or "Cancel")
+
+      -- Carried and purchased bank bag targets enter the same verified
+      -- transaction engine. View-specific differences are isolated to the
+      -- target-availability/inventory-slot adapter below.
+      self:BeginTransaction(plan)
+
+      return plan
+    end
+
+    function BagReplacement:RePreflight()
+      if not self.active then return nil end
+      self.active.phase = "repreflight"
+      self.active.ready = false
+
+      local plan = self:BuildPreflightPlan()
+      self.active.plan = plan
+
+      if plan and plan.possible then
+        return self:MarkReady(plan)
+      end
+
+      self:Fail(plan and plan.missingSlots or nil)
+      return plan
+    end
+
+    function BagReplacement:InvokePfUISort()
+      local active = self.active
+      if not active then return nil end
+
+      local frame = ViewFrame(active.view)
+      local sortButton = frame and frame.sort
+      local sortFunc = sortButton and sortButton.GetScript and sortButton:GetScript("OnClick")
+      if type(sortFunc) ~= "function" then return nil end
+
+      -- Sorting with an item on the cursor is not a valid pfUI sort state.
+      -- Returning the selected replacement to its source is cleanup of the
+      -- click/drag interaction, not evacuation or equipment execution.
+      if type(CursorHasItem) == "function" and CursorHasItem() then
+        if type(ClearCursor) ~= "function" then return nil end
+        ClearCursor()
+        if CursorHasItem() then return nil end
+      end
+
+      active.sortBeforeSignature = self:InventorySignature(active.view)
+      active.sortEventCount = 0
+      active.sortEventArmed = false
+      active.sortObservedBusy = false
+      active.sortObservedLocked = false
+      active.sortObservedImmediateChange = false
+
+      local ok = pcall(sortFunc)
+      if not ok or not self.active or self.active ~= active then return nil end
+
+      local after = self:InventorySignature(active.view)
+      active.sortObservedBusy = self:PfUISortBusy()
+      active.sortObservedLocked = not self:InventoryUnlocked(active.view)
+      active.sortObservedImmediateChange = after ~= active.sortBeforeSignature
+      active.sortEventArmed = true
+
+      -- A true no-op sort launches no asynchronous inventory work and therefore
+      -- produces no inventory event to resume from. Only this positively idle,
+      -- zero-mutation case completes synchronously. Any observed/pending sort
+      -- mutation must resume through OnInventoryUpdated below.
+      if not active.sortObservedBusy
+         and not active.sortObservedLocked
+         and not active.sortObservedImmediateChange then
+        return "complete"
+      end
+
+      return "pending"
+    end
+
+    function BagReplacement:BeginSort(plan)
+      if not self.active then return nil end
+      self.active.ready = false
+      self:SetPhase("sort", L.BAG_SWAP_SORTING or "Sorting bags...")
+
+      local state = self:InvokePfUISort()
+      if state == "complete" then
+        return self:RePreflight()
+      elseif state == "pending" then
+        return plan
+      end
+
+      self:Fail(plan and plan.missingSlots or nil)
+      return plan
+    end
+
+    function BagReplacement:Prepare()
+      local plan = self:Preflight()
+      if not plan then return nil end
+
+      if plan.possible then
+        return self:MarkReady(plan)
+      end
+
+      if plan.needsSort then
+        return self:BeginSort(plan)
+      end
+
+      self:Fail(plan.missingSlots)
+      return plan
+    end
+
+
+    function BagReplacement:OnInventoryUpdated(bag)
+      local active = self.active
+      if not active or active.phase == "failed" then return end
+
+      if active.phase == "sort" then
+        if not active.sortEventArmed or not self:IsViewBag(active.view, bag) then return end
+
+        active.sortEventCount = (active.sortEventCount or 0) + 1
+
+        -- pfUI Sort remains event/state verified. Physical replacement execution
+        -- no longer consumes BAG_UPDATE as a step-by-step transaction signal.
+        if self:PfUISortBusy() then return end
+        if not self:InventoryUnlocked(active.view) then return end
+
+        active.sortCompletedSignature = self:InventorySignature(active.view)
+        self:RePreflight()
+      end
+    end
+
+    function BagReplacement:TargetAvailable(active)
+      if not active or not active.targetBag then return false end
+
+      if active.view == "backpack" then
+        return active.targetBag >= 1 and active.targetBag <= 4
+      end
+
+      if active.view ~= "bank" then return false end
+
+      local frame = ViewFrame("bank")
+      if not frame or not frame.IsShown or not frame:IsShown() then return false end
+      if type(GetNumBankSlots) ~= "function" then return false end
+
+      local purchased = tonumber(GetNumBankSlots()) or 0
+      local bankIndex = active.targetBag - 4
+      if bankIndex < 1 or bankIndex > purchased then return false end
+
+      return (tonumber(GetContainerNumSlots(active.targetBag)) or 0) > 0
+    end
+
+    function BagReplacement:StopForUnavailableTarget()
+      local active = self.active
+      if not active then return false end
+      if active.view == "bank" then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_BANK_ACCESS or
+          "Bag replacement stopped because bank access was lost."
+        )
+      end
+      return self:SafeStop(
+        L.BAG_SWAP_STOP_VIEW_CLOSED or
+        "Bag replacement stopped because the bag view was closed."
+      )
+    end
+
+    function BagReplacement:TargetInventorySlot(active)
+      if not self:TargetAvailable(active) then return nil end
+
+      -- Vanilla's BankFrameItemButtonBag_OnClick resolves bank bag buttons via
+      -- BankButtonIDToInvSlotID(id, 1) before calling PutItemInBag. Match that
+      -- native path for bank targets; carried targets keep ContainerIDToInventoryID.
+      if active.view == "bank" and type(BankButtonIDToInvSlotID) == "function" then
+        return BankButtonIDToInvSlotID(active.targetBag, 1)
+      end
+
+      if type(ContainerIDToInventoryID) == "function" then
+        return ContainerIDToInventoryID(active.targetBag)
+      end
+
+      return nil
+    end
+
+    -- Physical execution follows Bagshui's known-good Vanilla semantics:
+    -- ClearCursor before moves, temporarily neutralize modifier-key hooks,
+    -- retry locked/rejected container moves with 0.15/0.5/1.0s queue delays,
+    -- delay between empty/equip phases, equip with EquipCursorItem(), and wait
+    -- for EQUIP_BIND to close before consuming the cursor result.
+    --
+    -- Intentional BagTweaks differences are outside these physical semantics:
+    -- destination selection comes from the existing compatibility-aware planner,
+    -- bank targets use TargetInventorySlot(), the overlay remains BagTweaks-owned,
+    -- and evacuated items are NOT refilled into the newly equipped bag.
+    function BagReplacement:ClearSwapSchedule()
+      self.swapScheduledAt = nil
+      self.swapScheduledCallback = nil
+      if self.swapDriver then self.swapDriver:Hide() end
+    end
+
+    function BagReplacement:QueueSwap(delay, callback)
+      if not self.active or type(callback) ~= "function" then return false end
+      self.swapScheduledAt = (GetTime and GetTime() or 0) + (tonumber(delay) or 0)
+      self.swapScheduledCallback = callback
+
+      if not self.swapDriver then
+        self.swapDriver = CreateFrame("Frame")
+        self.swapDriver:SetScript("OnUpdate", function()
+          local due = BagReplacement.swapScheduledAt
+          if not due then
+            this:Hide()
+            return
+          end
+
+          local now = GetTime and GetTime() or 0
+          if now < due then return end
+
+          local queued = BagReplacement.swapScheduledCallback
+          BagReplacement.swapScheduledAt = nil
+          BagReplacement.swapScheduledCallback = nil
+          this:Hide()
+
+          if queued and BagReplacement.active then queued() end
+        end)
+        self.swapDriver:Hide()
+      end
+
+      self.swapDriver:Show()
+      return true
+    end
+
+    function BagReplacement:SwapWaitForStaticPopupClose(dialogName, timeoutSec, callback, startedAt)
+      timeoutSec = tonumber(timeoutSec) or 30
+      local visible = type(StaticPopup_FindVisible) == "function"
+        and StaticPopup_FindVisible(dialogName)
+
+      if visible then
+        local now = GetTime and GetTime() or 0
+        startedAt = startedAt or now
+
+        if now - startedAt >= timeoutSec then
+          if type(callback) == "function" then callback(false) end
+          return true
+        end
+
+        return self:QueueSwap(0.1, function()
+          BagReplacement:SwapWaitForStaticPopupClose(
+            dialogName,
+            timeoutSec,
+            callback,
+            startedAt
+          )
+        end)
+      end
+
+      if type(callback) == "function" then callback(true) end
+      return false
+    end
+
+    function BagReplacement:SwapMoveItem(source, target, onComplete)
+      if not source or source.bag == nil or source.slot == nil or not target then
+        if type(onComplete) == "function" then onComplete(false) end
+        return false
+      end
+
+      ClearCursor()
+
+      local oldAlt = G.IsAltKeyDown
+      local oldControl = G.IsControlKeyDown
+      local oldShift = G.IsShiftKeyDown
+      local function ReturnFalse() return false end
+
+      G.IsAltKeyDown = ReturnFalse
+      G.IsControlKeyDown = ReturnFalse
+      G.IsShiftKeyDown = ReturnFalse
+
+      PickupContainerItem(source.bag, source.slot)
+
+      local equip = target.inventorySlot ~= nil
+      if equip then
+        EquipCursorItem(target.inventorySlot)
+      else
+        PickupContainerItem(target.bag, target.slot)
+      end
+
+      G.IsAltKeyDown = oldAlt
+      G.IsControlKeyDown = oldControl
+      G.IsShiftKeyDown = oldShift
+
+      if equip then
+        return self:SwapWaitForStaticPopupClose(
+          "EQUIP_BIND",
+          300,
+          function(waitSuccess)
+            if type(onComplete) == "function" then
+              if waitSuccess == false then
+                onComplete(false)
+              else
+                onComplete(not CursorHasItem())
+              end
+            end
+          end
+        )
+      end
+
+      if type(onComplete) == "function" then
+        onComplete(not CursorHasItem())
+      end
+      return true
+    end
+
+    function BagReplacement:SwapMoveItems(moves, onComplete, onProgress, recordMoves)
+      local active = self.active
+      if not active then return false end
+
+      active.swapQueue = {}
+      for i = 1, table.getn(moves or {}) do
+        table.insert(active.swapQueue, moves[i])
+      end
+
+      active.swapQueueSuccess = true
+      active.swapQueueTotal = table.getn(active.swapQueue)
+      active.swapQueueOnComplete = onComplete
+      active.swapQueueOnProgress = onProgress
+      active.swapQueueRecordMoves = recordMoves and true or false
+      active.swapMoveRetryCount = 0
+
+      return self:SwapProcessMoveQueue()
+    end
+
+    function BagReplacement:SwapProcessMoveQueue()
+      local active = self.active
+      if not active or active.phase == "failed" then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+
+      local queue = active.swapQueue or {}
+      if table.getn(queue) <= 0 then
+        local success = active.swapQueueSuccess ~= false
+        local callback = active.swapQueueOnComplete
+
+        active.swapQueue = nil
+        active.swapQueueOnComplete = nil
+        active.swapQueueOnProgress = nil
+        active.swapQueueRecordMoves = nil
+        active.swapMoveRetryCount = 0
+
+        if type(callback) == "function" then callback(success) end
+        return true
+      end
+
+      local move = queue[1]
+      local _, _, sourceLocked = GetContainerItemInfo(move.sourceBag, move.sourceSlot)
+      local _, _, targetLocked = GetContainerItemInfo(move.destinationBag, move.destinationSlot)
+      local moveSucceeded = false
+
+      if not sourceLocked and not targetLocked then
+        self:SwapMoveItem(
+          { bag=move.sourceBag, slot=move.sourceSlot },
+          { bag=move.destinationBag, slot=move.destinationSlot },
+          function(success)
+            moveSucceeded = success and true or false
+          end
+        )
+      end
+
+      local delay = 0.15
+
+      if moveSucceeded then
+        if active.swapQueueRecordMoves then
+          active.swapMoved = active.swapMoved or {}
+          table.insert(active.swapMoved, move)
+        end
+
+        if move.replacementStage then
+          active.swapSourceBag = move.destinationBag
+          active.swapSourceSlot = move.destinationSlot
+        end
+
+        table.remove(queue, 1)
+        active.swapMoveRetryCount = 0
+
+        if type(active.swapQueueOnProgress) == "function" then
+          active.swapQueueOnProgress(
+            (active.swapQueueTotal or 0) - table.getn(queue),
+            active.swapQueueTotal or 0,
+            move
+          )
+        end
+      else
+        if (active.swapMoveRetryCount or 0) < 5 then
+          delay = 0.5
+          if (active.swapMoveRetryCount or 0) > 1 then delay = 1.0 end
+          active.swapMoveRetryCount = (active.swapMoveRetryCount or 0) + 1
+        else
+          active.swapQueueSuccess = false
+          active.swapMoveRetryCount = 0
+          table.remove(queue, 1)
+
+          if type(active.swapQueueOnProgress) == "function" then
+            active.swapQueueOnProgress(
+              (active.swapQueueTotal or 0) - table.getn(queue),
+              active.swapQueueTotal or 0,
+              move
+            )
+          end
+        end
+      end
+
+      return self:QueueSwap(delay, function()
+        BagReplacement:SwapProcessMoveQueue()
+      end)
+    end
+
+    function BagReplacement:SwapRecoveryMoves()
+      local active = self.active
+      local recovery = {}
+      if not active then return recovery end
+
+      local moved = active.swapMoved or {}
+      for i = table.getn(moved), 1, -1 do
+        local move = moved[i]
+        table.insert(recovery, {
+          sourceBag=move.destinationBag,
+          sourceSlot=move.destinationSlot,
+          destinationBag=move.sourceBag,
+          destinationSlot=move.sourceSlot,
+        })
+      end
+      return recovery
+    end
+
+    function BagReplacement:SwapRecover(reason)
+      local active = self.active
+      if not active then return false end
+
+      local recovery = self:SwapRecoveryMoves()
+      ClearCursor()
+
+      if table.getn(recovery) <= 0 then
+        return self:SafeStop(reason)
+      end
+
+      return self:SwapMoveItems(
+        recovery,
+        function()
+          BagReplacement:SafeStop(reason)
+        end,
+        nil,
+        false
+      )
+    end
+
+    function BagReplacement:SwapAfterEvacuation(success)
+      if not self.active then return false end
+
+      if success == false then
+        return self:SwapRecover(
+          L.BAG_SWAP_STOP_MOVE_REJECTED or
+          "A bag replacement move was rejected after several retries."
+        )
+      end
+
+      return self:QueueSwap(0.15, function()
+        BagReplacement:SwapEquip()
+      end)
+    end
+
+    function BagReplacement:SwapEquip()
+      local active = self.active
+      if not active or active.phase == "failed" then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+
+      self:SetPhase("equip", L.BAG_SWAP_EQUIPPING or "Equipping new bag...")
+
+      local sourceBag = active.swapSourceBag
+      local sourceSlot = active.swapSourceSlot
+
+      if sourceBag == nil or sourceSlot == nil then
+        local replacement = self:LocateReplacement(active)
+        if replacement.location == "container" then
+          sourceBag = replacement.bag
+          sourceSlot = replacement.slot
+        else
+          sourceBag = replacement.originBag
+          sourceSlot = replacement.originSlot
+        end
+      end
+
+      if sourceBag == nil or sourceSlot == nil then
+        return self:SwapRecover(
+          L.BAG_SWAP_STOP_EQUIP_REJECTED or
+          "The new bag could not be equipped."
+        )
+      end
+
+      active.swapSourceBag = sourceBag
+      active.swapSourceSlot = sourceSlot
+
+      return self:SwapMoveItem(
+        { bag=sourceBag, slot=sourceSlot },
+        { inventorySlot=active.targetInventorySlot },
+        function(success)
+          if not BagReplacement.active then return end
+
+          if success == false then
+            BagReplacement:SwapRecover(
+              L.BAG_SWAP_STOP_EQUIP_REJECTED or
+              "The new bag could not be equipped."
+            )
+            return
+          end
+
+          BagReplacement:QueueSwap(0.15, function()
+            BagReplacement:SwapFinish()
+          end)
+        end
+      )
+    end
+
+    function BagReplacement:SwapFinish()
+      local active = self.active
+      if not active then return false end
+
+      local view = active.view
+      active.phase = "refresh"
+      self:ClearSwapSchedule()
+      self:Cancel(false)
+
+      if pfUI.bag and type(pfUI.bag.CreateBags) == "function" then
+        if view == "bank" then
+          pfUI.bag:CreateBags("bank")
+        else
+          pfUI.bag:CreateBags()
+        end
+      else
+        RequestRelayout()
+      end
+      return true
+    end
+
+    function BagReplacement:BeginTransaction(plan)
+      local active = self.active
+      if not active then return false end
+      if not self:TargetAvailable(active) then return self:StopForUnavailableTarget() end
+      if not active.ready or active.plan ~= plan or not plan or not plan.possible then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
+
+      local inventorySlot = self:TargetInventorySlot(active)
+      local oldBagLink = inventorySlot and GetInventoryItemLink("player", inventorySlot)
+      if not inventorySlot or not oldBagLink then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
+
+      active.targetInventorySlot = inventorySlot
+      active.execution = "bagshui"
+      active.pending = nil
+      active.ready = false
+      active.swapMoves = {}
+      active.swapMoved = {}
+      active.swapSourceBag = nil
+      active.swapSourceSlot = nil
+
+      local replacement = plan.replacement
+      if not replacement then
+        return self:SafeStop(
+          L.BAG_SWAP_STOP_STATE_CHANGED or
+          "Inventory changed unexpectedly during bag replacement."
+        )
+      end
+
+      if replacement.insideTarget then
+        local stage = plan.replacementStage
+        if not stage then
+          return self:SafeStop(
+            L.BAG_SWAP_NOT_ENOUGH_SPACE or
+            "Not enough space to replace this bag."
+          )
+        end
+
+        table.insert(active.swapMoves, {
+          sourceBag=replacement.location == "container" and replacement.bag or replacement.originBag,
+          sourceSlot=replacement.location == "container" and replacement.slot or replacement.originSlot,
+          destinationBag=stage.bag,
+          destinationSlot=stage.slot,
+          replacementStage=true,
+        })
+      elseif replacement.location == "container" then
+        active.swapSourceBag = replacement.bag
+        active.swapSourceSlot = replacement.slot
+      else
+        active.swapSourceBag = replacement.originBag
+        active.swapSourceSlot = replacement.originSlot
+      end
+
+      local moves = plan.moves or {}
+      for i = 1, table.getn(moves) do
+        table.insert(active.swapMoves, moves[i])
+      end
+
+      self:ClearSwapSchedule()
+      return self:QueueSwap(0.15, function()
+        local current = BagReplacement.active
+        if not current then return end
+
+        BagReplacement:SwapMoveItems(
+          current.swapMoves,
+          function(success)
+            BagReplacement:SwapAfterEvacuation(success)
+          end,
+          function(index, total)
+            BagReplacement:SetPhase(
+              "evacuate",
+              string.format(L.BAG_SWAP_MOVING or "Moving items %d / %d...", index, total)
+            )
+          end,
+          true
+        )
+      end)
+    end
+
+    function BagReplacement:RememberSource(bag, slot)
+      if self.active then return end
+
+      -- Do not overwrite the remembered source while another cursor item is
+      -- already being carried. This keeps drag/drop and click/click semantics
+      -- tied to the item that actually started the cursor interaction.
+      if type(CursorHasItem) == "function" and CursorHasItem() then return end
+
+      self.candidate = nil
+      self.potentialSource = nil
+
+      local link = GetContainerItemLink(bag, slot)
+      if not link then return end
+
+      -- Keep the raw pickup origin even when Vanilla has not populated
+      -- GetItemInfo() metadata yet. The native non-empty-bag error is an
+      -- authoritative signal that the cursor item was being used as a bag,
+      -- and this source snapshot lets that fallback enter the same transaction.
+      self.potentialSource = {
+        bag=bag,
+        slot=slot,
+        itemID=ItemID(bag, slot),
+        link=link,
+      }
+
+      if not self:IsReplacementBag(bag, slot) then return end
+
+      self.candidate = {
+        bag=self.potentialSource.bag,
+        slot=self.potentialSource.slot,
+        itemID=self.potentialSource.itemID,
+        link=self.potentialSource.link,
+      }
+    end
+
+    function BagReplacement:FindNativeErrorTarget()
+      if type(IsInventoryItemLocked) ~= "function" then return nil end
+
+      local foundView
+      local foundBag
+
+      local function Check(view, targetBag)
+        local inventorySlot = BagReplacement:TargetInventorySlot({
+          view=view,
+          targetBag=targetBag,
+        })
+        if inventorySlot and IsInventoryItemLocked(inventorySlot) then
+          if foundBag then return false end
+          foundView = view
+          foundBag = targetBag
+        end
+        return true
+      end
+
+      local backpack = ViewFrame("backpack")
+      if backpack and backpack.IsShown and backpack:IsShown() then
+        for targetBag = 1, 4 do
+          if not Check("backpack", targetBag) then return nil end
+        end
+      end
+
+      local bank = ViewFrame("bank")
+      if bank and bank.IsShown and bank:IsShown() then
+        local purchased = tonumber(GetNumBankSlots and GetNumBankSlots() or 0) or 0
+        for index = 1, purchased do
+          if not Check("bank", index + 4) then return nil end
+        end
+      end
+
+      return foundView, foundBag
+    end
+
+    function BagReplacement:FindLockedSource(view)
+      local bags = ViewBags(view) or {}
+      local found
+
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+        local slots = tonumber(GetContainerNumSlots(bag)) or 0
+        for slot = 1, slots do
+          local link = GetContainerItemLink(bag, slot)
+          local _, _, locked = GetContainerItemInfo(bag, slot)
+          if link and locked then
+            if found then return nil end
+            found = {
+              bag=bag,
+              slot=slot,
+              itemID=ItemID(bag, slot),
+              link=link,
+            }
+          end
+        end
+      end
+
+      return found
+    end
+
+    function BagReplacement:OnNativeNonEmptyBagError(message)
+      if self.active then return false end
+
+      local expected = ERR_DESTROY_NONEMPTY_BAG
+      if type(TEXT) == "function" and expected then expected = TEXT(expected) end
+      if message ~= expected and message ~= ERR_DESTROY_NONEMPTY_BAG then return false end
+      if type(CursorHasItem) ~= "function" or not CursorHasItem() then return false end
+
+      local view, targetBag = self:FindNativeErrorTarget()
+      if not view or not targetBag then return false end
+
+      local source = self.potentialSource or self:FindLockedSource(view)
+      if not source or not source.link then return false end
+
+      self.candidate = {
+        bag=source.bag,
+        slot=source.slot,
+        itemID=source.itemID,
+        link=source.link,
+      }
+
+      if self:Start(view, targetBag) then
+        self.potentialSource = nil
+        return true
+      end
+
+      self.candidate = nil
+      return false
+    end
+
+    function BagReplacement:EnsureOverlay(view)
+      local parent = ViewFrame(view)
+      if not parent then return nil end
+
+      local overlay = self.overlays[view]
+      if overlay then return overlay end
+
+      overlay = CreateFrame("Frame", nil, parent)
+      overlay:SetAllPoints(parent)
+      overlay:SetFrameLevel((parent:GetFrameLevel() or 0) + 50)
+      overlay:EnableMouse(1)
+      overlay:SetScript("OnMouseDown", function() end)
+      overlay:SetScript("OnMouseUp", function() end)
+
+      local _, border = GetBorderSize("bags")
+      border = border or 1
+
+      -- Use pfUI's own backdrop constructor so the overlay follows the active
+      -- pfUI border/background configuration instead of hard-coded BagTweaks
+      -- colours. The fallback copies the already-rendered parent backdrop.
+      if pfUI.api and type(pfUI.api.CreateBackdrop) == "function" then
+        pfUI.api.CreateBackdrop(overlay, border)
+      elseif parent.backdrop and parent.backdrop.GetBackdrop then
+        overlay:SetBackdrop(parent.backdrop:GetBackdrop())
+        if parent.backdrop.GetBackdropColor then
+          local r, g, b, a = parent.backdrop:GetBackdropColor()
+          overlay:SetBackdropColor(r, g, b, a)
+        end
+        if parent.backdrop.GetBackdropBorderColor then
+          local r, g, b, a = parent.backdrop:GetBackdropBorderColor()
+          overlay:SetBackdropBorderColor(r, g, b, a)
+        end
+      end
+
+      overlay.status = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+      overlay.status:SetFont(pfUI.font_default or STANDARD_TEXT_FONT, tonumber(C.global.font_size) or 12, "OUTLINE")
+      overlay.status:SetJustifyH("CENTER")
+      overlay.status:SetJustifyV("MIDDLE")
+      overlay.status:SetTextColor(1, 1, 1, 1)
+
+      overlay.button = CreateFrame("Button", nil, overlay)
+      overlay.button:SetHeight(22)
+      overlay.button:SetWidth(160)
+      overlay.button:SetPoint("CENTER", overlay, "CENTER", 0, -24)
+      overlay.button:SetFont(pfUI.font_default or STANDARD_TEXT_FONT, tonumber(C.global.font_size) or 12, "OUTLINE")
+      overlay.button:SetTextColor(1, 1, 1, 1)
+      if pfUI.api and type(pfUI.api.CreateBackdrop) == "function" then
+        pfUI.api.CreateBackdrop(overlay.button, border)
+      end
+      overlay.button:SetScript("OnClick", function()
+        BagReplacement:Cancel(true)
+      end)
+
+      overlay:Hide()
+      self.overlays[view] = overlay
+      return overlay
+    end
+
+    function BagReplacement:ShowStatus(text, buttonText)
+      if not self.active then return end
+
+      local overlay = self:EnsureOverlay(self.active.view)
+      local parent = ViewFrame(self.active.view)
+      if not overlay or not parent then return end
+
+      local width = (parent:GetWidth() or 260) - 40
+      if width < 120 then width = 120 end
+      overlay.status:SetWidth(width)
+      overlay.status:ClearAllPoints()
+      overlay.status:SetPoint("CENTER", overlay, "CENTER", 0, 12)
+      overlay.status:SetText(text or "")
+
+      overlay.button:SetText(buttonText or L.CANCEL or "Cancel")
+      overlay:Show()
+      overlay:Raise()
+    end
+
+    function BagReplacement:SetPhase(phase, statusText)
+      if not self.active or not self.phases[phase] then return false end
+      self.active.phase = phase
+      if statusText then self:ShowStatus(statusText, L.CANCEL or "Cancel") end
+      return true
+    end
+
+    function BagReplacement:Fail(requiredSlots, reason)
+      if not self.active then return end
+
+      self.active.phase = "failed"
+      self.active.ready = false
+      local message = reason or L.BAG_SWAP_NOT_ENOUGH_SPACE or "Not enough space to replace this bag."
+      if requiredSlots and tonumber(requiredSlots) and tonumber(requiredSlots) > 0 then
+        message = message .. "\n" .. string.format(
+          L.BAG_SWAP_MORE_SLOTS_NEEDED or "%d more compatible slots are needed.",
+          tonumber(requiredSlots)
+        )
+      end
+      self:ShowStatus(message, L.BAG_SWAP_MAKE_SPACE or "I'll make some space...")
+    end
+
+    function BagReplacement:SafeStop(reason)
+      local active = self.active
+      if not active then return false end
+
+      active.phase = "failed"
+      active.ready = false
+      active.pending = nil
+      active.stopped = true
+      self.candidate = nil
+      self:ClearSwapSchedule()
+
+      local message = reason or
+        L.BAG_SWAP_STOP_STATE_CHANGED or
+        "Inventory changed unexpectedly during bag replacement."
+      local suffix = L.BAG_SWAP_STOPPED_SAFE or
+        "Bag replacement stopped safely. No further items will be moved."
+      self:ShowStatus(message .. "\n" .. suffix, L.CANCEL or "Cancel")
+      return false
+    end
+
+    function BagReplacement:Cancel(clearCursor)
+      local active = self.active
+      self:ClearSwapSchedule()
+      self.active = nil
+      self.candidate = nil
+      self.potentialSource = nil
+
+      if active and self.overlays[active.view] then
+        self.overlays[active.view]:Hide()
+      end
+
+      -- Restore the pfUI bag-slot popout only if it was open when BagTweaks
+      -- took ownership. Do not force it open after a bank/view has closed.
+      if active and active.bagSlotsWasShown then
+        local parent = ViewFrame(active.view)
+        if parent and parent.IsShown and parent:IsShown()
+           and parent.bagslots and parent.bagslots.Show then
+          parent.bagslots:Show()
+        end
+      end
+
+      -- Native cursor cleanup returns any currently-held item to its source.
+      -- Execution-specific placement is owned by the transaction before cleanup.
+      if clearCursor and type(CursorHasItem) == "function" and CursorHasItem()
+         and type(ClearCursor) == "function" then
+        ClearCursor()
+      end
+    end
+
+    function BagReplacement:Start(view, targetBag)
+      if self.active or not self.candidate then return false end
+
+      local parent = ViewFrame(view)
+      if not parent or not parent.IsShown or not parent:IsShown() then return false end
+      if type(CursorHasItem) == "function" and not CursorHasItem() then
+        self.candidate = nil
+        return false
+      end
+
+      self.active = {
+        view=view,
+        targetBag=targetBag,
+        sourceBag=self.candidate.bag,
+        sourceSlot=self.candidate.slot,
+        replacementItemID=self.candidate.itemID,
+        replacementLink=self.candidate.link,
+        phase="select",
+        bagSlotsWasShown=parent.bagslots
+          and parent.bagslots.IsShown
+          and parent.bagslots:IsShown()
+          and true
+          or false,
+      }
+      self.candidate = nil
+
+      -- The bag-slot popout lives partly outside the unified window, so hide
+      -- it while ownership is active. Cleanup restores the user's prior state.
+      if parent.bagslots then parent.bagslots:Hide() end
+
+      self:ShowStatus(L.BAG_SWAP_PREPARING or "Preparing bag swap...", L.CANCEL or "Cancel")
+      self:Prepare()
+      return true
+    end
+
+    function BagReplacement:TryTarget(view, targetBag, button)
+      if self.active then
+        -- The affected view is owned by the transaction until explicit cleanup.
+        return self.active.view == view
+      end
+
+      if button and button ~= "LeftButton" then return false end
+      if IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown() then return false end
+
+      if not self.candidate then return false end
+      if type(CursorHasItem) == "function" and not CursorHasItem() then
+        self.candidate = nil
+        return false
+      end
+
+      return self:Start(view, targetBag)
+    end
+
+    function BagReplacement:HookSlot(slotFrame, view, targetBag)
+      if not slotFrame or slotFrame.bagtweaks_bagreplace_hooked then return end
+
+      local oldClick = slotFrame:GetScript("OnClick")
+      local oldReceiveDrag = slotFrame:GetScript("OnReceiveDrag")
+
+      slotFrame:SetScript("OnClick", function()
+        if BagReplacement:TryTarget(view, targetBag, arg1) then return end
+        if oldClick then oldClick() end
+      end)
+
+      slotFrame:SetScript("OnReceiveDrag", function()
+        if BagReplacement:TryTarget(view, targetBag, "LeftButton") then return end
+        if oldReceiveDrag then oldReceiveDrag() end
+      end)
+
+      slotFrame.bagtweaks_bagreplace_hooked = true
+    end
+
+    function BagReplacement:HookBagSlots()
+      local backpack = pfUI.bag and pfUI.bag.right
+      local bank = pfUI.bag and pfUI.bag.left
+
+      if backpack and backpack.bagslots and backpack.bagslots.slots then
+        for slot, data in pairs(backpack.bagslots.slots) do
+          self:HookSlot(data and data.frame, "backpack", tonumber(slot) + 1)
+        end
+      end
+
+      if bank and bank.bagslots and bank.bagslots.slots then
+        for slot, data in pairs(bank.bagslots.slots) do
+          self:HookSlot(data and data.frame, "bank", tonumber(slot) + 4)
+        end
+      end
+    end
+
+
+    function BagReplacement:OnViewHidden(view)
+      if self.active and self.active.view == view then
+        if self.active.phase ~= "failed" then
+          if view == "bank" then
+            self:SafeStop(
+              L.BAG_SWAP_STOP_BANK_ACCESS or
+              "Bag replacement stopped because bank access was lost."
+            )
+          else
+            self:SafeStop(
+              L.BAG_SWAP_STOP_VIEW_CLOSED or
+              "Bag replacement stopped because the bag view was closed."
+            )
+          end
+        end
+        return
+      end
+
+      if self.candidate and view == "bank" and
+         (self.candidate.bag == -1 or
+          (self.candidate.bag >= 5 and self.candidate.bag <= 11)) then
+        self.candidate = nil
+      end
+    end
+    pfUI.bagtweaks.BagReplacement = BagReplacement
+
+    -- Bagshui/Swapper-style Vanilla fallback: when Blizzard rejects an attempt
+    -- to replace a populated bag, recover the exact locked target bag slot and
+    -- feed the already-tracked pickup source into BagTweaks' transaction owner.
+    -- Keep the normal fast path above; this exists specifically for clients
+    -- where GetItemInfo() metadata is unavailable at pickup time.
+    if type(UIErrorsFrame_OnEvent) == "function"
+       and UIErrorsFrame
+       and not UIErrorsFrame.bagtweaks_bagreplace_hooked then
+      local oldUIErrorsFrame_OnEvent = UIErrorsFrame_OnEvent
+      UIErrorsFrame_OnEvent = function(eventName, message)
+        if eventName == "UI_ERROR_MESSAGE"
+           and BagReplacement:OnNativeNonEmptyBagError(message) then
+          return oldUIErrorsFrame_OnEvent(eventName, "")
+        end
+        return oldUIErrorsFrame_OnEvent(eventName, message)
+      end
+      UIErrorsFrame.bagtweaks_bagreplace_hooked = true
+    end
+
+    BagReplacement.eventFrame = CreateFrame("Frame")
+    BagReplacement.eventFrame:RegisterEvent("UI_ERROR_MESSAGE")
+    BagReplacement.eventFrame:SetScript("OnEvent", function()
+      if event == "UI_ERROR_MESSAGE" then
+        -- Keep Bagshui's error-triggered entry fallback independent of the
+        -- global UIErrorsFrame hook chain.
+        BagReplacement:OnNativeNonEmptyBagError(arg1)
+      end
+    end)
+
+    -- Account Inventory: native same-account snapshots. Cross-account transport and
+    -- presentation are layered on this local authority in later 0.5.x checkpoints.
+    local InventoryTracker = (function()
+      local tracker = {
+        bankOpen = false,
+        pendingScanCarried = false,
+        pendingScanKeyring = false,
+        pendingScanBank = false,
+        pendingScanAt = nil,
+        scanDriver = nil,
+      }
+
+      local CARRIED_BAGS = { 0, 1, 2, 3, 4 }
+      local BANK_BAGS = { -1, 5, 6, 7, 8, 9, 10, 11 }
+      local REGISTRY_FILE = "pfUI_BagTweaks_accounts.txt"
+      local RESET_FILE = "pfUI_BagTweaks_reset.txt"
+      local TRACKING_SETTINGS_RESET_EPOCH = "0.5.11-inventory-settings-1"
+      local FULL_TRACKING_RESET_EPOCH = "0.5.12-first-run-tracking-1"
+      local ACCOUNT_FILE_PREFIX = "pfUI_BagTweaks_account_"
+
+      local function SafeCount(value)
+        local count = tonumber(value) or 0
+        if count < 0 then count = 0 end
+        return math.floor(count)
+      end
+
+      local function MapsEqual(a, b)
+        a = a or {}
+        b = b or {}
+
+        for id, count in pairs(a) do
+          if SafeCount(b[id]) ~= SafeCount(count) then return false end
+        end
+        for id, count in pairs(b) do
+          if SafeCount(a[id]) ~= SafeCount(count) then return false end
+        end
+        return true
+      end
+
+      local function ScanBags(bags, keyring)
+        local result = {}
+
+        for i = 1, table.getn(bags) do
+          local bag = bags[i]
+          local slots
+          if keyring and bag == -2 and GetKeyRingSize then
+            slots = GetKeyRingSize()
+          else
+            slots = GetContainerNumSlots(bag)
+          end
+
+          slots = tonumber(slots) or 0
+          for slot = 1, slots do
+            local id = ItemID(bag, slot)
+            if id then
+              local _, count = GetContainerItemInfo(bag, slot)
+              count = SafeCount(count)
+              if count <= 0 then count = 1 end
+              result[id] = (result[id] or 0) + count
+            end
+          end
+        end
+
+        return result
+      end
+
+      local function NewAccountID()
+        local now = 0
+        if time then now = tonumber(time()) or 0
+        elseif GetTime then now = math.floor(tonumber(GetTime()) or 0) end
+
+        local r1 = math.random(0, 99999999)
+        local r2 = math.random(0, 99999999)
+        return string.format("bt%dr%08d%08d", now, r1, r2)
+      end
+
+      local function CharacterIdentity()
+        local realm = GetRealmName and GetRealmName() or ""
+        local name = UnitName and UnitName("player") or ""
+        realm = tostring(realm or "")
+        name = tostring(name or "")
+        return realm .. "\031" .. name, realm, name
+      end
+
+      function tracker:EnsureStore()
+        if type(db.itemTracking) ~= "table" then db.itemTracking = {} end
+        local store = db.itemTracking
+
+        if store.version ~= 1 then store.version = 1 end
+        if type(store.characters) ~= "table" then store.characters = {} end
+        if store.characterBank ~= "1" then store.characterBank = "0" end
+        if store.crossCharacter ~= "1" then store.crossCharacter = "0" end
+        if store.crossAccount ~= "1" then store.crossAccount = "0" end
+
+        if type(store.accountID) ~= "string" or store.accountID == "" then
+          store.accountID = NewAccountID()
+        end
+
+        if type(store.accountLabel) ~= "string" or store.accountLabel == "" then
+          local _, _, name = CharacterIdentity()
+          if name ~= "" then
+            store.accountLabel = string.format(L.ACCOUNT_DEFAULT_LABEL or "Account (%s)", name)
+          else
+            store.accountLabel = L.ACCOUNT_DEFAULT_LABEL_FALLBACK or "Account"
+          end
+        end
+
+        self.store = store
+        return store
+      end
+
+      function tracker:EnsureCharacter()
+        local store = self:EnsureStore()
+        local key, realm, name = CharacterIdentity()
+        if key == "\031" then return nil, false end
+
+        local record = store.characters[key]
+        local created = false
+        if type(record) ~= "table" then
+          record = {}
+          store.characters[key] = record
+          created = true
+        end
+
+        if record.realm ~= realm then record.realm = realm; created = true end
+        if record.name ~= name then record.name = name; created = true end
+        if type(record.carried) ~= "table" then record.carried = {}; created = true end
+        if type(record.keyring) ~= "table" then record.keyring = {}; created = true end
+        if type(record.bank) ~= "table" then record.bank = {}; created = true end
+        if record.bankKnown ~= true then
+          if record.bankKnown ~= false then created = true end
+          record.bankKnown = false
+        end
+
+        self.characterKey = key
+        self.character = record
+        return record, created
+      end
+
+      function tracker:IsBankOpen()
+        if self.bankOpen then return true end
+        if G.BankFrame and G.BankFrame.IsShown and G.BankFrame:IsShown() then return true end
+        if pfUI.bag and pfUI.bag.left and pfUI.bag.left.IsShown and pfUI.bag.left:IsShown() then return true end
+        return false
+      end
+
+      local function EncodeText(value)
+        value = tostring(value or "")
+        return string.gsub(value, "([^%w%-%._])", function(char)
+          return string.format("%%%02X", string.byte(char))
+        end)
+      end
+
+      local function DecodeText(value)
+        value = tostring(value or "")
+        return string.gsub(value, "%%(%x%x)", function(hex)
+          return string.char(tonumber(hex, 16) or 32)
+        end)
+      end
+
+      local function SplitTabs(line)
+        local fields = {}
+        local start = 1
+        while true do
+          local pos = string.find(line, "\t", start, true)
+          if not pos then
+            table.insert(fields, string.sub(line, start))
+            break
+          end
+          table.insert(fields, string.sub(line, start, pos - 1))
+          start = pos + 1
+        end
+        return fields
+      end
+
+      local function SafeAccountID(id)
+        id = tostring(id or "")
+        if id == "" then return nil end
+        if not string.find(id, "^[%w_%-]+$") then return nil end
+        return id
+      end
+
+      local function SortedKeys(map, numeric)
+        local result = {}
+        for key in pairs(map or {}) do table.insert(result, key) end
+        table.sort(result, function(a, b)
+          if numeric then return (tonumber(a) or 0) < (tonumber(b) or 0) end
+          return tostring(a) < tostring(b)
+        end)
+        return result
+      end
+
+      local function UnionItemIDs(record)
+        local seen = {}
+        for id, count in pairs(record.carried or {}) do if SafeCount(count) > 0 then seen[tonumber(id) or id] = true end end
+        for id, count in pairs(record.keyring or {}) do if SafeCount(count) > 0 then seen[tonumber(id) or id] = true end end
+        for id, count in pairs(record.bank or {}) do if SafeCount(count) > 0 then seen[tonumber(id) or id] = true end end
+        return SortedKeys(seen, true)
+      end
+
+      function tracker:HasBridge()
+        return type(G.ReadCustomFile) == "function" and type(G.WriteCustomFile) == "function"
+      end
+
+      function tracker:ResetAllTrackingOnce()
+        if db.itemTrackingFirstRunResetEpoch == FULL_TRACKING_RESET_EPOCH then return false end
+
+        local oldStore = type(db.itemTracking) == "table" and db.itemTracking or nil
+        local oldID = oldStore and SafeAccountID(oldStore.accountID) or nil
+        local oldLabel = oldStore and tostring(oldStore.accountLabel or "") or ""
+
+        if self:HasBridge() then
+          if oldID then
+            local oldFile = self:AccountFilename(oldID)
+            if oldFile then
+              local tombstone = self:SerializeAccount(oldID, oldLabel, false, {})
+              self:WriteFile(oldFile, tombstone, "w")
+            end
+          end
+
+          local resetMarker = self:ReadFile(RESET_FILE)
+          if resetMarker ~= FULL_TRACKING_RESET_EPOCH then
+            self:WriteFile(REGISTRY_FILE, "", "w")
+            self:WriteFile(RESET_FILE, FULL_TRACKING_RESET_EPOCH, "w")
+          end
+        end
+
+        db.itemTracking = nil
+        db.itemTrackingSettingsResetEpoch = TRACKING_SETTINGS_RESET_EPOCH
+        db.itemTrackingFirstRunResetEpoch = FULL_TRACKING_RESET_EPOCH
+        self.store = nil
+        self.characterKey = nil
+        self.character = nil
+        self.registryAccounts = {}
+        self.remoteAccounts = {}
+        return true
+      end
+
+      function tracker:ResetTrackingSettingsOnce()
+        if db.itemTrackingSettingsResetEpoch == TRACKING_SETTINGS_RESET_EPOCH then return false end
+
+        local store = type(db.itemTracking) == "table" and db.itemTracking or nil
+        if store then
+          local wasPublished = store.publish == "1" or store.crossAccount == "1"
+          store.characterBank = "0"
+          store.crossCharacter = "0"
+          store.crossAccount = "0"
+          store.publish = nil
+          store.includedAccounts = nil
+          if wasPublished then store.crossAccountTombstonePending = "1" end
+        end
+
+        db.itemTrackingSettingsResetEpoch = TRACKING_SETTINGS_RESET_EPOCH
+        self.registryAccounts = {}
+        self.remoteAccounts = {}
+        return true
+      end
+
+      function tracker:FlushPendingCrossAccountTombstone()
+        local store = self:EnsureStore()
+        if store.crossAccountTombstonePending ~= "1" then return true end
+        if not self:HasBridge() then return false, "unavailable" end
+
+        local ok, err = self:PublishLocal(false)
+        if ok then store.crossAccountTombstonePending = nil end
+        return ok, err
+      end
+
+      function tracker:ReadFile(filename)
+        if not self:HasBridge() then return nil, "unavailable" end
+        local ok, content = pcall(G.ReadCustomFile, filename)
+        if not ok then return nil, tostring(content or "read failed") end
+        if content == nil then return nil, "missing" end
+        if type(content) ~= "string" then return nil, "invalid" end
+        return content, nil
+      end
+
+      function tracker:WriteFile(filename, content, mode)
+        if not self:HasBridge() then return false, "unavailable" end
+        local ok, err = pcall(G.WriteCustomFile, filename, content, mode or "w")
+        if not ok then return false, tostring(err or "write failed") end
+        return true, nil
+      end
+
+      function tracker:AccountFilename(accountID)
+        accountID = SafeAccountID(accountID)
+        if not accountID then return nil end
+        return ACCOUNT_FILE_PREFIX .. accountID .. ".txt"
+      end
+
+      function tracker:RegistryRecord(accountID, label, published)
+        return "BTREG1\t" .. accountID .. "\t" .. EncodeText(label) .. "\t" .. (published and "1" or "0") .. "\n"
+      end
+
+      function tracker:AppendRegistry(accountID, label, published)
+        accountID = SafeAccountID(accountID)
+        if not accountID then return false end
+        return self:WriteFile(REGISTRY_FILE, self:RegistryRecord(accountID, label, published), "a")
+      end
+
+      function tracker:SerializeAccount(accountID, label, published, characters)
+        local lines = {
+          "BTINV\t1",
+          "ACCOUNT\t" .. accountID .. "\t" .. EncodeText(label) .. "\t" .. (published and "1" or "0"),
+        }
+
+        if published then
+          local charKeys = SortedKeys(characters or {}, false)
+          for i = 1, table.getn(charKeys) do
+            local record = characters[charKeys[i]]
+            if type(record) == "table" then
+              table.insert(lines, "CHAR\t" .. EncodeText(record.realm or "") .. "\t" .. EncodeText(record.name or "") .. "\t" .. (record.bankKnown and "1" or "0"))
+              local itemIDs = UnionItemIDs(record)
+              for n = 1, table.getn(itemIDs) do
+                local id = tonumber(itemIDs[n])
+                if id and id > 0 then
+                  local carried = SafeCount(record.carried and record.carried[id])
+                  local keyring = SafeCount(record.keyring and record.keyring[id])
+                  local bank = SafeCount(record.bank and record.bank[id])
+                  table.insert(lines, string.format("ITEM\t%d\t%d\t%d\t%d", id, carried, keyring, bank))
+                end
+              end
+              table.insert(lines, "ENDCHAR")
+            end
+          end
+        end
+
+        return table.concat(lines, "\n") .. "\n"
+      end
+
+      function tracker:PublishLocal(forcePublished)
+        local store = self:EnsureStore()
+        local accountID = SafeAccountID(store.accountID)
+        local filename = accountID and self:AccountFilename(accountID)
+        if not filename then return false, "invalid account id" end
+
+        local published
+        if forcePublished == nil then published = store.crossAccount == "1"
+        else published = forcePublished and true or false end
+
+        local body = self:SerializeAccount(accountID, store.accountLabel or "", published, published and store.characters or {})
+        local ok, err = self:WriteFile(filename, body, "w")
+        if not ok then
+          self.lastBridgeError = err
+          return false, err
+        end
+
+        local registryOK, registryErr = self:AppendRegistry(accountID, store.accountLabel or "", published)
+        if not registryOK then self.lastBridgeError = registryErr else self.lastBridgeError = nil end
+        return registryOK, registryErr
+      end
+
+      function tracker:ParseRegistry(content)
+        local accounts = {}
+        if type(content) ~= "string" then return accounts end
+
+        for line in string.gfind(content, "[^\r\n]+") do
+          local fields = SplitTabs(line)
+          if fields[1] == "BTREG1" then
+            local accountID = SafeAccountID(fields[2])
+            local published = fields[4]
+            if accountID and (published == "0" or published == "1") then
+              accounts[accountID] = {
+                id = accountID,
+                label = DecodeText(fields[3] or ""),
+                published = published == "1",
+              }
+            end
+          end
+        end
+
+        return accounts
+      end
+
+      function tracker:ParseAccount(content, expectedID)
+        if type(content) ~= "string" then return nil end
+        local account
+        local current
+        local sawHeader = false
+
+        for line in string.gfind(content, "[^\r\n]+") do
+          local fields = SplitTabs(line)
+
+          if not sawHeader then
+            if fields[1] ~= "BTINV" or fields[2] ~= "1" then return nil end
+            sawHeader = true
+          elseif not account then
+            if fields[1] ~= "ACCOUNT" then return nil end
+            local accountID = SafeAccountID(fields[2])
+            if not accountID or accountID ~= expectedID then return nil end
+            if fields[4] ~= "0" and fields[4] ~= "1" then return nil end
+            account = {
+              id = accountID,
+              label = DecodeText(fields[3] or ""),
+              published = fields[4] == "1",
+              available = true,
+              characters = {},
+            }
+            if not account.published then return account end
+          elseif fields[1] == "CHAR" then
+            if current then return nil end
+            if fields[4] ~= "0" and fields[4] ~= "1" then return nil end
+            current = {
+              realm = DecodeText(fields[2] or ""),
+              name = DecodeText(fields[3] or ""),
+              bankKnown = fields[4] == "1",
+              carried = {},
+              keyring = {},
+              bank = {},
+            }
+          elseif fields[1] == "ITEM" and current then
+            local id = tonumber(fields[2])
+            local carried = tonumber(fields[3])
+            local keyring = tonumber(fields[4])
+            local bank = tonumber(fields[5])
+            if id and id > 0 and carried and carried >= 0 and keyring and keyring >= 0 and bank and bank >= 0 then
+              id = math.floor(id)
+              current.carried[id] = math.floor(carried)
+              current.keyring[id] = math.floor(keyring)
+              current.bank[id] = math.floor(bank)
+            end
+          elseif fields[1] == "ENDCHAR" and current then
+            local key = tostring(current.realm or "") .. "\031" .. tostring(current.name or "")
+            if key ~= "\031" then account.characters[key] = current end
+            current = nil
+          end
+        end
+
+        if current then return nil end
+        return account
+      end
+
+      function tracker:RefreshRegistry()
+        self.registryAccounts = {}
+
+        if not self:HasBridge() then return false end
+        local content = self:ReadFile(REGISTRY_FILE)
+        if content then self.registryAccounts = self:ParseRegistry(content) end
+        return true
+      end
+
+      function tracker:RefreshSharedRemoteAccounts(forceRefresh)
+        local store = self:EnsureStore()
+        self.remoteAccounts = {}
+        if not self:HasBridge() then return false end
+        if not forceRefresh and store.crossAccount ~= "1" then return true end
+
+        for accountID, meta in pairs(self.registryAccounts or {}) do
+          if accountID ~= store.accountID and meta.published then
+            local filename = self:AccountFilename(accountID)
+            local content = filename and self:ReadFile(filename)
+            local parsed = content and self:ParseAccount(content, accountID) or nil
+            if parsed and parsed.published then
+              if meta.label ~= "" then parsed.label = meta.label end
+              self.remoteAccounts[accountID] = parsed
+            end
+          end
+        end
+
+        return true
+      end
+
+      function tracker:RefreshRemoteAccounts()
+        local store = self:EnsureStore()
+        if store.crossAccount ~= "1" or not self:HasBridge() then
+          self.registryAccounts = {}
+          self.remoteAccounts = {}
+          return false
+        end
+
+        self:RefreshRegistry()
+        return self:RefreshSharedRemoteAccounts(false)
+      end
+
+      function tracker:SetCrossAccount(enabled)
+        local store = self:EnsureStore()
+        enabled = enabled and true or false
+
+        if enabled and not self:HasBridge() then
+          store.crossAccount = "0"
+          self.registryAccounts = {}
+          self.remoteAccounts = {}
+          return false, "unavailable"
+        end
+
+        store.crossAccount = enabled and "1" or "0"
+        if not self:HasBridge() then
+          if not enabled then store.crossAccountTombstonePending = "1" end
+          self.registryAccounts = {}
+          self.remoteAccounts = {}
+          return false, "unavailable"
+        end
+
+        local ok, err = self:PublishLocal(enabled)
+        if enabled then
+          if ok then store.crossAccountTombstonePending = nil end
+          self:RefreshRemoteAccounts()
+        else
+          if ok then store.crossAccountTombstonePending = nil
+          else store.crossAccountTombstonePending = "1" end
+          self.registryAccounts = {}
+          self.remoteAccounts = {}
+        end
+        return ok, err
+      end
+
+      function tracker:SetAccountLabel(label)
+        local store = self:EnsureStore()
+        label = tostring(label or "")
+        label = string.gsub(label, "^%s+", "")
+        label = string.gsub(label, "%s+$", "")
+        if label == "" then return false end
+        store.accountLabel = label
+        if store.crossAccount == "1" and self:HasBridge() then self:PublishLocal(true) end
+        return true
+      end
+
+      function tracker:GetAvailableAccountInventories()
+        local store = self:EnsureStore()
+        local accounts = {}
+        if not self:HasBridge() then return accounts end
+
+        self:RefreshRegistry()
+        self:RefreshSharedRemoteAccounts(true)
+
+        local ownMeta = self.registryAccounts and self.registryAccounts[store.accountID] or nil
+        if store.crossAccount == "1" and ownMeta and ownMeta.published then
+          local filename = self:AccountFilename(store.accountID)
+          local content = filename and self:ReadFile(filename)
+          local parsed = content and self:ParseAccount(content, store.accountID) or nil
+          if parsed and parsed.published then
+            table.insert(accounts, {
+              id = store.accountID,
+              label = store.accountLabel or ownMeta.label or store.accountID,
+            })
+          end
+        end
+
+        for accountID, remote in pairs(self.remoteAccounts or {}) do
+          if remote and remote.available and remote.published then
+            table.insert(accounts, {
+              id = accountID,
+              label = remote.label or accountID,
+            })
+          end
+        end
+
+        table.sort(accounts, function(a, b)
+          if a.label == b.label then return a.id < b.id end
+          return a.label < b.label
+        end)
+        return accounts
+      end
+
+      local function CharacterItemSummary(record, itemID, includeBank)
+        if type(record) ~= "table" then return nil end
+        local carried = SafeCount(record.carried and record.carried[itemID])
+        local keyring = SafeCount(record.keyring and record.keyring[itemID])
+        local bankIncluded = includeBank ~= false
+        local bank = bankIncluded and SafeCount(record.bank and record.bank[itemID]) or 0
+        local total = carried + keyring + bank
+        if total <= 0 then return nil end
+        return {
+          carried = carried,
+          keyring = keyring,
+          bank = bank,
+          bankIncluded = bankIncluded,
+          bankKnown = not bankIncluded or record.bankKnown == true,
+          total = total,
+        }
+      end
+
+      local function DisplayCharacterName(record)
+        local name = tostring(record.name or "")
+        local realm = tostring(record.realm or "")
+        if realm ~= "" and realm ~= (GetRealmName and tostring(GetRealmName() or "") or "") then
+          return name .. " - " .. realm
+        end
+        return name
+      end
+
+      function tracker:BuildAccountItemGroup(label, characters, itemID)
+        local group = { label=label or "", characters={}, total=0 }
+        local keys = SortedKeys(characters or {}, false)
+
+        for i = 1, table.getn(keys) do
+          local record = characters[keys[i]]
+          local summary = CharacterItemSummary(record, itemID)
+          if summary then
+            summary.name = DisplayCharacterName(record)
+            table.insert(group.characters, summary)
+            group.total = group.total + summary.total
+          end
+        end
+
+        if group.total <= 0 then return nil end
+        return group
+      end
+
+      function tracker:BuildLocalItemGroup(itemID)
+        local store = self:EnsureStore()
+        local group = { label=store.accountLabel or "", characters={}, total=0 }
+        local currentKey = self.characterKey
+        if not currentKey then currentKey = CharacterIdentity() end
+        local keys = SortedKeys(store.characters or {}, false)
+
+        for i = 1, table.getn(keys) do
+          local key = keys[i]
+          if key == currentKey or store.crossCharacter == "1" then
+            local record = store.characters[key]
+            local includeBank = key ~= currentKey or store.characterBank == "1"
+            local summary = CharacterItemSummary(record, itemID, includeBank)
+            if summary then
+              summary.name = DisplayCharacterName(record)
+              summary.isCurrent = key == currentKey
+              table.insert(group.characters, summary)
+              group.total = group.total + summary.total
+            end
+          end
+        end
+
+        if group.total <= 0 then return nil end
+        return group
+      end
+
+      function tracker:GetTrackedItemGroups(itemID)
+        itemID = tonumber(itemID)
+        if not itemID then return {}, 0 end
+
+        local store = self:EnsureStore()
+        local groups = {}
+        local total = 0
+
+        local localGroup = self:BuildLocalItemGroup(itemID)
+        if localGroup then
+          table.insert(groups, localGroup)
+          total = total + localGroup.total
+        end
+
+        if store.crossAccount == "1" then
+          local remoteIDs = SortedKeys(self.registryAccounts or {}, false)
+          for i = 1, table.getn(remoteIDs) do
+            local accountID = remoteIDs[i]
+            local meta = self.registryAccounts[accountID]
+            local remote = self.remoteAccounts and self.remoteAccounts[accountID] or nil
+            if accountID ~= store.accountID and meta and meta.published and
+               remote and remote.available and remote.published and type(remote.characters) == "table" then
+              local group = self:BuildAccountItemGroup(remote.label or meta.label or accountID, remote.characters, itemID)
+              if group then
+                table.insert(groups, group)
+                total = total + group.total
+              end
+            end
+          end
+        end
+
+        return groups, total
+      end
+
+      function tracker:AppendTooltip(itemID)
+        if not GameTooltip or not itemID then return end
+        local groups, total = self:GetTrackedItemGroups(itemID)
+        if total <= 0 then return end
+
+        local pfColor = "|cff4dffcc"
+        local gold = "|cffffd100"
+        local white = "|cffffffff"
+        local grey = "|cffd9d9d9"
+        local reset = "|r"
+
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(
+          pfColor .. (L.ACCOUNT_TRACKING_TOOLTIP_HEADER or "Across Accounts:") ..
+          reset .. " " .. white .. tostring(total) .. reset
+        )
+
+        for i = 1, table.getn(groups) do
+          local group = groups[i]
+          GameTooltip:AddLine("   " .. pfColor .. tostring(group.label or "") .. reset)
+
+          for n = 1, table.getn(group.characters) do
+            local item = group.characters[n]
+            local line =
+              "      " ..
+              gold .. tostring(item.name or "") .. ":" .. reset ..
+              " " .. white .. tostring(item.total or 0) .. reset
+
+            if item.isCurrent then
+              local parts = {}
+
+              if item.carried > 0 then
+                table.insert(parts,
+                  grey .. (L.ACCOUNT_BAGS_LABEL or "Bags:") .. reset ..
+                  " " .. white .. tostring(item.carried) .. reset
+                )
+              end
+
+              if item.keyring > 0 then
+                table.insert(parts,
+                  grey .. (L.ACCOUNT_KEYS_LABEL or "Keys:") .. reset ..
+                  " " .. white .. tostring(item.keyring) .. reset
+                )
+              end
+
+              if item.bank > 0 then
+                table.insert(parts,
+                  grey .. (L.ACCOUNT_BANK_LABEL or "Bank:") .. reset ..
+                  " " .. white .. tostring(item.bank) .. reset
+                )
+              elseif item.bankIncluded and not item.bankKnown then
+                table.insert(parts,
+                  grey .. (L.ACCOUNT_BANK_UNSCANNED or "bank unscanned") .. reset
+                )
+              end
+
+              if table.getn(parts) > 0 then
+                line = line .. " " .. grey .. "(" .. reset ..
+                  table.concat(parts, grey .. ", " .. reset) ..
+                  grey .. ")" .. reset
+              end
+            end
+
+            GameTooltip:AddLine(line)
+          end
+        end
+
+        GameTooltip:Show()
+      end
+
+      function tracker:LocalChanged()
+        local store = self:EnsureStore()
+        if store.crossAccount == "1" and self:HasBridge() then
+          self:PublishLocal(true)
+        end
+      end
+
+      function tracker:RescanCurrent(scanCarried, scanKeyring, scanBank)
+        local record, changed = self:EnsureCharacter()
+        if not record then return false end
+
+        if scanCarried then
+          local counts = ScanBags(CARRIED_BAGS, false)
+          if not MapsEqual(record.carried, counts) then
+            record.carried = counts
+            changed = true
+          end
+        end
+
+        if scanKeyring then
+          local counts = ScanBags({ -2 }, true)
+          if not MapsEqual(record.keyring, counts) then
+            record.keyring = counts
+            changed = true
+          end
+        end
+
+        if scanBank and self:IsBankOpen() then
+          local counts = ScanBags(BANK_BAGS, false)
+          if not MapsEqual(record.bank, counts) then
+            record.bank = counts
+            changed = true
+          end
+          if record.bankKnown ~= true then
+            record.bankKnown = true
+            changed = true
+          end
+        end
+
+        if changed then self:LocalChanged() end
+        return changed
+      end
+
+      function tracker:FlushPendingRescan()
+        local scanCarried = self.pendingScanCarried
+        local scanKeyring = self.pendingScanKeyring
+        local scanBank = self.pendingScanBank
+
+        self.pendingScanCarried = false
+        self.pendingScanKeyring = false
+        self.pendingScanBank = false
+        self.pendingScanAt = nil
+        if self.scanDriver then self.scanDriver:Hide() end
+
+        if scanCarried or scanKeyring or scanBank then
+          self:RescanCurrent(scanCarried, scanKeyring, scanBank)
+        end
+      end
+
+      function tracker:QueueRescan(scanCarried, scanKeyring, scanBank)
+        if scanCarried then self.pendingScanCarried = true end
+        if scanKeyring then self.pendingScanKeyring = true end
+        if scanBank then self.pendingScanBank = true end
+
+        -- BAG_UPDATE can arrive several times for one player action. Coalesce the
+        -- burst so Account Inventory scans/publishes once after updates settle.
+        self.pendingScanAt = (GetTime and GetTime() or 0) + .15
+
+        if not self.scanDriver then
+          self.scanDriver = CreateFrame("Frame")
+          self.scanDriver:SetScript("OnUpdate", function()
+            local due = tracker.pendingScanAt
+            if not due then
+              this:Hide()
+              return
+            end
+
+            local now = GetTime and GetTime() or 0
+            if now < due then return end
+            tracker:FlushPendingRescan()
+          end)
+          self.scanDriver:Hide()
+        end
+
+        self.scanDriver:Show()
+      end
+
+      function tracker:OnBagUpdated(bag)
+        bag = tonumber(bag)
+        if not bag then return end
+
+        if bag >= 0 and bag <= 4 then
+          self:QueueRescan(true, false, false)
+        elseif bag == -2 then
+          self:QueueRescan(false, true, false)
+        elseif (bag == -1 or (bag >= 5 and bag <= 11)) and self:IsBankOpen() then
+          self:QueueRescan(false, false, true)
+        end
+      end
+
+      function tracker:OnCreateBags(object)
+        if object == "bank" and self:IsBankOpen() then
+          self:RescanCurrent(false, false, true)
+        end
+        if object == "bank" or object == nil or object == "backpack" then
+          self:FlushPendingCrossAccountTombstone()
+          self:RefreshRemoteAccounts()
+        end
+      end
+
+      function tracker:InitializeCurrent()
+        self:ResetAllTrackingOnce()
+        self:ResetTrackingSettingsOnce()
+        local store = self:EnsureStore()
+        self:FlushPendingCrossAccountTombstone()
+        local changed = self:RescanCurrent(true, true, false)
+        if not changed and store.crossAccount == "1" and self:HasBridge() then self:PublishLocal(true) end
+        self:RefreshRemoteAccounts()
+      end
+
+      local events = CreateFrame("Frame")
+      events:RegisterEvent("PLAYER_ENTERING_WORLD")
+      events:RegisterEvent("BANKFRAME_OPENED")
+      events:RegisterEvent("BANKFRAME_CLOSED")
+      events:RegisterEvent("PLAYER_LOGOUT")
+      events:SetScript("OnEvent", function()
+        if event == "PLAYER_ENTERING_WORLD" then
+          tracker.bankOpen = false
+          tracker:InitializeCurrent()
+        elseif event == "BANKFRAME_OPENED" then
+          tracker.bankOpen = true
+        elseif event == "BANKFRAME_CLOSED" then
+          -- Preserve the final bank mutation before the open-state guard changes.
+          tracker:FlushPendingRescan()
+          tracker.bankOpen = false
+        elseif event == "PLAYER_LOGOUT" then
+          -- Do not leave the last coalesced inventory change only in memory.
+          tracker:FlushPendingRescan()
+        end
+      end)
+      tracker.events = events
+
+      return tracker
+    end)()
+
+    pfUI.bagtweaks.InventoryTracker = InventoryTracker
+
+    -- Add Account Inventory after pfUI has populated a bag-item tooltip. Hooking
+    -- SetBagItem is more durable than replacing each slot's OnEnter script, which
+    -- other bag/tooltip code may replace after BagTweaks lays out the slot.
+    if GameTooltip and type(GameTooltip.SetBagItem) == "function" and not GameTooltip.bagtweaks_inventory_bag_hooked then
+      local oldSetBagItem = GameTooltip.SetBagItem
+      GameTooltip.SetBagItem = function(self, bag, slot)
+        local result = oldSetBagItem(self, bag, slot)
+        if bag ~= nil and slot ~= nil then
+          local data = pfUI.bags and pfUI.bags[bag] and pfUI.bags[bag].slots and pfUI.bags[bag].slots[slot]
+          local frame = data and data.frame
+          if frame and self.IsOwned and self:IsOwned(frame) then
+            InventoryTracker:AppendTooltip(ItemID(bag, slot))
+          end
+        end
+        return result
+      end
+      GameTooltip.bagtweaks_inventory_bag_hooked = true
+    end
+
+    -- Arbitrary item tooltips (pfQuest database results, item links, etc.) use
+    -- SetHyperlink rather than SetBagItem. Append the same Account Inventory
+    -- summary for item hyperlinks only; leave quests/spells/other hyperlinks
+    -- untouched.
+    if GameTooltip and type(GameTooltip.SetHyperlink) == "function" and not GameTooltip.bagtweaks_inventory_link_hooked then
+      local oldSetHyperlink = GameTooltip.SetHyperlink
+      GameTooltip.SetHyperlink = function(self, link)
+        local result = oldSetHyperlink(self, link)
+        if type(link) == "string" then
+          local _, _, itemID = string.find(link, "^item:(%d+)")
+          if itemID then InventoryTracker:AppendTooltip(tonumber(itemID)) end
+        end
+        return result
+      end
+      GameTooltip.bagtweaks_inventory_link_hooked = true
     end
 
     local function NameFromLink(link)
@@ -1882,14 +4348,19 @@ local function Initialize()
             local b, s = bag, slot
 
             frame:SetScript("OnMouseDown", function()
-              if arg1 == "LeftButton" then selectedItemID = ItemID(b, s) end
+              if arg1 == "LeftButton" then
+                selectedItemID = ItemID(b, s)
+                BagReplacement:RememberSource(b, s)
+              end
               if oldMouseDown then oldMouseDown() end
             end)
 
             frame:SetScript("OnDragStart", function()
               selectedItemID = ItemID(b, s)
+              BagReplacement:RememberSource(b, s)
               if oldDragStart then oldDragStart() else PickupContainerItem(b, s) end
             end)
+
             frame.bagtweaks_select_hooked = true
           end
         end
@@ -2308,16 +4779,52 @@ local function Initialize()
 
     local relayoutDriver
     local relayoutPending = false
+    local autoResortDeadline = 0
+    local autoResortHold = false
 
-    local function RequestRelayout()
-      if relayoutPending then return end
+    local function AutoResortDelay()
+      local delay = tonumber(db.autoResortDelay) or 3
+      if delay < 0 then delay = 0 end
+      if delay > 10 then delay = 10 end
+      return delay
+    end
+
+    local function RequestRelayout(inventoryMutation)
       relayoutPending = true
+
+      -- Auto resort is inactivity-based for every observed bag-content mutation.
+      -- Each mutation restarts the full delay, so splitting/moving stacks,
+      -- equipping, selling, opening containers and addon-driven inventory changes
+      -- all coalesce without needing a growing list of action-specific hooks.
+      if inventoryMutation then
+        local delay = AutoResortDelay()
+        if delay <= 0 then
+          autoResortDeadline = 0
+        else
+          autoResortDeadline = (GetTime and GetTime() or 0) + delay
+        end
+        autoResortHold = false
+      end
 
       if not relayoutDriver then
         relayoutDriver = CreateFrame("Frame")
         relayoutDriver:SetScript("OnUpdate", function()
+          if not relayoutPending then
+            this:Hide()
+            return
+          end
+
+          -- Cast-based actions can hold an older pending resort while the cast is
+          -- in progress; the resulting bag mutation releases the hold and starts
+          -- a fresh inactivity delay.
+          if autoResortHold then return end
+
+          local now = GetTime and GetTime() or 0
+          if autoResortDeadline > now then return end
+
           this:Hide()
           relayoutPending = false
+          autoResortDeadline = 0
           if Relayout then Relayout() end
         end)
         relayoutDriver:Hide()
@@ -2326,7 +4833,20 @@ local function Initialize()
       relayoutDriver:Show()
     end
 
-    pfUI.bagtweaks.Relayout = Relayout
+    pfUI.bagtweaks.ProtectAutoResort = function(holdUntilMutation)
+      if holdUntilMutation then autoResortHold = true end
+    end
+
+    pfUI.bagtweaks.CancelAutoResortProtection = function()
+      autoResortHold = false
+    end
+
+    -- External/toolbar relayout requests are automatic presentation work and
+    -- must honor any active Auto resort deadline. Explicit category/settings
+    -- operations inside this module continue to call the local Relayout directly.
+    pfUI.bagtweaks.Relayout = function()
+      RequestRelayout()
+    end
     pfUI.bagtweaks.ShowCategoryEditor = ShowParentCategoryNameDialog
     pfUI.bagtweaks.ShowSubcategoryEditor = ShowSubcategoryNameDialog
     pfUI.bagtweaks.GetCategories = function()
@@ -2399,19 +4919,65 @@ local function Initialize()
       return db.showEmptyCategories ~= false
     end
 
-    pfUI.bag.CreateBags = function(self, object)
-      oldCreateBags(self, object)
-      if object == "bank" then
-        RelayoutView("bank")
-      else
-        RelayoutView("backpack")
+    if oldCreateBagSlots then
+      pfUI.bag.CreateBagSlots = function(self, frame)
+        oldCreateBagSlots(self, frame)
+        BagReplacement:HookBagSlots()
       end
+    end
+
+    BagReplacement:HookBagSlots()
+
+    pfUI.bag.CreateBags = function(self, object)
+      local view = object == "bank" and "bank" or "backpack"
+      local viewFrame = object == "bank" and pfUI.bag.left or pfUI.bag.right
+      local openingVisibleView = viewFrame and G.this == viewFrame
+        and viewFrame.IsShown and viewFrame:IsShown()
+
+      oldCreateBags(self, object)
+      BagReplacement:HookBagSlots()
+
+      local replacementOwnsView = BagReplacement.active
+        and BagReplacement.active.phase ~= "failed"
+        and BagReplacement.active.view == view
+
+      -- While replacement owns the view, pfUI still receives its native bag
+      -- updates but BagTweaks freezes category relayout. Repeated intermediate
+      -- relayouts expose partially-mutated physical state under the overlay.
+      -- SwapFinish() performs one clean CreateBags/relayout after ownership ends.
+      if not replacementOwnsView then
+        -- A genuine frame OnShow must finish BagTweaks' presentation immediately.
+        -- Deferring this path can expose pfUI's intermediate/raw bag layout while
+        -- an older Auto resort inactivity deadline is still active. Internal
+        -- CreateBags calls still use the scheduler so mutation-driven rebuilds
+        -- retain the coalescing/delay behaviour.
+        if openingVisibleView then
+          RelayoutView(view)
+        else
+          RequestRelayout()
+        end
+      end
+
+      pcall(InventoryTracker.OnCreateBags, InventoryTracker, object)
     end
 
     if oldUpdateBag then
       pfUI.bag.UpdateBag = function(self, bag)
         oldUpdateBag(self, bag)
-        if bag and bag >= -2 and bag <= 11 then RequestRelayout() end
+        BagReplacement:OnInventoryUpdated(bag)
+
+        local activeReplacement = BagReplacement.active
+        local ownsMutation = activeReplacement
+          and activeReplacement.phase ~= "failed"
+          and (
+            (activeReplacement.view == "backpack" and bag and bag >= -2 and bag <= 4)
+            or (activeReplacement.view == "bank" and bag and (bag == -1 or (bag >= 5 and bag <= 11)))
+          )
+
+        if bag and bag >= -2 and bag <= 11 and not ownsMutation then
+          RequestRelayout(true)
+        end
+        pcall(InventoryTracker.OnBagUpdated, InventoryTracker, bag)
       end
     end
 
@@ -2424,6 +4990,8 @@ local function Initialize()
         HideMenus()
         HideItemHighlight()
         if draggingView == "bank" and frame == pfUI.bag.left then EndSubcategoryDrag() end
+        if frame == pfUI.bag.left then BagReplacement:OnViewHidden("bank")
+        elseif frame == pfUI.bag.right then BagReplacement:OnViewHidden("backpack") end
       end)
       frame.bagtweaks_menu_hide_hooked = true
     end
@@ -2472,6 +5040,125 @@ local function Initialize()
 
     pfUI.gui.CreateGUIEntry(thirdParty, L.PLUGIN_NAME, function()
       pfUI.gui.CreateConfig(nil, L.PLUGIN_HEADER, nil, nil, "header")
+
+      local autoResort = pfUI.gui.CreateConfig(
+        function() end,
+        L.AUTO_RESORT_DELAY,
+        _G.pfUIBagTweaksDB,
+        "autoResortDelay",
+        "dropdown",
+        { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10" }
+      )
+
+      if autoResort then
+        autoResort:EnableMouse(1)
+        autoResort:SetScript("OnEnter", function()
+          if not GameTooltip then return end
+          GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+          GameTooltip:SetText(L.AUTO_RESORT_DELAY_TOOLTIP)
+          GameTooltip:Show()
+        end)
+        autoResort:SetScript("OnLeave", function()
+          if GameTooltip then GameTooltip:Hide() end
+        end)
+      end
+
+      local tracker = pfUI.bagtweaks and pfUI.bagtweaks.InventoryTracker
+      if tracker then
+        local store = tracker:EnsureStore()
+
+        pfUI.gui.CreateConfig(nil, L.INVENTORY_TRACKING_HEADER, nil, nil, "header")
+
+        pfUI.gui.CreateConfig(function() end,
+          L.CHARACTER_BANK, store, "characterBank", "checkbox")
+
+        pfUI.gui.CreateConfig(function() end,
+          L.CROSS_CHARACTER, store, "crossCharacter", "checkbox")
+
+        local availableFrames = {}
+        local function RefreshAvailableAccountInventoryUI()
+          local available = tracker:GetAvailableAccountInventories()
+          local count = table.getn(available)
+
+          for i = 1, table.getn(availableFrames) do
+            local frame = availableFrames[i]
+            if count == 0 and i == 1 then
+              if frame.caption then
+                frame.caption:SetText(L.NO_AVAILABLE_ACCOUNT_INVENTORIES)
+                frame.caption:SetTextColor(.6, .6, .6, 1)
+                frame.caption:ClearAllPoints()
+                frame.caption:SetPoint("LEFT", frame, "LEFT", 3, 0)
+              end
+              if frame.sharedTick then frame.sharedTick:Hide() end
+              frame:Show()
+            elseif available[i] then
+              if frame.caption then
+                frame.caption:SetText(available[i].label)
+                frame.caption:SetTextColor(1, 1, 1, 1)
+                frame.caption:ClearAllPoints()
+                frame.caption:SetPoint("LEFT", frame, "LEFT", 19, 0)
+              end
+              if frame.sharedTick then frame.sharedTick:Show() end
+              frame:Show()
+            else
+              if frame.sharedTick then frame.sharedTick:Hide() end
+              frame:Hide()
+            end
+          end
+        end
+
+        local initialAvailable = tracker:GetAvailableAccountInventories()
+        local availableFrameCount = table.getn(initialAvailable) + 1
+        if availableFrameCount < 1 then availableFrameCount = 1 end
+
+        local crossAccountLabel = L.CROSS_ACCOUNT
+        if not tracker:HasBridge() then crossAccountLabel = L.CROSS_ACCOUNT_REQUIRES_NAMPOWER end
+        local crossAccount = pfUI.gui.CreateConfig(function()
+          tracker:SetCrossAccount(store.crossAccount == "1")
+          RefreshAvailableAccountInventoryUI()
+        end, crossAccountLabel, store, "crossAccount", "checkbox")
+
+        if crossAccount and not tracker:HasBridge() then
+          if crossAccount.Disable then crossAccount:Disable() end
+          if crossAccount.EnableMouse then crossAccount:EnableMouse(0) end
+          crossAccount:SetAlpha(.5)
+        end
+
+        pfUI.gui.CreateConfig(function()
+          tracker:SetAccountLabel(store.accountLabel)
+          RefreshAvailableAccountInventoryUI()
+        end, L.CURRENT_ACCOUNT_NICKNAME, store, "accountLabel", nil, nil, nil, nil, "string")
+
+        local availableHeader = pfUI.gui.CreateConfig(nil, L.AVAILABLE_ACCOUNT_INVENTORIES, nil, nil, "header")
+        for i = 1, availableFrameCount do
+          local caption = initialAvailable[i] and initialAvailable[i].label or " "
+          local frame = pfUI.gui.CreateConfig(nil, caption, nil, nil, "header")
+
+          -- These are status/list values rather than nested section headers.
+          -- Pull them directly under the section heading and add a passive
+          -- shared-state tick only while an account is actually visible.
+          frame:SetHeight(18)
+          frame:ClearAllPoints()
+          if i == 1 then
+            frame:SetPoint("TOPLEFT", availableHeader, "BOTTOMLEFT", 0, -2)
+            frame:SetPoint("TOPRIGHT", availableHeader, "BOTTOMRIGHT", 0, -2)
+          else
+            frame:SetPoint("TOPLEFT", availableFrames[i - 1], "BOTTOMLEFT", 0, -1)
+            frame:SetPoint("TOPRIGHT", availableFrames[i - 1], "BOTTOMRIGHT", 0, -1)
+          end
+
+          frame.sharedTick = frame:CreateTexture(nil, "ARTWORK")
+          frame.sharedTick:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+          frame.sharedTick:SetWidth(14)
+          frame.sharedTick:SetHeight(14)
+          frame.sharedTick:SetPoint("LEFT", frame, "LEFT", 2, 0)
+          if frame.sharedTick.SetVertexColor then frame.sharedTick:SetVertexColor(.2, 1, .8, 1) end
+          frame.sharedTick:Hide()
+
+          table.insert(availableFrames, frame)
+        end
+        RefreshAvailableAccountInventoryUI()
+      end
     end)
   end
 end
@@ -3075,6 +5762,9 @@ local function ToolbarTryDisenchantClick(button)
   if not ToolbarInvokeNativeMode("disenchant") then return false end
 
   if SpellIsTargeting and SpellIsTargeting() then
+    if pfUI.bagtweaks and pfUI.bagtweaks.ProtectAutoResort then
+      pfUI.bagtweaks.ProtectAutoResort(true)
+    end
     PickupContainerItem(bag, slot)
     return true
   end
@@ -3754,6 +6444,18 @@ local OriginalContainerFrameItemButton_OnClick_BagTweaks = ContainerFrameItemBut
 if type(OriginalContainerFrameItemButton_OnClick_BagTweaks) == "function" then
   function ContainerFrameItemButton_OnClick(button, ignoreShift)
     if ToolbarTryDisenchantClick(button) then return end
+
+    if toolbarState.activeMode == "picklock" and button == "LeftButton" and
+       not IsShiftKeyDown() and not IsControlKeyDown() and not IsAltKeyDown() and
+       SpellIsTargeting and SpellIsTargeting() then
+      local bag, slot = ToolbarGetClickedBagSlot()
+      if bag ~= nil and slot ~= nil and GetContainerItemLink(bag, slot) and
+         (bag == -2 or (bag >= 0 and bag <= 4)) and
+         pfUI.bagtweaks and pfUI.bagtweaks.ProtectAutoResort then
+        pfUI.bagtweaks.ProtectAutoResort(true)
+      end
+    end
+
     return OriginalContainerFrameItemButton_OnClick_BagTweaks(button, ignoreShift)
   end
 end
@@ -3774,8 +6476,14 @@ toolbarWatcher:SetScript("OnEvent", function()
   elseif event == "SPELLCAST_START" then
     ToolbarOnSpellStarted()
     return
-  elseif event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
+  elseif event == "SPELLCAST_STOP" then
     ToolbarOnSpellFinished()
+    return
+  elseif event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
+    ToolbarOnSpellFinished()
+    if pfUI.bagtweaks and pfUI.bagtweaks.CancelAutoResortProtection then
+      pfUI.bagtweaks.CancelAutoResortProtection()
+    end
     return
   elseif event == "BANKFRAME_CLOSED" then
     BankToolbarClose()
