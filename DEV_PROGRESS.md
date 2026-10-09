@@ -592,7 +592,7 @@
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 - Focused runtime check: hover an item owned by the current character and at least one alt/account, both in a pfUI bag tooltip and a pfQuest database result, and verify the new hierarchy/colours plus current-character-only Bags/Bank detail.
 - **Runtime PASS for tooltip tests 1-8:** pfQuest item tooltip hook, pfUI bag tooltip hook, title/total, account headings, character rows/colours, current-character Bags/Bank detail, same-account alt simplification, and cross-account simplification all confirmed by the user.
-- Bag-slot popout restoration and the already-proven physical bag-swap regression checks were not tested in this pass and remain pending.
+- **Physical bag-swap regression PASS on 0.5.35-dev:** user reported the populated replacement worked flawlessly after the tooltip changes. The bag-slot popout restoration check remains separately unconfirmed.
 
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
@@ -615,8 +615,9 @@
 18. `0.5.33-dev` restore previously-open pfUI bag-slot popout after transaction cleanup: **implemented/checked**; focused UI retest pending.
 19. `0.5.34-dev` Account Inventory on generic item hyperlinks/pfQuest database results: **runtime PASS via 0.5.35-dev tooltip test**.
 20. `0.5.35-dev` Across Accounts tooltip layout/colour pass + current-character-only location detail: **runtime PASS for tests 1-8**.
-21. `0.5.33-dev` bag-slot popout restoration and bag-swap regression checks remain pending.
-22. Continue the remaining replacement matrix after those focused confirmations.
+21. Bag-swap regression on `0.5.35-dev`: **runtime PASS**.
+22. `0.5.33-dev` bag-slot popout restoration remains the only focused confirmation from this set still pending.
+23. Continue the remaining replacement matrix after that confirmation.
 20. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
 19. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
 20. Rogue Pick Lock workflow test.
@@ -636,4 +637,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test the two remaining checks on **`0.5.35-dev`**: (1) open the pfUI bag-slot popout, perform the already-proven populated bag replacement, and confirm the popout is restored/open afterward; (2) confirm the physical swap still completes successfully with evacuated items left outside the new bag. Tooltip tests 1-8 are runtime-passed. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
+Only the **pfUI bag-slot popout restoration** check remains from the current focused set: open the popout, perform the populated replacement, and confirm it is restored/open afterward. Tooltip tests 1-8 and the physical bag-swap regression are runtime-passed on `0.5.35-dev`. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
