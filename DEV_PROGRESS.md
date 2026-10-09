@@ -591,6 +591,8 @@
 - Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 - Focused runtime check: hover an item owned by the current character and at least one alt/account, both in a pfUI bag tooltip and a pfQuest database result, and verify the new hierarchy/colours plus current-character-only Bags/Bank detail.
+- **Runtime PASS for tooltip tests 1-8:** pfQuest item tooltip hook, pfUI bag tooltip hook, title/total, account headings, character rows/colours, current-character Bags/Bank detail, same-account alt simplification, and cross-account simplification all confirmed by the user.
+- Bag-slot popout restoration and the already-proven physical bag-swap regression checks were not tested in this pass and remain pending.
 
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
@@ -611,9 +613,10 @@
 16. `0.5.31-dev` partial Bagshui adaptation cleanup: **implemented/checked but superseded before runtime retest** after audit showed material divergence from Bagshui remained.
 17. `0.5.32-dev` direct Bagshui move-queue/equip-callback pathway with old physical executor removed: **ordinary populated carried-bag runtime PASS**.
 18. `0.5.33-dev` restore previously-open pfUI bag-slot popout after transaction cleanup: **implemented/checked**; focused UI retest pending.
-19. `0.5.34-dev` Account Inventory on generic item hyperlinks/pfQuest database results: **implemented/checked**; focused tooltip retest pending.
-20. `0.5.35-dev` Across Accounts tooltip layout/colour pass + current-character-only location detail: **implemented/checked**; focused tooltip retest pending.
-21. Continue the remaining replacement matrix after those focused confirmations.
+19. `0.5.34-dev` Account Inventory on generic item hyperlinks/pfQuest database results: **runtime PASS via 0.5.35-dev tooltip test**.
+20. `0.5.35-dev` Across Accounts tooltip layout/colour pass + current-character-only location detail: **runtime PASS for tests 1-8**.
+21. `0.5.33-dev` bag-slot popout restoration and bag-swap regression checks remain pending.
+22. Continue the remaining replacement matrix after those focused confirmations.
 20. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
 19. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
 20. Rogue Pick Lock workflow test.
@@ -633,4 +636,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test **`0.5.35-dev` at checkpoint `75a016d68457b6253f29b222477debff94f960fb`** by hovering the same owned item in both a pfUI bag and the pfQuest database browser. Confirm **Across Accounts: <total>**, pfUI green/blue title/account names, gold character names, white counts, and Bags/Keys/Bank detail only on the logged-in character. Also retain the pending `0.5.33-dev` bag-slot-popout confirmation on the next bag-swap pass. The `0.5.32-dev` ordinary physical swap baseline remains runtime-passed. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
+Runtime-test the two remaining checks on **`0.5.35-dev`**: (1) open the pfUI bag-slot popout, perform the already-proven populated bag replacement, and confirm the popout is restored/open afterward; (2) confirm the physical swap still completes successfully with evacuated items left outside the new bag. Tooltip tests 1-8 are runtime-passed. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.**
