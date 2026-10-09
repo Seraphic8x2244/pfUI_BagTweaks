@@ -634,8 +634,8 @@
 
 ## Release / Promotion Notes
 - Main-only or release-only content to preserve: stable `.toc` Title/Version metadata; development contract/status files are not part of stable releases.
-- Known validation debt accepted for release: None currently.
+- Known validation debt accepted for release: user explicitly approved promotion of `0.5.35-dev` despite the remaining unexercised replacement edge cases so Gaia can broaden real-world testing. Still untested at promotion: replacement source physically residing inside the target bag (not practically arrangeable through the filtered BagTweaks view), specialty/profession-bag replacement due no suitable bag available, pfUI-sort-created-space and true insufficient-space refusal due current bags not full enough, and populated bank-bag replacement. Ordinary populated carried replacement, drag/drop entry, physical swap regression, tooltip integration/layout, and bag-slot popout restoration are runtime-passed.
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Continue the remaining bag-replacement runtime matrix from the `0.5.35-dev` baseline. Tooltip tests 1-8, the populated physical bag-swap regression, and pfUI bag-slot popout restoration are all runtime-passed. **Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until the remaining replacement cases are accepted.**
+Promote the accepted `0.5.35-dev` product tree to stable `main` as `0.5.35`, excluding development-only status/rulebook files, so Gaia can perform broader runtime testing. Treat any new Gaia findings as post-release evidence against `0.5.35`; do not silently mark the remaining edge cases passed.
