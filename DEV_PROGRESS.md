@@ -4,7 +4,7 @@
 - Branch: `dev`
 - Version: `0.5.35-dev`
 - Development code head: `75a016d68457b6253f29b222477debff94f960fb` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
-- Stable baseline: `0.1.42` / `25474f32f5e20d189c73f84caa6af3e10f30584a`
+- Stable baseline: `0.5.35` / `8d538035b85c08bd1f91bee2acbf05484f56e61c`
 - Goal: Preserve the successful direct Bagshui swap baseline while runtime-validating the refreshed cross-account tooltip layout on bag and generic item-link tooltips.
 - Current scope boundary: `0.5.35-dev` preserves the `0.5.32-dev` physical Bagshui pathway, `0.5.33-dev` popout restoration, and `0.5.34-dev` generic item-link hook unchanged. The only new behavior is tooltip presentation: `Across Accounts: <total>` as the title, pfUI green/blue for title/account labels, gold character names, white counts, and Bags/Keys/Bank detail only for the currently logged-in character. Do not start open-all-containers, toolbar performance work, unrelated refactors, or later work until this workflow is runtime accepted.
 
@@ -634,8 +634,9 @@
 
 ## Release / Promotion Notes
 - Main-only or release-only content to preserve: stable `.toc` Title/Version metadata; development contract/status files are not part of stable releases.
+- Stable `0.5.35` promoted to `main` at `8d538035b85c08bd1f91bee2acbf05484f56e61c` for broader Gaia testing. Release tree contains the accepted dev product files with stable TOC metadata and excludes `DEV_PROGRESS.md` / `dev_rulebook.md`.
 - Known validation debt accepted for release: user explicitly approved promotion of `0.5.35-dev` despite the remaining unexercised replacement edge cases so Gaia can broaden real-world testing. Still untested at promotion: replacement source physically residing inside the target bag (not practically arrangeable through the filtered BagTweaks view), specialty/profession-bag replacement due no suitable bag available, pfUI-sort-created-space and true insufficient-space refusal due current bags not full enough, and populated bank-bag replacement. Ordinary populated carried replacement, drag/drop entry, physical swap regression, tooltip integration/layout, and bag-slot popout restoration are runtime-passed.
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Promote the accepted `0.5.35-dev` product tree to stable `main` as `0.5.35`, excluding development-only status/rulebook files, so Gaia can perform broader runtime testing. Treat any new Gaia findings as post-release evidence against `0.5.35`; do not silently mark the remaining edge cases passed.
+Have Gaia runtime-test stable `0.5.35` from `main`. Record any findings against release commit `8d538035b85c08bd1f91bee2acbf05484f56e61c`; the remaining unexercised replacement edge cases stay explicitly unpassed until observed.
