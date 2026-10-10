@@ -6120,8 +6120,8 @@ local openAllScanner
 local function ToolbarItemIsOpenable(bag, slot)
   if not GetContainerItemInfo(bag, slot) then return false end
 
-  if G.C_Container and type(G.C_Container.IsContainerItemOpenable) == "function" then
-    local _, canOpen = G.C_Container.IsContainerItemOpenable(bag, slot)
+  if _G.C_Container and type(_G.C_Container.IsContainerItemOpenable) == "function" then
+    local _, canOpen = _G.C_Container.IsContainerItemOpenable(bag, slot)
     return canOpen and true or false
   end
 
@@ -6142,7 +6142,7 @@ local function ToolbarItemIsOpenable(bag, slot)
 
   local lines = openAllScanner:NumLines() or 0
   for i = 1, lines do
-    local line = G["pfUIBagTweaksOpenableScannerTextLeft" .. i]
+    local line = _G["pfUIBagTweaksOpenableScannerTextLeft" .. i]
     local value = line and line.GetText and line:GetText()
     if value and string.find(value, ITEM_OPENABLE, 1, true) then return true end
   end
