@@ -2,11 +2,11 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.36-dev`
-- Development code head: `2b23b1540d00b69438471443cb87f87d2d82d224` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.37-dev`
+- Development code head: `89ed0f74f9cc536625dac1d708bf7b85502466c2` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.5.35` / `8d538035b85c08bd1f91bee2acbf05484f56e61c`
-- Goal: Preserve stable `0.5.35` behaviour while adding one bounded presentation option: configurable BagTweaks toolbar icon size.
-- Current scope boundary: `0.5.36-dev` changes only BagTweaks toolbar presentation/configuration. It adds a persisted **Toolbar icon size** dropdown from 8-16 px, default 10. The toolbar row grows only when needed to contain the selected icon size, while preserving the pfUI-native row height at smaller settings. Bag replacement, inventory tracking, tooltip logic, Auto Resort, Disenchant/Pick Lock behaviour and physical sorting ownership are unchanged.
+- Goal: Preserve stable `0.5.35` behaviour while adding one bounded presentation option: configurable BagTweaks toolbar icon/button size.
+- Current scope boundary: `0.5.37-dev` changes only BagTweaks toolbar presentation/configuration. It keeps the persisted **Toolbar icon size** dropdown at 8-16 px, default 10, but larger values now increase both icon size and button footprint so the toolbar can wrap naturally onto additional rows. Bag replacement, inventory tracking, tooltip logic, Auto Resort, Disenchant/Pick Lock behaviour and physical sorting ownership are unchanged.
 
 ## Current Design / Development Contract
 
@@ -597,15 +597,18 @@
 
 ### 0.5.36-dev Configurable Toolbar Icon Size
 - Targeted code checkpoint: `2b23b1540d00b69438471443cb87f87d2d82d224`.
-- Adds **Toolbar icon size** to BagTweaks options with integer choices **8-16 px** and a persisted default of **10 px**, matching the previous brues-pfUI visual size.
-- BagTweaks records the pfUI-native close-button row height before resizing, so lowering the setting can shrink the toolbar back to its native baseline instead of inheriting an earlier enlarged height.
-- Desired toolbar row height is the larger of the native row height and `iconSize + 2 * border`. On the current brues-code pfUI baseline this means 10 px icons keep the native 12 px row while 16 px icons use an 18 px row.
-- Backpack and bank toolbar layout both treat row-height changes as relayout-worthy so category/item content keeps correct top spacing.
-- The selected icon size applies to BagTweaks-managed toolbar icons including the replacement close icon; icon textures remain square and centred.
-- Existing 32x32 TGA assets are reused; no artwork files changed.
+- Implemented 8-16 px configurable toolbar icons, but retained the existing 18 px button-width floor. Before runtime testing, the user clarified that larger icons were intended to enlarge the buttons as well so wrapping could occur naturally. This checkpoint is superseded by `0.5.37-dev`.
+
+### 0.5.37-dev Toolbar Button Scaling Correction
+- Targeted code checkpoint: `89ed0f74f9cc536625dac1d708bf7b85502466c2`.
+- Keeps **Toolbar icon size** at integer choices **8-16 px**, default **10 px**.
+- Row height remains the larger of the pfUI-native row height and `iconSize + 2 * border`.
+- Minimum button width now scales with the selected icon size: `max(18, iconSize + 8)`. On the brues-code baseline this preserves the existing 18 px minimum at 8-10 px icons and grows to 24 px at 16 px icons.
+- Because toolbar capacity is calculated from minimum button width, larger settings can reduce buttons-per-row and wrap onto additional rows as intended.
+- Existing row-balancing, close-button placement, backpack/bank relayout ownership and 32x32 TGA artwork remain unchanged.
 - Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
-- Focused runtime test: confirm 10 px matches the existing appearance, 8 px shrinks icons without breaking the native row, 16 px enlarges icons/row cleanly on backpack and bank, the setting persists after reload, and returning to 10 px shrinks the row back correctly.
+- Focused runtime test: verify 10 px matches the existing footprint, 16 px visibly enlarges buttons/icons and wraps where width requires, backpack and bank remain aligned, the choice survives reload, and returning to 10 px restores the original footprint.
 
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
@@ -635,9 +638,10 @@
 19. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
 20. Rogue Pick Lock workflow test: **runtime PASS on stable 0.5.35**.
 21. Disenchant targeting-cursor / candidate-item hover discoverability: **runtime PASS on stable 0.5.35**.
-22. `0.5.36-dev` configurable toolbar icon size (8-16 px): **implemented/checked**; focused runtime test pending.
-23. Remaining direct-toolbar edge-case checks.
-24. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+22. `0.5.36-dev` configurable toolbar icon size: **superseded before runtime** because it enlarged icons but not the button-width footprint.
+23. `0.5.37-dev` toolbar button scaling correction: **implemented/checked**; focused runtime test pending.
+24. Remaining direct-toolbar edge-case checks.
+25. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Open all containers on right click is deferred until the bag-replacement slice is implemented and runtime-accepted.
@@ -652,4 +656,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test `0.5.36-dev` toolbar icon sizing at checkpoint `2b23b1540d00b69438471443cb87f87d2d82d224`: verify 10 px baseline, 8 px minimum, 16 px maximum on backpack and bank, persistence across reload, and clean shrink back to 10 px. Stable `main` remains `0.5.35` until this presentation change is accepted.
+Runtime-test `0.5.37-dev` at checkpoint `89ed0f74f9cc536625dac1d708bf7b85502466c2`: verify 10 px matches the old footprint, 16 px enlarges both icons and buttons and wraps where needed, backpack/bank layouts remain clean, persistence works across reload, and returning to 10 px restores the original footprint. Stable `main` remains `0.5.35` until accepted.
