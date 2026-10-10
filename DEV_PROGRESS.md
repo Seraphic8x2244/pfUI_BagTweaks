@@ -2,8 +2,8 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.42-dev`
-- Development code head: `1c6de4319abc1d8f1a715cb210d17a2d425e0f59` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.43-dev`
+- Development code head: `ed21a8a34d28d3c6f5583c48f7f19c9fae005fb3` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.5.35` / `8d538035b85c08bd1f91bee2acbf05484f56e61c`
 - Goal: Finish the remaining contained BagTweaks feature work: chat-click inventory tooltips, right-click Open All Containers, canonical `pfUI [BagTweaks]` branding, and final runtime acceptance without reopening already-passed systems.
 - Current scope boundary: `0.5.37-dev` changes only BagTweaks toolbar presentation/configuration. It keeps the persisted **Toolbar icon size** dropdown at 8-16 px, default 10, but larger values now increase both icon size and button footprint so the toolbar can wrap naturally onto additional rows. Bag replacement, inventory tracking, tooltip logic, Auto Resort, Disenchant/Pick Lock behaviour and physical sorting ownership are unchanged.
@@ -662,6 +662,19 @@
 - Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 
+
+### 0.5.43-dev Pre-Evacuation Cursor Settling
+- Targeted code checkpoint: `ed21a8a34d28d3c6f5583c48f7f19c9fae005fb3`.
+- Focused runtime evidence on `0.5.42-dev`: populated-bag replacement remained on **Preparing** for ~8 seconds, then displayed `Moving items 7 / 7`, rolled moved items back, and stopped with **"A bag replacement move was rejected."**
+- The counter only advances when a queue entry succeeds or exhausts its retries, so the long pre-progress pause indicates the **first evacuation move** was retrying until failure; later moves then advanced the counter before the aggregate failure triggered rollback.
+- Code inspection found a timing hazard specific to BagTweaks' click/drag entry path: when preflight is already possible, the selected replacement bag can remain on the cursor until the first `SwapMoveItem()`. That function then calls `ClearCursor()` and immediately attempts the first evacuation move, coupling replacement return and evacuation in the same instant.
+- `0.5.43-dev` returns any cursor-held replacement to its remembered source **before** evacuation begins, then preserves the existing 0.15s settling delay before the move queue starts.
+- The overlay enters evacuation immediately as `Moving items 0 / N...` instead of leaving a retrying first move visually labelled **Preparing**.
+- No planner rules, destination selection, retry limits, rollback behavior, final equip path, tooltip/Open All behavior, or already-passed branding paths were changed.
+- This diagnosis is **strongly supported by the observed timing and code path but not yet runtime-confirmed**; retest the same populated-bag swap on this exact checkpoint.
+- Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
+- Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
+
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
 2. `0.5.17-dev` interaction + overlay foundation: **implemented/checked**; standalone runtime testing intentionally deferred.
@@ -696,8 +709,9 @@
 26. `0.5.40-dev` finish pass: **superseded before runtime** due generated locale syntax defect.
 27. `0.5.41-dev` chat-click tooltip + Open All + `pfUI [BagTweaks]` branding: chat tooltip + branding runtime PASS; Open All runtime FAILED at entry due out-of-scope `G` reference.
 28. `0.5.42-dev` Open All global-scope fix: **runtime PASS**; user reported right-click Open All worked cleanly.
-29. Remaining direct-toolbar/bag-replacement edge-case checks are validation debt only; fix only demonstrated defects.
-30. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+29. `0.5.43-dev` pre-evacuation cursor settling: **implemented/checked**; populated-bag regression retest pending.
+30. Remaining direct-toolbar/bag-replacement edge-case checks are validation debt only; fix only demonstrated defects.
+31. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Packing optimisation unless future inventories show a real problem.
@@ -711,4 +725,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Open All is runtime-passed on `0.5.42-dev` / `1c6de4319abc1d8f1a715cb210d17a2d425e0f59`; the user reported right-click Open All worked cleanly. Chat-item tooltip, non-item chat-link isolation, and visible `pfUI [BagTweaks]` branding are runtime-passed. Already-equipped empty-bag replacement remains untested. **Populated-bag replacement regression FAIL on 0.5.42-dev:** runtime reached `Moving items 6 / 6` after a long delay and then failed; exact final stop reason and rollback result are pending one focused retest before code changes. Remaining non-bag-swap checks: bank toolbar sizing looks correct and returning icon size to 10 restores the compact footprint. Specialty/profession bag replacement, pfUI-sort-created-space, true insufficient-space refusal, populated bank-bag replacement, and replacement-inside-target remain explicit edge-case validation debt until naturally testable.
+Retest the same populated-bag replacement on `0.5.43-dev` / `ed21a8a34d28d3c6f5583c48f7f19c9fae005fb3`. The prior 0.5.42 run showed the first evacuation move apparently exhausting retries while the UI still said Preparing; 0.5.43 returns the replacement bag from the cursor before the evacuation settling delay and shows `Moving items 0 / N...` immediately. Report whether it now proceeds promptly and completes, or the exact count/message if it still rolls back. Already-equipped empty-bag replacement remains untested. Remaining non-bag-swap checks: bank toolbar sizing and returning icon size to 10. Specialty/profession bag replacement, pfUI-sort-created-space, true insufficient-space refusal, populated bank-bag replacement, and replacement-inside-target remain explicit edge-case validation debt until naturally testable.
