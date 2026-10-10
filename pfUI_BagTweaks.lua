@@ -6665,6 +6665,7 @@ local function ToolbarEnsureBagHideHook(bag)
       if old and old ~= toolbarState.onHideWrapper then old() end
       toolbarState.searchOpen = false
       if toolbarState.activeMode then ToolbarDisablePersistentMode() end
+      ToolbarStopOpenAll()
       ToolbarHideMenu()
       if pfUI.bagtweaks and pfUI.bagtweaks.HideMenus then pfUI.bagtweaks.HideMenus() end
       ToolbarApplySearchState()
