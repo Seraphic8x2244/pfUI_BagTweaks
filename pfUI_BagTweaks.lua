@@ -1696,7 +1696,38 @@ local function Initialize()
         table.insert(active.swapMoves, moves[i])
       end
 
+      -- The replacement can still be on the user's cursor at this point.
+      -- Return it to its remembered physical source before evacuation begins,
+      -- then use the existing settling delay. Leaving this until SwapMoveItem()
+      -- made the first evacuation attempt perform ClearCursor() and a container
+      -- move back-to-back, which can repeatedly hit Vanilla's transient locks.
+      if type(CursorHasItem) == "function" and CursorHasItem() then
+        if type(ClearCursor) ~= "function" then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_STATE_CHANGED or
+            "Inventory changed unexpectedly during bag replacement."
+          )
+        end
+
+        ClearCursor()
+        if CursorHasItem() then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_STATE_CHANGED or
+            "Inventory changed unexpectedly during bag replacement."
+          )
+        end
+      end
+
       self:ClearSwapSchedule()
+
+      local moveTotal = table.getn(active.swapMoves)
+      if moveTotal > 0 then
+        self:SetPhase(
+          "evacuate",
+          string.format(L.BAG_SWAP_MOVING or "Moving items %d / %d...", 0, moveTotal)
+        )
+      end
+
       return self:QueueSwap(0.15, function()
         local current = BagReplacement.active
         if not current then return end
