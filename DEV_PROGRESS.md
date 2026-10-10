@@ -2,8 +2,8 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.41-dev`
-- Development code head: `6607fa32b0edd7c9e67fda889eea7b30a061a675` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.42-dev`
+- Development code head: `1c6de4319abc1d8f1a715cb210d17a2d425e0f59` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.5.35` / `8d538035b85c08bd1f91bee2acbf05484f56e61c`
 - Goal: Finish the remaining contained BagTweaks feature work: chat-click inventory tooltips, right-click Open All Containers, canonical `pfUI [BagTweaks]` branding, and final runtime acceptance without reopening already-passed systems.
 - Current scope boundary: `0.5.37-dev` changes only BagTweaks toolbar presentation/configuration. It keeps the persisted **Toolbar icon size** dropdown at 8-16 px, default 10, but larger values now increase both icon size and button footprint so the toolbar can wrap naturally onto additional rows. Bag replacement, inventory tracking, tooltip logic, Auto Resort, Disenchant/Pick Lock behaviour and physical sorting ownership are unchanged.
@@ -652,6 +652,16 @@
 - Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 
+
+### 0.5.42-dev Open All Global-Scope Fix
+- Targeted code checkpoint: `1c6de4319abc1d8f1a715cb210d17a2d425e0f59`.
+- Runtime report on `0.5.41-dev`: right-click Open All raised a Lua nil-value error at line 6123.
+- Root cause confirmed by inspection: the Open All toolbar code is outside the earlier module-local `local G = _G` scope but referenced `G.C_Container` (and the fallback scanner also referenced `G[...]`).
+- Corrected both Open All global lookups to explicit `_G` references. No other Open All behavior or already-passed tooltip/branding paths changed.
+- Static scan of the Open All block confirms no remaining bare `G.` / `G[...]` references.
+- Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
+- Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
+
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
 2. `0.5.17-dev` interaction + overlay foundation: **implemented/checked**; standalone runtime testing intentionally deferred.
@@ -684,9 +694,10 @@
 24. `0.5.38-dev` empty bag-slot ownership correction: **implemented/checked**; unused-slot native equip runtime PASS; empty-equipped-bag and populated replacement regression still pending.
 25. `0.5.39-dev` simplified bag replacement overlay wording: **implemented/checked**; runtime visual confirmation pending.
 26. `0.5.40-dev` finish pass: **superseded before runtime** due generated locale syntax defect.
-27. `0.5.41-dev` chat-click tooltip + Open All + `pfUI [BagTweaks]` branding: **implemented/checked**; focused runtime acceptance pending.
-28. Remaining direct-toolbar/bag-replacement edge-case checks are validation debt only; fix only demonstrated defects.
-29. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+27. `0.5.41-dev` chat-click tooltip + Open All + `pfUI [BagTweaks]` branding: chat tooltip + branding runtime PASS; Open All runtime FAILED at entry due out-of-scope `G` reference.
+28. `0.5.42-dev` Open All global-scope fix: **implemented/checked**; Open All runtime retest pending.
+29. Remaining direct-toolbar/bag-replacement edge-case checks are validation debt only; fix only demonstrated defects.
+30. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Packing optimisation unless future inventories show a real problem.
@@ -700,4 +711,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Continue `0.5.41-dev` runtime acceptance at checkpoint `6607fa32b0edd7c9e67fda889eea7b30a061a675`. Chat-item tooltip and visible `pfUI [BagTweaks]` branding are runtime-passed. Open All remains untested because multiple openable containers are not currently available; leave that as explicit validation debt until naturally testable. Remaining focused checks: non-item chat link remains untouched, already-equipped empty-bag replacement stays native, populated-bag replacement still enters BagTweaks, bank toolbar sizing looks correct, and returning icon size to 10 restores the compact footprint.
+Retest right-click Open All on `0.5.42-dev` / `1c6de4319abc1d8f1a715cb210d17a2d425e0f59`. The previous 0.5.41 attempt failed immediately at line 6123 before the feature could run; that exact scope defect is now fixed. Chat-item tooltip and visible `pfUI [BagTweaks]` branding remain runtime-passed. Remaining focused checks after Open All: non-item chat link untouched, already-equipped empty-bag replacement stays native, populated-bag replacement still enters BagTweaks, bank toolbar sizing looks correct, and returning icon size to 10 restores the compact footprint.
