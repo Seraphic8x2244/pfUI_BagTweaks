@@ -695,7 +695,7 @@
 25. `0.5.39-dev` simplified bag replacement overlay wording: **implemented/checked**; runtime visual confirmation pending.
 26. `0.5.40-dev` finish pass: **superseded before runtime** due generated locale syntax defect.
 27. `0.5.41-dev` chat-click tooltip + Open All + `pfUI [BagTweaks]` branding: chat tooltip + branding runtime PASS; Open All runtime FAILED at entry due out-of-scope `G` reference.
-28. `0.5.42-dev` Open All global-scope fix: **implemented/checked**; Open All runtime retest pending.
+28. `0.5.42-dev` Open All global-scope fix: **runtime PASS**; user reported right-click Open All worked cleanly.
 29. Remaining direct-toolbar/bag-replacement edge-case checks are validation debt only; fix only demonstrated defects.
 30. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
@@ -711,4 +711,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Retest right-click Open All on `0.5.42-dev` / `1c6de4319abc1d8f1a715cb210d17a2d425e0f59`. The previous 0.5.41 attempt failed immediately at line 6123 before the feature could run; that exact scope defect is now fixed. Chat-item tooltip and visible `pfUI [BagTweaks]` branding remain runtime-passed. Remaining focused checks after Open All: non-item chat link untouched, already-equipped empty-bag replacement stays native, populated-bag replacement still enters BagTweaks, bank toolbar sizing looks correct, and returning icon size to 10 restores the compact footprint.
+Open All is runtime-passed on `0.5.42-dev` / `1c6de4319abc1d8f1a715cb210d17a2d425e0f59`; the user reported right-click Open All worked cleanly. Chat-item tooltip and visible `pfUI [BagTweaks]` branding remain runtime-passed. Remaining focused checks: non-item chat link untouched, already-equipped empty-bag replacement stays native, populated-bag replacement still enters BagTweaks, bank toolbar sizing looks correct, and returning icon size to 10 restores the compact footprint. Specialty/profession bag replacement, pfUI-sort-created-space, true insufficient-space refusal, populated bank-bag replacement, and replacement-inside-target remain explicit edge-case validation debt until naturally testable.
