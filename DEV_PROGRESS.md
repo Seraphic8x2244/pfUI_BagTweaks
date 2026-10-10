@@ -2,10 +2,10 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.37-dev`
-- Development code head: `89ed0f74f9cc536625dac1d708bf7b85502466c2` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.38-dev`
+- Development code head: `d3653803033ad613afd1a9637c62569026e209d0` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.5.35` / `8d538035b85c08bd1f91bee2acbf05484f56e61c`
-- Goal: Preserve stable `0.5.35` behaviour while adding one bounded presentation option: configurable BagTweaks toolbar icon/button size.
+- Goal: Preserve the accepted toolbar sizing change while correcting bag-replacement ownership so native pfUI/Vanilla handling remains authoritative for empty target bag slots.
 - Current scope boundary: `0.5.37-dev` changes only BagTweaks toolbar presentation/configuration. It keeps the persisted **Toolbar icon size** dropdown at 8-16 px, default 10, but larger values now increase both icon size and button footprint so the toolbar can wrap naturally onto additional rows. Bag replacement, inventory tracking, tooltip logic, Auto Resort, Disenchant/Pick Lock behaviour and physical sorting ownership are unchanged.
 
 ## Current Design / Development Contract
@@ -610,6 +610,18 @@
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 - Focused runtime test: verify 10 px matches the existing footprint, 16 px visibly enlarges buttons/icons and wraps where width requires, backpack and bank remain aligned, and returning to 10 px restores the original footprint. **SavedVariables persistence across reload: PASS on 0.5.37-dev.**
 
+
+### 0.5.38-dev Empty Bag-Slot Ownership Correction
+- Targeted code checkpoint: `d3653803033ad613afd1a9637c62569026e209d0`.
+- Runtime report: dropping a new bag onto an unused equipped-bag slot appeared to be intercepted by BagTweaks and prevented normal equipping.
+- Root cause confirmed by code inspection: `TryTarget()` entered the replacement workflow whenever a bag candidate was on the cursor, without first confirming that the target equipped bag actually contained items.
+- Correct ownership rule restored: BagTweaks now intercepts only when the target equipped bag **contains at least one item**. Unused equipment slots and already-equipped but empty bags fall through to pfUI/Vanilla's native bag-slot handler.
+- The existing populated-bag replacement path is otherwise unchanged.
+- The **I'll make some space...** control remains a contextual insufficient-space acknowledgement only. It is shown only after preflight plus pfUI Sort still cannot create enough compatible space; acknowledging releases BagTweaks ownership so the user can manually make room. It is not a settings-page control.
+- Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
+- Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
+- Focused runtime test: equip a bag into a previously unused bag slot and replace an already-equipped but empty bag; both should use native behaviour with no BagTweaks overlay. Then confirm a populated-bag replacement still enters BagTweaks and completes normally.
+
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
 2. `0.5.17-dev` interaction + overlay foundation: **implemented/checked**; standalone runtime testing intentionally deferred.
@@ -640,8 +652,9 @@
 21. Disenchant targeting-cursor / candidate-item hover discoverability: **runtime PASS on stable 0.5.35**.
 22. `0.5.36-dev` configurable toolbar icon size: **superseded before runtime** because it enlarged icons but not the button-width footprint.
 23. `0.5.37-dev` toolbar button scaling correction: **implemented/checked**; focused runtime test pending.
-24. Remaining direct-toolbar edge-case checks.
-25. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+24. `0.5.38-dev` empty bag-slot ownership correction: **implemented/checked**; focused runtime test pending.
+25. Remaining direct-toolbar edge-case checks.
+26. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Open all containers on right click is deferred until the bag-replacement slice is implemented and runtime-accepted.
@@ -656,4 +669,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test `0.5.37-dev` at checkpoint `89ed0f74f9cc536625dac1d708bf7b85502466c2`: verify 10 px matches the old footprint, 16 px enlarges both icons and buttons and wraps where needed, backpack/bank layouts remain clean, persistence works across reload, and returning to 10 px restores the original footprint. Stable `main` remains `0.5.35` until accepted.
+Runtime-test `0.5.38-dev` at checkpoint `d3653803033ad613afd1a9637c62569026e209d0`: first verify a new bag equips normally into an unused bag slot with no BagTweaks overlay; then verify replacing an already-equipped empty bag also stays native; finally confirm a populated-bag replacement still enters BagTweaks and works. Toolbar-size persistence is already passed; remaining toolbar layout checks can follow.
