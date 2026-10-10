@@ -671,7 +671,7 @@
 - `0.5.43-dev` returns any cursor-held replacement to its remembered source **before** evacuation begins, then preserves the existing 0.15s settling delay before the move queue starts.
 - The overlay enters evacuation immediately as `Moving items 0 / N...` instead of leaving a retrying first move visually labelled **Preparing**.
 - No planner rules, destination selection, retry limits, rollback behavior, final equip path, tooltip/Open All behavior, or already-passed branding paths were changed.
-- This diagnosis is **strongly supported by the observed timing and code path but not yet runtime-confirmed**; retest the same populated-bag swap on this exact checkpoint.
+- **Runtime PASS on this exact checkpoint:** the user repeated the same populated-bag replacement and it completed successfully. The replacement cursor return is internal; no manual cursor action is required.
 - Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 
@@ -709,7 +709,7 @@
 26. `0.5.40-dev` finish pass: **superseded before runtime** due generated locale syntax defect.
 27. `0.5.41-dev` chat-click tooltip + Open All + `pfUI [BagTweaks]` branding: chat tooltip + branding runtime PASS; Open All runtime FAILED at entry due out-of-scope `G` reference.
 28. `0.5.42-dev` Open All global-scope fix: **runtime PASS**; user reported right-click Open All worked cleanly.
-29. `0.5.43-dev` pre-evacuation cursor settling: **implemented/checked**; populated-bag regression retest pending.
+29. `0.5.43-dev` pre-evacuation cursor settling: **runtime PASS**; the same populated-bag replacement completed successfully.
 30. Remaining direct-toolbar/bag-replacement edge-case checks are validation debt only; fix only demonstrated defects.
 31. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
@@ -725,4 +725,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Retest the same populated-bag replacement on `0.5.43-dev` / `ed21a8a34d28d3c6f5583c48f7f19c9fae005fb3`. The prior 0.5.42 run showed the first evacuation move apparently exhausting retries while the UI still said Preparing; 0.5.43 returns the replacement bag from the cursor before the evacuation settling delay and shows `Moving items 0 / N...` immediately. Report whether it now proceeds promptly and completes, or the exact count/message if it still rolls back. Already-equipped empty-bag replacement remains untested. Remaining non-bag-swap checks: bank toolbar sizing and returning icon size to 10. Specialty/profession bag replacement, pfUI-sort-created-space, true insufficient-space refusal, populated bank-bag replacement, and replacement-inside-target remain explicit edge-case validation debt until naturally testable.
+`0.5.43-dev` / `ed21a8a34d28d3c6f5583c48f7f19c9fae005fb3` populated-bag replacement regression is runtime-passed. Already-equipped empty-bag replacement remains untested. Remaining focused checks: bank toolbar sizing and returning icon size to 10. Specialty/profession bag replacement, pfUI-sort-created-space, true insufficient-space refusal, populated bank-bag replacement, and replacement-inside-target remain explicit edge-case validation debt until naturally testable.
