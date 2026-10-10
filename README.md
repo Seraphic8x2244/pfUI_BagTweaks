@@ -1,4 +1,4 @@
-# pfUI BagTweaks
+# pfUI [BagTweaks]
 
 BagTweaks modernises and expands pfUI's bag UI for Vanilla WoW.
 

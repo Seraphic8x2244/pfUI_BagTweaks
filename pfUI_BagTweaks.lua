@@ -2814,8 +2814,9 @@ local function Initialize()
         return groups, total
       end
 
-      function tracker:AppendTooltip(itemID)
-        if not GameTooltip or not itemID then return end
+      function tracker:AppendTooltip(itemID, tooltip)
+        tooltip = tooltip or GameTooltip
+        if not tooltip or not itemID then return end
         local groups, total = self:GetTrackedItemGroups(itemID)
         if total <= 0 then return end
 
@@ -2825,15 +2826,15 @@ local function Initialize()
         local grey = "|cffd9d9d9"
         local reset = "|r"
 
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddLine(
+        tooltip:AddLine(" ")
+        tooltip:AddLine(
           pfColor .. (L.ACCOUNT_TRACKING_TOOLTIP_HEADER or "Across Accounts:") ..
           reset .. " " .. white .. tostring(total) .. reset
         )
 
         for i = 1, table.getn(groups) do
           local group = groups[i]
-          GameTooltip:AddLine("   " .. pfColor .. tostring(group.label or "") .. reset)
+          tooltip:AddLine("   " .. pfColor .. tostring(group.label or "") .. reset)
 
           for n = 1, table.getn(group.characters) do
             local item = group.characters[n]
@@ -2877,11 +2878,11 @@ local function Initialize()
               end
             end
 
-            GameTooltip:AddLine(line)
+            tooltip:AddLine(line)
           end
         end
 
-        GameTooltip:Show()
+        tooltip:Show()
       end
 
       function tracker:LocalChanged()
@@ -3042,7 +3043,7 @@ local function Initialize()
           local data = pfUI.bags and pfUI.bags[bag] and pfUI.bags[bag].slots and pfUI.bags[bag].slots[slot]
           local frame = data and data.frame
           if frame and self.IsOwned and self:IsOwned(frame) then
-            InventoryTracker:AppendTooltip(ItemID(bag, slot))
+            InventoryTracker:AppendTooltip(ItemID(bag, slot), self)
           end
         end
         return result
@@ -3060,11 +3061,26 @@ local function Initialize()
         local result = oldSetHyperlink(self, link)
         if type(link) == "string" then
           local _, _, itemID = string.find(link, "^item:(%d+)")
-          if itemID then InventoryTracker:AppendTooltip(tonumber(itemID)) end
+          if itemID then InventoryTracker:AppendTooltip(tonumber(itemID), self) end
         end
         return result
       end
       GameTooltip.bagtweaks_inventory_link_hooked = true
+    end
+
+    -- Chat-clicked item links use ItemRefTooltip rather than GameTooltip.
+    if ItemRefTooltip and type(ItemRefTooltip.SetHyperlink) == "function" and
+       not ItemRefTooltip.bagtweaks_inventory_link_hooked then
+      local oldItemRefSetHyperlink = ItemRefTooltip.SetHyperlink
+      ItemRefTooltip.SetHyperlink = function(self, link)
+        local result = oldItemRefSetHyperlink(self, link)
+        if type(link) == "string" then
+          local _, _, itemID = string.find(link, "^item:(%d+)")
+          if itemID then InventoryTracker:AppendTooltip(tonumber(itemID), self) end
+        end
+        return result
+      end
+      ItemRefTooltip.bagtweaks_inventory_link_hooked = true
     end
 
     local function NameFromLink(link)
@@ -5261,6 +5277,10 @@ local toolbarState = {
   menuOwner = nil,
   baseOnHide = nil,
   onHideWrapper = nil,
+  openAllQueue = nil,
+  openAllIndex = nil,
+  openAllAt = nil,
+  openAllDriver = nil,
 }
 
 local bankToolbarState = {
@@ -6095,7 +6115,142 @@ local function ToolbarClickSort()
   ToolbarNativeClick("sort")
 end
 
+local openAllScanner
+
+local function ToolbarItemIsOpenable(bag, slot)
+  if not GetContainerItemInfo(bag, slot) then return false end
+
+  if G.C_Container and type(G.C_Container.IsContainerItemOpenable) == "function" then
+    local _, canOpen = G.C_Container.IsContainerItemOpenable(bag, slot)
+    return canOpen and true or false
+  end
+
+  if not ITEM_OPENABLE then return false end
+
+  if not openAllScanner then
+    openAllScanner = CreateFrame(
+      "GameTooltip",
+      "pfUIBagTweaksOpenableScanner",
+      UIParent,
+      "GameTooltipTemplate"
+    )
+    openAllScanner:SetOwner(UIParent, "ANCHOR_NONE")
+  end
+
+  openAllScanner:ClearLines()
+  openAllScanner:SetBagItem(bag, slot)
+
+  local lines = openAllScanner:NumLines() or 0
+  for i = 1, lines do
+    local line = G["pfUIBagTweaksOpenableScannerTextLeft" .. i]
+    local value = line and line.GetText and line:GetText()
+    if value and string.find(value, ITEM_OPENABLE, 1, true) then return true end
+  end
+
+  return false
+end
+
+local function ToolbarStopOpenAll()
+  toolbarState.openAllQueue = nil
+  toolbarState.openAllIndex = nil
+  toolbarState.openAllAt = nil
+  if toolbarState.openAllDriver then toolbarState.openAllDriver:Hide() end
+end
+
+local function ToolbarBuildOpenAllQueue()
+  local queue = {}
+
+  for bag = 0, 4 do
+    local slots = tonumber(GetContainerNumSlots(bag)) or 0
+    for slot = 1, slots do
+      if ToolbarItemIsOpenable(bag, slot) then
+        local _, count = GetContainerItemInfo(bag, slot)
+        count = tonumber(count) or 1
+        if count < 1 then count = 1 end
+
+        for n = 1, count do
+          table.insert(queue, {
+            bag=bag,
+            slot=slot,
+            link=GetContainerItemLink(bag, slot),
+          })
+        end
+      end
+    end
+  end
+
+  return queue
+end
+
+local function ToolbarProcessOpenAll()
+  local queue = toolbarState.openAllQueue
+  local index = tonumber(toolbarState.openAllIndex) or 1
+  if not queue then
+    ToolbarStopOpenAll()
+    return
+  end
+
+  if LootFrame and LootFrame:IsShown() then return end
+  if type(CursorHasItem) == "function" and CursorHasItem() then
+    ToolbarStopOpenAll()
+    return
+  end
+
+  while index <= table.getn(queue) do
+    local item = queue[index]
+    index = index + 1
+    toolbarState.openAllIndex = index
+
+    local link = GetContainerItemLink(item.bag, item.slot)
+    if link and (not item.link or link == item.link) and
+       ToolbarItemIsOpenable(item.bag, item.slot) then
+      if type(ClearCursor) == "function" then ClearCursor() end
+      if MerchantFrame and MerchantFrame:IsShown() then HideUIPanel(MerchantFrame) end
+      UseContainerItem(item.bag, item.slot)
+      toolbarState.openAllAt = (GetTime and GetTime() or 0) + .30
+      return
+    end
+  end
+
+  ToolbarStopOpenAll()
+end
+
+local function ToolbarStartOpenAll()
+  ToolbarHideMenu()
+  ToolbarStopOpenAll()
+
+  local queue = ToolbarBuildOpenAllQueue()
+  if table.getn(queue) == 0 then return end
+
+  toolbarState.openAllQueue = queue
+  toolbarState.openAllIndex = 1
+  toolbarState.openAllAt = 0
+
+  if not toolbarState.openAllDriver then
+    toolbarState.openAllDriver = CreateFrame("Frame")
+    toolbarState.openAllDriver:SetScript("OnUpdate", function()
+      if not toolbarState.openAllQueue then
+        this:Hide()
+        return
+      end
+
+      local now = GetTime and GetTime() or 0
+      if now < (toolbarState.openAllAt or 0) then return end
+      ToolbarProcessOpenAll()
+    end)
+  end
+
+  toolbarState.openAllDriver:Show()
+  ToolbarProcessOpenAll()
+end
+
 local function ToolbarClickOpen()
+  if arg1 == "RightButton" then
+    ToolbarStartOpenAll()
+    return
+  end
+
+  ToolbarStopOpenAll()
   ToolbarNativeClick("open")
 end
 
@@ -6406,7 +6561,14 @@ local function ToolbarLayout()
   local quest = ToolbarMakeButton("quest", L.TOOLBAR_QUEST, ToolbarToggleQuest)
   local disenchant = ToolbarMakeButton("disenchant", L.TOOLBAR_DISENCHANT, ToolbarToggleDisenchantMode)
   local picklock = ToolbarMakeButton("picklock", L.TOOLBAR_PICKLOCK, ToolbarTogglePickLockMode)
-  local open = ToolbarMakeButton("open", L.TOOLBAR_OPEN, ToolbarClickOpen)
+  local open = ToolbarMakeButton(
+    "open",
+    L.TOOLBAR_OPEN_HINT or L.TOOLBAR_OPEN,
+    ToolbarClickOpen
+  )
+  if open and open.RegisterForClicks then
+    open:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+  end
   local options = ToolbarMakeButton("options", L.TOOLBAR_OPTIONS, ToolbarOpenOptions)
 
   local buttons = {}
