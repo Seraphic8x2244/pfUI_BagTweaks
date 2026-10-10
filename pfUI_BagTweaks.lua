@@ -5437,7 +5437,8 @@ local function ToolbarLayoutButtonRows(frame, buttons, height, border, gap, topI
   local available = frame:GetWidth() - border - border
   if available < 1 then available = 1 end
 
-  local minWidth = TOOLBAR_MIN_BUTTON_WIDTH
+  local minWidth = ToolbarConfiguredIconSize() + 8
+  if minWidth < TOOLBAR_MIN_BUTTON_WIDTH then minWidth = TOOLBAR_MIN_BUTTON_WIDTH end
   if minWidth < height then minWidth = height end
 
   local function Capacity(width)
