@@ -2,8 +2,8 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.38-dev`
-- Development code head: `d3653803033ad613afd1a9637c62569026e209d0` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.39-dev`
+- Development code head: `9107d62600ac63e36daf4a0d39766a3c4a332761` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.5.35` / `8d538035b85c08bd1f91bee2acbf05484f56e61c`
 - Goal: Preserve the accepted toolbar sizing change while correcting bag-replacement ownership so native pfUI/Vanilla handling remains authoritative for empty target bag slots.
 - Current scope boundary: `0.5.37-dev` changes only BagTweaks toolbar presentation/configuration. It keeps the persisted **Toolbar icon size** dropdown at 8-16 px, default 10, but larger values now increase both icon size and button footprint so the toolbar can wrap naturally onto additional rows. Bag replacement, inventory tracking, tooltip logic, Auto Resort, Disenchant/Pick Lock behaviour and physical sorting ownership are unchanged.
@@ -622,6 +622,15 @@
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 - Focused runtime test: **unused equipped-bag slot native equip PASS on 0.5.38-dev**. Still verify replacing an already-equipped but empty bag stays native with no BagTweaks overlay, then confirm a populated-bag replacement still enters BagTweaks and completes normally.
 
+### 0.5.39-dev Bag Replacement Overlay Wording
+- Targeted code checkpoint: `9107d62600ac63e36daf4a0d39766a3c4a332761`.
+- Simplifies the human-facing stopped-state copy without changing transaction behavior.
+- Insufficient-space detail now reads **"%d more bag spaces are needed to swap bags."** with the existing **"I'll make some space..."** acknowledgement button.
+- Unexpected safe-stop now reads **"Bag replacement stopped: <reason>"** with **"Click to return"**.
+- Active progress messages remain unchanged.
+- Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
+- Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
+
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
 2. `0.5.17-dev` interaction + overlay foundation: **implemented/checked**; standalone runtime testing intentionally deferred.
@@ -652,9 +661,10 @@
 21. Disenchant targeting-cursor / candidate-item hover discoverability: **runtime PASS on stable 0.5.35**.
 22. `0.5.36-dev` configurable toolbar icon size: **superseded before runtime** because it enlarged icons but not the button-width footprint.
 23. `0.5.37-dev` toolbar button scaling correction: **implemented/checked**; focused runtime test pending.
-24. `0.5.38-dev` empty bag-slot ownership correction: **implemented/checked**; focused runtime test pending.
-25. Remaining direct-toolbar edge-case checks.
-26. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+24. `0.5.38-dev` empty bag-slot ownership correction: **implemented/checked**; unused-slot native equip runtime PASS; empty-equipped-bag and populated replacement regression still pending.
+25. `0.5.39-dev` simplified bag replacement overlay wording: **implemented/checked**; runtime visual confirmation pending.
+26. Remaining direct-toolbar edge-case checks.
+27. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Open all containers on right click is deferred until the bag-replacement slice is implemented and runtime-accepted.
