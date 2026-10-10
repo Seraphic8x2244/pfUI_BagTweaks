@@ -1957,9 +1957,11 @@ local function Initialize()
       local message = reason or
         L.BAG_SWAP_STOP_STATE_CHANGED or
         "Inventory changed unexpectedly during bag replacement."
-      local suffix = L.BAG_SWAP_STOPPED_SAFE or
-        "Bag replacement stopped safely. No further items will be moved."
-      self:ShowStatus(message .. "\n" .. suffix, L.CANCEL or "Cancel")
+      local prefix = L.BAG_SWAP_STOPPED_SAFE or "Bag replacement stopped:"
+      self:ShowStatus(
+        prefix .. " " .. message,
+        L.BAG_SWAP_RETURN or "Click to return"
+      )
       return false
     end
 
