@@ -608,7 +608,7 @@
 - Existing row-balancing, close-button placement, backpack/bank relayout ownership and 32x32 TGA artwork remain unchanged.
 - Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
-- Focused runtime test: verify 10 px matches the existing footprint, 16 px visibly enlarges buttons/icons and wraps where width requires, backpack and bank remain aligned, the choice survives reload, and returning to 10 px restores the original footprint.
+- Focused runtime test: verify 10 px matches the existing footprint, 16 px visibly enlarges buttons/icons and wraps where width requires, backpack and bank remain aligned, and returning to 10 px restores the original footprint. **SavedVariables persistence across reload: PASS on 0.5.37-dev.**
 
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
