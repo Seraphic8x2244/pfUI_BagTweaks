@@ -2,10 +2,10 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.39-dev`
-- Development code head: `9107d62600ac63e36daf4a0d39766a3c4a332761` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.41-dev`
+- Development code head: `6607fa32b0edd7c9e67fda889eea7b30a061a675` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.5.35` / `8d538035b85c08bd1f91bee2acbf05484f56e61c`
-- Goal: Preserve the accepted toolbar sizing change while correcting bag-replacement ownership so native pfUI/Vanilla handling remains authoritative for empty target bag slots.
+- Goal: Finish the remaining contained BagTweaks feature work: chat-click inventory tooltips, right-click Open All Containers, canonical `pfUI [BagTweaks]` branding, and final runtime acceptance without reopening already-passed systems.
 - Current scope boundary: `0.5.37-dev` changes only BagTweaks toolbar presentation/configuration. It keeps the persisted **Toolbar icon size** dropdown at 8-16 px, default 10, but larger values now increase both icon size and button footprint so the toolbar can wrap naturally onto additional rows. Bag replacement, inventory tracking, tooltip logic, Auto Resort, Disenchant/Pick Lock behaviour and physical sorting ownership are unchanged.
 
 ## Current Design / Development Contract
@@ -631,6 +631,27 @@
 - Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
 
+
+### 0.5.40-dev Finish Pass — Superseded Before Runtime
+- Code checkpoint: `0aa9201124c8f21da4eb6f6674659025f9fe990a`.
+- Added the intended chat-link tooltip/Open All/branding work, but static inspection immediately found a generated locale escape defect: the Open tooltip line contained a literal `\\n` between Lua statements.
+- This checkpoint is **not a runnable/runtime-test target** and was superseded before user testing.
+
+### 0.5.41-dev Chat Tooltips + Open All + Canonical Branding
+- Targeted code checkpoint: `6607fa32b0edd7c9e67fda889eea7b30a061a675`.
+- Inventory tooltip rendering is now frame-agnostic: `InventoryTracker:AppendTooltip(itemID, tooltip)` defaults to `GameTooltip` but can render the same Across Accounts hierarchy into another tooltip frame.
+- Existing bag-hover and generic/pfQuest hyperlink hooks now pass their actual tooltip frame explicitly.
+- `ItemRefTooltip:SetHyperlink()` is hooked for item links only, so clicking an item link in chat can display the same Across Accounts totals/details. Quest/spell/other hyperlink types are untouched.
+- The backpack Open control keeps pfUI's native behavior on **left-click: open next container**.
+- The same Open control now registers right-click and exposes **right-click: open all containers**. BagTweaks builds a bounded queue of currently openable carried items in bags 0-4, including the initial stack count for stacked openables.
+- Open All processes one queued container at a time with a short settling delay. If a loot window is open, it waits until that loot interaction closes before continuing. If the player picks up a cursor item or closes the bag window, the queue stops.
+- Openability detection prefers brues/ClassicAPI-compatible `C_Container.IsContainerItemOpenable`; when unavailable it falls back to a hidden tooltip scan for localized `ITEM_OPENABLE`, matching upstream Shagu pfUI's detection approach.
+- Open All does not add a second Auto Resort system. Each resulting inventory mutation continues to restart BagTweaks' existing inactivity delay, so repeated openings coalesce naturally and the final resort occurs only after the configured quiet period.
+- Open-button tooltip now documents both interactions: **Left-click: open next container / Right-click: open all containers**.
+- Canonical branding is now **pfUI [BagTweaks]**. The dev TOC displays `pf` in pfUI green, `UI` in white and `[BagTweaks]-dev` in grey; the pfUI Thirdparty entry/header and README heading use the same bracketed name.
+- Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
+- Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
+
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
 2. `0.5.17-dev` interaction + overlay foundation: **implemented/checked**; standalone runtime testing intentionally deferred.
@@ -655,7 +676,6 @@
 21. Bag-swap regression on `0.5.35-dev`: **runtime PASS**.
 22. `0.5.33-dev` bag-slot popout restoration: **runtime PASS via 0.5.35-dev**.
 23. Current focused tooltip/popout/regression set is fully runtime-passed; continue the remaining replacement matrix.
-20. After bag replacement is runtime accepted, inspect/design **open all containers on right click** against the existing Open control and Auto Resort protection owner.
 19. Continue any remaining generic Auto Resort edge-case validation only when a concrete workflow exposes one; do not reopen already-passed bag-open/mutation behaviour without evidence.
 20. Rogue Pick Lock workflow test: **runtime PASS on stable 0.5.35**.
 21. Disenchant targeting-cursor / candidate-item hover discoverability: **runtime PASS on stable 0.5.35**.
@@ -663,11 +683,12 @@
 23. `0.5.37-dev` toolbar button scaling correction: **implemented/checked**; focused runtime test pending.
 24. `0.5.38-dev` empty bag-slot ownership correction: **implemented/checked**; unused-slot native equip runtime PASS; empty-equipped-bag and populated replacement regression still pending.
 25. `0.5.39-dev` simplified bag replacement overlay wording: **implemented/checked**; runtime visual confirmation pending.
-26. Remaining direct-toolbar edge-case checks.
-27. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+26. `0.5.40-dev` finish pass: **superseded before runtime** due generated locale syntax defect.
+27. `0.5.41-dev` chat-click tooltip + Open All + `pfUI [BagTweaks]` branding: **implemented/checked**; focused runtime acceptance pending.
+28. Remaining direct-toolbar/bag-replacement edge-case checks are validation debt only; fix only demonstrated defects.
+29. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
-- Open all containers on right click is deferred until the bag-replacement slice is implemented and runtime-accepted.
 - Packing optimisation unless future inventories show a real problem.
 - Unrelated refactors while addressing auto-sort interaction churn.
 - Persisted-schema redesign solely for raw SavedVariables text-order stability.
@@ -679,4 +700,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Runtime-test `0.5.38-dev` at checkpoint `d3653803033ad613afd1a9637c62569026e209d0`: first verify a new bag equips normally into an unused bag slot with no BagTweaks overlay; then verify replacing an already-equipped empty bag also stays native; finally confirm a populated-bag replacement still enters BagTweaks and works. Toolbar-size persistence is already passed; remaining toolbar layout checks can follow.
+Runtime-test `0.5.41-dev` at checkpoint `6607fa32b0edd7c9e67fda889eea7b30a061a675` in this order: (1) click a tracked item link from chat and confirm Across Accounts appears; click a non-item link and confirm no BagTweaks injection, (2) verify Open left-click still opens one container, then right-click with 2+ openables and confirm it proceeds one at a time and waits for any manual loot window, (3) confirm closing bags stops an active Open All queue, (4) confirm the addon list/settings branding reads `pfUI [BagTweaks]`, (5) finish the small regression checks: already-equipped empty-bag replacement stays native, populated-bag replacement still enters BagTweaks, bank toolbar sizing looks correct, and returning icon size to 10 restores the compact footprint. Remaining specialty/bank/true-insufficient-space/replacement-inside-target cases remain explicit validation debt until naturally testable.
