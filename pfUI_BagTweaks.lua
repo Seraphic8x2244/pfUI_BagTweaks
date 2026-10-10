@@ -2027,6 +2027,17 @@ local function Initialize()
       return true
     end
 
+    function BagReplacement:TargetContainsItems(targetBag)
+      local slots = tonumber(GetContainerNumSlots(targetBag)) or 0
+      if slots <= 0 then return false end
+
+      for slot = 1, slots do
+        if GetContainerItemLink(targetBag, slot) then return true end
+      end
+
+      return false
+    end
+
     function BagReplacement:TryTarget(view, targetBag, button)
       if self.active then
         -- The affected view is owned by the transaction until explicit cleanup.
@@ -2041,6 +2052,11 @@ local function Initialize()
         self.candidate = nil
         return false
       end
+
+      -- BagTweaks only owns the exceptional Vanilla case: replacing an equipped
+      -- bag that still contains items. Empty equipment slots and already-equipped
+      -- empty bags must fall through to pfUI/Vanilla's normal bag-slot handler.
+      if not self:TargetContainsItems(targetBag) then return false end
 
       return self:Start(view, targetBag)
     end
