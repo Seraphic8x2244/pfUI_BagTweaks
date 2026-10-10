@@ -620,7 +620,7 @@
 - The **I'll make some space...** control remains a contextual insufficient-space acknowledgement only. It is shown only after preflight plus pfUI Sort still cannot create enough compatible space; acknowledging releases BagTweaks ownership so the user can manually make room. It is not a settings-page control.
 - Static later-Lua syntax scan found no checked post-5.0 constructs (`#` length operator, goto/labels, `//`, or variable attributes).
 - Canonical Lua 5.0.3 compiler check remains unavailable/not run; no compiler pass is claimed.
-- Focused runtime test: equip a bag into a previously unused bag slot and replace an already-equipped but empty bag; both should use native behaviour with no BagTweaks overlay. Then confirm a populated-bag replacement still enters BagTweaks and completes normally.
+- Focused runtime test: **unused equipped-bag slot native equip PASS on 0.5.38-dev**. Still verify replacing an already-equipped but empty bag stays native with no BagTweaks overlay, then confirm a populated-bag replacement still enters BagTweaks and completes normally.
 
 ## Planned / Next Work
 1. Inventory Tracking / bag-open checkpoint through `0.5.16-dev`: **runtime accepted**.
