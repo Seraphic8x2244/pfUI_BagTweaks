@@ -157,6 +157,15 @@ local function Initialize()
     if db.showEmptyCategories == nil then db.showEmptyCategories = true end
     if db.autoResortDelay == nil then db.autoResortDelay = "3" end
 
+    local toolbarIconSize = tonumber(db.toolbarIconSize)
+    if not toolbarIconSize then toolbarIconSize = 10 end
+    if toolbarIconSize < 8 then toolbarIconSize = 8 end
+    if toolbarIconSize > 16 then toolbarIconSize = 16 end
+    toolbarIconSize = math.floor(toolbarIconSize + .5)
+    if db.toolbarIconSize ~= tostring(toolbarIconSize) then
+      db.toolbarIconSize = tostring(toolbarIconSize)
+    end
+
     local legacyQuestSubcategoryID = tonumber(db.questCategoryID or db.questGroupID)
     local legacyQuestEnabled = legacyQuestSubcategoryID ~= nil
 
@@ -1687,7 +1696,38 @@ local function Initialize()
         table.insert(active.swapMoves, moves[i])
       end
 
+      -- The replacement can still be on the user's cursor at this point.
+      -- Return it to its remembered physical source before evacuation begins,
+      -- then use the existing settling delay. Leaving this until SwapMoveItem()
+      -- made the first evacuation attempt perform ClearCursor() and a container
+      -- move back-to-back, which can repeatedly hit Vanilla's transient locks.
+      if type(CursorHasItem) == "function" and CursorHasItem() then
+        if type(ClearCursor) ~= "function" then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_STATE_CHANGED or
+            "Inventory changed unexpectedly during bag replacement."
+          )
+        end
+
+        ClearCursor()
+        if CursorHasItem() then
+          return self:SafeStop(
+            L.BAG_SWAP_STOP_STATE_CHANGED or
+            "Inventory changed unexpectedly during bag replacement."
+          )
+        end
+      end
+
       self:ClearSwapSchedule()
+
+      local moveTotal = table.getn(active.swapMoves)
+      if moveTotal > 0 then
+        self:SetPhase(
+          "evacuate",
+          string.format(L.BAG_SWAP_MOVING or "Moving items %d / %d...", 0, moveTotal)
+        )
+      end
+
       return self:QueueSwap(0.15, function()
         local current = BagReplacement.active
         if not current then return end
@@ -1948,9 +1988,11 @@ local function Initialize()
       local message = reason or
         L.BAG_SWAP_STOP_STATE_CHANGED or
         "Inventory changed unexpectedly during bag replacement."
-      local suffix = L.BAG_SWAP_STOPPED_SAFE or
-        "Bag replacement stopped safely. No further items will be moved."
-      self:ShowStatus(message .. "\n" .. suffix, L.CANCEL or "Cancel")
+      local prefix = L.BAG_SWAP_STOPPED_SAFE or "Bag replacement stopped:"
+      self:ShowStatus(
+        prefix .. " " .. message,
+        L.BAG_SWAP_RETURN or "Click to return"
+      )
       return false
     end
 
@@ -2018,6 +2060,17 @@ local function Initialize()
       return true
     end
 
+    function BagReplacement:TargetContainsItems(targetBag)
+      local slots = tonumber(GetContainerNumSlots(targetBag)) or 0
+      if slots <= 0 then return false end
+
+      for slot = 1, slots do
+        if GetContainerItemLink(targetBag, slot) then return true end
+      end
+
+      return false
+    end
+
     function BagReplacement:TryTarget(view, targetBag, button)
       if self.active then
         -- The affected view is owned by the transaction until explicit cleanup.
@@ -2032,6 +2085,11 @@ local function Initialize()
         self.candidate = nil
         return false
       end
+
+      -- BagTweaks only owns the exceptional Vanilla case: replacing an equipped
+      -- bag that still contains items. Empty equipment slots and already-equipped
+      -- empty bags must fall through to pfUI/Vanilla's normal bag-slot handler.
+      if not self:TargetContainsItems(targetBag) then return false end
 
       return self:Start(view, targetBag)
     end
@@ -2787,8 +2845,9 @@ local function Initialize()
         return groups, total
       end
 
-      function tracker:AppendTooltip(itemID)
-        if not GameTooltip or not itemID then return end
+      function tracker:AppendTooltip(itemID, tooltip)
+        tooltip = tooltip or GameTooltip
+        if not tooltip or not itemID then return end
         local groups, total = self:GetTrackedItemGroups(itemID)
         if total <= 0 then return end
 
@@ -2798,15 +2857,15 @@ local function Initialize()
         local grey = "|cffd9d9d9"
         local reset = "|r"
 
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddLine(
+        tooltip:AddLine(" ")
+        tooltip:AddLine(
           pfColor .. (L.ACCOUNT_TRACKING_TOOLTIP_HEADER or "Across Accounts:") ..
           reset .. " " .. white .. tostring(total) .. reset
         )
 
         for i = 1, table.getn(groups) do
           local group = groups[i]
-          GameTooltip:AddLine("   " .. pfColor .. tostring(group.label or "") .. reset)
+          tooltip:AddLine("   " .. pfColor .. tostring(group.label or "") .. reset)
 
           for n = 1, table.getn(group.characters) do
             local item = group.characters[n]
@@ -2850,11 +2909,11 @@ local function Initialize()
               end
             end
 
-            GameTooltip:AddLine(line)
+            tooltip:AddLine(line)
           end
         end
 
-        GameTooltip:Show()
+        tooltip:Show()
       end
 
       function tracker:LocalChanged()
@@ -3015,7 +3074,7 @@ local function Initialize()
           local data = pfUI.bags and pfUI.bags[bag] and pfUI.bags[bag].slots and pfUI.bags[bag].slots[slot]
           local frame = data and data.frame
           if frame and self.IsOwned and self:IsOwned(frame) then
-            InventoryTracker:AppendTooltip(ItemID(bag, slot))
+            InventoryTracker:AppendTooltip(ItemID(bag, slot), self)
           end
         end
         return result
@@ -3033,11 +3092,26 @@ local function Initialize()
         local result = oldSetHyperlink(self, link)
         if type(link) == "string" then
           local _, _, itemID = string.find(link, "^item:(%d+)")
-          if itemID then InventoryTracker:AppendTooltip(tonumber(itemID)) end
+          if itemID then InventoryTracker:AppendTooltip(tonumber(itemID), self) end
         end
         return result
       end
       GameTooltip.bagtweaks_inventory_link_hooked = true
+    end
+
+    -- Chat-clicked item links use ItemRefTooltip rather than GameTooltip.
+    if ItemRefTooltip and type(ItemRefTooltip.SetHyperlink) == "function" and
+       not ItemRefTooltip.bagtweaks_inventory_link_hooked then
+      local oldItemRefSetHyperlink = ItemRefTooltip.SetHyperlink
+      ItemRefTooltip.SetHyperlink = function(self, link)
+        local result = oldItemRefSetHyperlink(self, link)
+        if type(link) == "string" then
+          local _, _, itemID = string.find(link, "^item:(%d+)")
+          if itemID then InventoryTracker:AppendTooltip(tonumber(itemID), self) end
+        end
+        return result
+      end
+      ItemRefTooltip.bagtweaks_inventory_link_hooked = true
     end
 
     local function NameFromLink(link)
@@ -5063,6 +5137,28 @@ local function Initialize()
         end)
       end
 
+      local toolbarIconSize = pfUI.gui.CreateConfig(
+        function() end,
+        L.TOOLBAR_ICON_SIZE,
+        _G.pfUIBagTweaksDB,
+        "toolbarIconSize",
+        "dropdown",
+        { "8", "9", "10", "11", "12", "13", "14", "15", "16" }
+      )
+
+      if toolbarIconSize then
+        toolbarIconSize:EnableMouse(1)
+        toolbarIconSize:SetScript("OnEnter", function()
+          if not GameTooltip then return end
+          GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+          GameTooltip:SetText(L.TOOLBAR_ICON_SIZE_TOOLTIP)
+          GameTooltip:Show()
+        end)
+        toolbarIconSize:SetScript("OnLeave", function()
+          if GameTooltip then GameTooltip:Hide() end
+        end)
+      end
+
       local tracker = pfUI.bagtweaks and pfUI.bagtweaks.InventoryTracker
       if tracker then
         local store = tracker:EnsureStore()
@@ -5212,6 +5308,10 @@ local toolbarState = {
   menuOwner = nil,
   baseOnHide = nil,
   onHideWrapper = nil,
+  openAllQueue = nil,
+  openAllIndex = nil,
+  openAllAt = nil,
+  openAllDriver = nil,
 }
 
 local bankToolbarState = {
@@ -5233,9 +5333,16 @@ local function ToolbarFontSize()
   return size
 end
 
+local function ToolbarConfiguredIconSize()
+  local value = _G.pfUIBagTweaksDB and tonumber(_G.pfUIBagTweaksDB.toolbarIconSize) or 10
+  if value < 8 then value = 8 end
+  if value > 16 then value = 16 end
+  return math.floor(value + .5)
+end
+
 local function ToolbarMetrics(bag)
   local close = bag and bag.close
-  local height = close and close:GetHeight() or 12
+  local currentHeight = close and close:GetHeight() or 12
   local border = 1
   local topInset = 1
 
@@ -5247,6 +5354,18 @@ local function ToolbarMetrics(bag)
 
   if border < 1 then border = 1 end
   if topInset < 1 then topInset = border end
+
+  local nativeHeight = currentHeight
+  if close then
+    if close.bagtweaks_toolbar_native_height == nil then
+      close.bagtweaks_toolbar_native_height = currentHeight
+    end
+    nativeHeight = tonumber(close.bagtweaks_toolbar_native_height) or currentHeight
+  end
+
+  local height = nativeHeight
+  local requestedHeight = ToolbarConfiguredIconSize() + border * 2
+  if requestedHeight > height then height = requestedHeight end
 
   return height, border, border * 3, topInset
 end
@@ -5368,10 +5487,10 @@ local function ToolbarSizeIcon(button, height, border)
   local icon = button and button.bagtweaks_toolbar_icon
   if not icon then return end
 
-  local size = (tonumber(height) or 12) - (tonumber(border) or 1) * 2
-  if size > 14 then size = 14 end
-  if size < 8 then size = 8 end
-  if height and size > height then size = height end
+  local size = ToolbarConfiguredIconSize()
+  local maximum = (tonumber(height) or 12) - (tonumber(border) or 1) * 2
+  if maximum < 1 then maximum = 1 end
+  if size > maximum then size = maximum end
 
   icon:ClearAllPoints()
   icon:SetWidth(size)
@@ -5387,7 +5506,8 @@ local function ToolbarLayoutButtonRows(frame, buttons, height, border, gap, topI
   local available = frame:GetWidth() - border - border
   if available < 1 then available = 1 end
 
-  local minWidth = TOOLBAR_MIN_BUTTON_WIDTH
+  local minWidth = ToolbarConfiguredIconSize() + 8
+  if minWidth < TOOLBAR_MIN_BUTTON_WIDTH then minWidth = TOOLBAR_MIN_BUTTON_WIDTH end
   if minWidth < height then minWidth = height end
 
   local function Capacity(width)
@@ -6026,7 +6146,142 @@ local function ToolbarClickSort()
   ToolbarNativeClick("sort")
 end
 
+local openAllScanner
+
+local function ToolbarItemIsOpenable(bag, slot)
+  if not GetContainerItemInfo(bag, slot) then return false end
+
+  if _G.C_Container and type(_G.C_Container.IsContainerItemOpenable) == "function" then
+    local _, canOpen = _G.C_Container.IsContainerItemOpenable(bag, slot)
+    return canOpen and true or false
+  end
+
+  if not ITEM_OPENABLE then return false end
+
+  if not openAllScanner then
+    openAllScanner = CreateFrame(
+      "GameTooltip",
+      "pfUIBagTweaksOpenableScanner",
+      UIParent,
+      "GameTooltipTemplate"
+    )
+    openAllScanner:SetOwner(UIParent, "ANCHOR_NONE")
+  end
+
+  openAllScanner:ClearLines()
+  openAllScanner:SetBagItem(bag, slot)
+
+  local lines = openAllScanner:NumLines() or 0
+  for i = 1, lines do
+    local line = _G["pfUIBagTweaksOpenableScannerTextLeft" .. i]
+    local value = line and line.GetText and line:GetText()
+    if value and string.find(value, ITEM_OPENABLE, 1, true) then return true end
+  end
+
+  return false
+end
+
+local function ToolbarStopOpenAll()
+  toolbarState.openAllQueue = nil
+  toolbarState.openAllIndex = nil
+  toolbarState.openAllAt = nil
+  if toolbarState.openAllDriver then toolbarState.openAllDriver:Hide() end
+end
+
+local function ToolbarBuildOpenAllQueue()
+  local queue = {}
+
+  for bag = 0, 4 do
+    local slots = tonumber(GetContainerNumSlots(bag)) or 0
+    for slot = 1, slots do
+      if ToolbarItemIsOpenable(bag, slot) then
+        local _, count = GetContainerItemInfo(bag, slot)
+        count = tonumber(count) or 1
+        if count < 1 then count = 1 end
+
+        for n = 1, count do
+          table.insert(queue, {
+            bag=bag,
+            slot=slot,
+            link=GetContainerItemLink(bag, slot),
+          })
+        end
+      end
+    end
+  end
+
+  return queue
+end
+
+local function ToolbarProcessOpenAll()
+  local queue = toolbarState.openAllQueue
+  local index = tonumber(toolbarState.openAllIndex) or 1
+  if not queue then
+    ToolbarStopOpenAll()
+    return
+  end
+
+  if LootFrame and LootFrame:IsShown() then return end
+  if type(CursorHasItem) == "function" and CursorHasItem() then
+    ToolbarStopOpenAll()
+    return
+  end
+
+  while index <= table.getn(queue) do
+    local item = queue[index]
+    index = index + 1
+    toolbarState.openAllIndex = index
+
+    local link = GetContainerItemLink(item.bag, item.slot)
+    if link and (not item.link or link == item.link) and
+       ToolbarItemIsOpenable(item.bag, item.slot) then
+      if type(ClearCursor) == "function" then ClearCursor() end
+      if MerchantFrame and MerchantFrame:IsShown() then HideUIPanel(MerchantFrame) end
+      UseContainerItem(item.bag, item.slot)
+      toolbarState.openAllAt = (GetTime and GetTime() or 0) + .30
+      return
+    end
+  end
+
+  ToolbarStopOpenAll()
+end
+
+local function ToolbarStartOpenAll()
+  ToolbarHideMenu()
+  ToolbarStopOpenAll()
+
+  local queue = ToolbarBuildOpenAllQueue()
+  if table.getn(queue) == 0 then return end
+
+  toolbarState.openAllQueue = queue
+  toolbarState.openAllIndex = 1
+  toolbarState.openAllAt = 0
+
+  if not toolbarState.openAllDriver then
+    toolbarState.openAllDriver = CreateFrame("Frame")
+    toolbarState.openAllDriver:SetScript("OnUpdate", function()
+      if not toolbarState.openAllQueue then
+        this:Hide()
+        return
+      end
+
+      local now = GetTime and GetTime() or 0
+      if now < (toolbarState.openAllAt or 0) then return end
+      ToolbarProcessOpenAll()
+    end)
+  end
+
+  toolbarState.openAllDriver:Show()
+  ToolbarProcessOpenAll()
+end
+
 local function ToolbarClickOpen()
+  if arg1 == "RightButton" then
+    ToolbarStartOpenAll()
+    return
+  end
+
+  ToolbarStopOpenAll()
   ToolbarNativeClick("open")
 end
 
@@ -6277,9 +6532,17 @@ local function BankToolbarLayout()
     bank, buttons, height, border, gap, topInset
   )
 
+  local layoutChanged = false
+  if bank.bagtweaks_toolbar_row_height ~= height then
+    bank.bagtweaks_toolbar_row_height = height
+    layoutChanged = true
+  end
   if bank.bagtweaks_toolbar_extra_height ~= extraHeight then
     bank.bagtweaks_toolbar_extra_height = extraHeight
-    if pfUI.bagtweaks and pfUI.bagtweaks.Relayout then pfUI.bagtweaks.Relayout() end
+    layoutChanged = true
+  end
+  if layoutChanged and pfUI.bagtweaks and pfUI.bagtweaks.Relayout then
+    pfUI.bagtweaks.Relayout()
   end
 
   BankToolbarApplySearchState()
@@ -6329,7 +6592,14 @@ local function ToolbarLayout()
   local quest = ToolbarMakeButton("quest", L.TOOLBAR_QUEST, ToolbarToggleQuest)
   local disenchant = ToolbarMakeButton("disenchant", L.TOOLBAR_DISENCHANT, ToolbarToggleDisenchantMode)
   local picklock = ToolbarMakeButton("picklock", L.TOOLBAR_PICKLOCK, ToolbarTogglePickLockMode)
-  local open = ToolbarMakeButton("open", L.TOOLBAR_OPEN, ToolbarClickOpen)
+  local open = ToolbarMakeButton(
+    "open",
+    L.TOOLBAR_OPEN_HINT or L.TOOLBAR_OPEN,
+    ToolbarClickOpen
+  )
+  if open and open.RegisterForClicks then
+    open:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+  end
   local options = ToolbarMakeButton("options", L.TOOLBAR_OPTIONS, ToolbarOpenOptions)
 
   local buttons = {}
@@ -6397,9 +6667,17 @@ local function ToolbarLayout()
     bag, buttons, height, border, gap, topInset
   )
 
+  local layoutChanged = false
+  if bag.bagtweaks_toolbar_row_height ~= height then
+    bag.bagtweaks_toolbar_row_height = height
+    layoutChanged = true
+  end
   if bag.bagtweaks_toolbar_extra_height ~= extraHeight then
     bag.bagtweaks_toolbar_extra_height = extraHeight
-    if pfUI.bagtweaks and pfUI.bagtweaks.Relayout then pfUI.bagtweaks.Relayout() end
+    layoutChanged = true
+  end
+  if layoutChanged and pfUI.bagtweaks and pfUI.bagtweaks.Relayout then
+    pfUI.bagtweaks.Relayout()
   end
 
   ToolbarApplySearchState()
@@ -6418,6 +6696,7 @@ local function ToolbarEnsureBagHideHook(bag)
       if old and old ~= toolbarState.onHideWrapper then old() end
       toolbarState.searchOpen = false
       if toolbarState.activeMode then ToolbarDisablePersistentMode() end
+      ToolbarStopOpenAll()
       ToolbarHideMenu()
       if pfUI.bagtweaks and pfUI.bagtweaks.HideMenus then pfUI.bagtweaks.HideMenus() end
       ToolbarApplySearchState()
