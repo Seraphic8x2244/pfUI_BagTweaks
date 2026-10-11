@@ -711,8 +711,9 @@
 28. `0.5.42-dev` Open All global-scope fix: **runtime PASS**; user reported right-click Open All worked cleanly.
 29. `0.5.43-dev` pre-evacuation cursor settling: **runtime PASS**; the same populated-bag replacement completed successfully.
 30. `0.5.43-dev` bank toolbar sizing + return-to-10 compact footprint: **runtime PASS**.
-31. Remaining direct-toolbar/bag-replacement edge-case checks are validation debt only; fix only demonstrated defects.
-32. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
+31. True insufficient-space detection + overlay presentation: **runtime PASS from prior runtime use**; full cleanup/acknowledgement path not separately re-exercised.
+32. Remaining direct-toolbar/bag-replacement edge-case checks are validation debt only; fix only demonstrated defects.
+33. Reduce the 0.20s toolbar layout refresh only if profiling or visible behaviour justifies it.
 
 ## Deferred / Out of Scope
 - Packing optimisation unless future inventories show a real problem.
@@ -726,4 +727,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-`0.5.43-dev` / `ed21a8a34d28d3c6f5583c48f7f19c9fae005fb3` populated-bag replacement regression is runtime-passed. Bank toolbar sizing at the larger configured size is runtime-passed, and returning Toolbar icon size to 10 restores the compact footprint cleanly. Already-equipped empty-bag replacement remains the only focused runtime check still outstanding. Specialty/profession bag replacement, pfUI-sort-created-space, true insufficient-space refusal, populated bank-bag replacement, and replacement-inside-target remain explicit edge-case validation debt until naturally testable.
+`0.5.43-dev` / `ed21a8a34d28d3c6f5583c48f7f19c9fae005fb3` populated-bag replacement regression is runtime-passed. Bank toolbar sizing at the larger configured size is runtime-passed, and returning Toolbar icon size to 10 restores the compact footprint cleanly. Already-equipped empty-bag replacement remains the only focused runtime check still outstanding. True insufficient-space detection/overlay has been observed at runtime and is accepted as PASS for detection/presentation; full cleanup/acknowledgement semantics were not separately re-exercised. Populated bank-bag replacement is untested; pfUI-sort-created-space is difficult to manufacture; no suitable specialty/profession bag is available; replacement-inside-target is difficult to manufacture. These remain explicit non-blocking validation debt until naturally testable.
