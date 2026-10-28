@@ -233,17 +233,18 @@ local function Initialize()
     local function ContainerFamily(bag)
       if bag == -2 then return "KEYRING" end
       if bag == 0 or bag == -1 then return "BAG" end
+      -- pfUI's bag-family reader already recognises quivers and keyring.
+      -- Its internal equipment-link lookup may throw for bank bags while the
+      -- bank is closed; keep that entire path inside pcall. In particular do
+      -- not call GetInventoryItemLink here as an unprotected fallback: an
+      -- exception during pfUI's first bank build interrupts its initial Hide.
       if pfUI.api and type(pfUI.api.GetBagFamily) == "function" then
         local ok, family = pcall(pfUI.api.GetBagFamily, bag)
         if ok and family then return family end
       end
-      if ContainerIDToInventoryID and GetInventoryItemLink then
-        local invSlot = ContainerIDToInventoryID(bag)
-        local link = invSlot and GetInventoryItemLink("player", invSlot)
-        if link then
-          local _, _, _, _, _, _, _, _, equipLoc = GetItemInfo(link)
-          if equipLoc == "INVTYPE_QUIVER" then return "QUIVER" end
-        end
+      if type(G.GetBagFamily) == "function" then
+        local ok, family = pcall(G.GetBagFamily, bag)
+        if ok and family then return family end
       end
       return "UNKNOWN"
     end
