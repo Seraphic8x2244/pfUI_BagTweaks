@@ -33,4 +33,4 @@ Designed to work across pfUI versions and forks while respecting your existing b
 `main` = stable release  
 `dev` = active development/testing
 
-**Development note:** Empty-slot aggregation / quiver grouping and the native-style empty counter are currently on the `dev` branch only (`0.5.47-dev`); the earlier `0.5.46-dev` build was reported to load without a Lua error, but `0.5.47-dev` artwork remains in-game untested. Stable `main` remains `0.5.43`.
+**Development note:** `dev` is currently `0.5.48-dev`, with compact empty-slot counters, separate Keyring/Quivers storage and a new bag-close Auto Resort layout settlement. The `0.5.47-dev` counter appearance was user-verified; the new `0.5.48-dev` close/reopen behaviour still requires an in-game test. Stable `main` remains `0.5.43`.
