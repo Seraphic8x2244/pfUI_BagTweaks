@@ -4390,20 +4390,31 @@ local function Initialize()
       return category.name or L.SUBCATEGORY
     end
 
-    -- This is a display-only button: never pretend an aggregate is a real
-    -- (bag, slot) destination. Clicking reveals actual empty buttons instead.
-    local function EmptyCounter(view, group, count)
+    -- A counter is only a display tile, not a physical (bag, slot) button.
+    -- Borrow pfUI's real empty-slot appearance instead of the tooltip-style
+    -- Backdrop() used by BagTweaks menus. Native bag frames supply the actual
+    -- backdrop, border colour and, if present, the empty icon artwork.
+    local function EmptyCounter(view, group, count, sourceFrame)
       local state = emptyUI[view]
       local button = state.counters[group]
       if not button then
         button = CreateFrame("Button", nil, ViewFrame(view))
-        Backdrop(button)
-        button:SetBackdropBorderColor(.45, .6, .65, .9)
+        local _, border = GetBorderSize("bags")
+        if pfUI.api and type(pfUI.api.CreateBackdrop) == "function" then
+          pfUI.api.CreateBackdrop(button, border or 1)
+        end
+
+        button.icon = button:CreateTexture(nil, "ARTWORK")
+        button.icon:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
+        button.icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+        button.icon:Hide()
+
         button.text = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        button.text:SetFont(pfUI.font_default, C.global.font_size, "OUTLINE")
+        button.text:SetFont(pfUI.font_unit or pfUI.font_default, tonumber(C.global.font_unit_size) or 12, "OUTLINE")
         button.text:SetAllPoints(button)
         button.text:SetJustifyH("CENTER")
-        button.text:SetTextColor(.7, 1, .9, 1)
+        button.text:SetJustifyV("MIDDLE")
+        button.text:SetTextColor(.5, .5, .5, 1)
         button:SetScript("OnClick", function()
           if (CursorHasItem and CursorHasItem()) or (SpellIsTargeting and SpellIsTargeting()) then return end
           state.expanded[group] = not state.expanded[group]
@@ -4415,6 +4426,35 @@ local function Initialize()
         button:SetScript("OnLeave", function() GameTooltip:Hide() end)
         state.counters[group] = button
       end
+
+      if sourceFrame then
+        local sourceBackdrop = sourceFrame.backdrop
+        local targetBackdrop = button.backdrop or button
+        if sourceBackdrop and sourceBackdrop.GetBackdrop then
+          -- Also covers older pfUI forks without the backdrop constructor.
+          local template = sourceBackdrop:GetBackdrop()
+          if template then targetBackdrop:SetBackdrop(template) end
+          if sourceBackdrop.GetBackdropColor then
+            targetBackdrop:SetBackdropColor(sourceBackdrop:GetBackdropColor())
+          end
+          if sourceBackdrop.GetBackdropBorderColor then
+            targetBackdrop:SetBackdropBorderColor(sourceBackdrop:GetBackdropBorderColor())
+          end
+        end
+
+        local sourceName = sourceFrame:GetName()
+        local sourceIcon = sourceName and G[sourceName .. "IconTexture"]
+        local texture = sourceIcon and sourceIcon:GetTexture()
+        if texture and texture ~= "" then
+          button.icon:SetTexture(texture)
+          button.icon:SetTexCoord(sourceIcon:GetTexCoord())
+          button.icon:Show()
+        else
+          button.icon:Hide()
+        end
+      else
+        button.icon:Hide()
+      end
       button.text:SetText(tostring(count))
       button:Show()
       return { frame=button, virtual=true }
@@ -4423,6 +4463,7 @@ local function Initialize()
     local function Collect(view)
       local general, categorized, keyring, quivers = {}, {}, {}, {}
       local emptyCounts = { general=0, keyring=0, quivers=0 }
+      local emptyArt = {}
       local questCategoryID = ActiveQuestCategoryID()
       local characterMap = CharacterSubcategories(false)
       local ordinal = 0
@@ -4459,6 +4500,7 @@ local function Initialize()
 
             if not occupied and aggregatable then
               emptyCounts[group] = emptyCounts[group] + 1
+              if not emptyArt[group] then emptyArt[group] = frame end
             end
 
             if not occupied and aggregatable and collapse and not state.expanded[group] then
@@ -4500,7 +4542,7 @@ local function Initialize()
         end
       end
 
-      return general, categorized, keyring, quivers, emptyCounts
+      return general, categorized, keyring, quivers, emptyCounts, emptyArt
     end
 
     local function HookItemSelection(view)
@@ -4845,7 +4887,7 @@ local function Initialize()
         and panel:GetHeight() + border
         or 16 + border
 
-      local general, categorized, keyring, quivers, emptyCounts = Collect(view)
+      local general, categorized, keyring, quivers, emptyCounts, emptyArt = Collect(view)
       local painted = {}
       local active = {}
       local activeParent = {}
@@ -4863,13 +4905,13 @@ local function Initialize()
       for _, counter in pairs(emptyUI[view].counters) do counter:Hide() end
       if db.collapseEmptySlots == "1" then
         if emptyCounts.general > 0 then
-          table.insert(general, EmptyCounter(view, "general", emptyCounts.general))
+          table.insert(general, EmptyCounter(view, "general", emptyCounts.general, emptyArt.general))
         end
         if emptyCounts.keyring > 0 and pfUI.bag.showKeyring == true then
-          table.insert(keyring, EmptyCounter(view, "keyring", emptyCounts.keyring))
+          table.insert(keyring, EmptyCounter(view, "keyring", emptyCounts.keyring, emptyArt.keyring))
         end
         if emptyCounts.quivers > 0 and db.showQuivers ~= "0" then
-          table.insert(quivers, EmptyCounter(view, "quivers", emptyCounts.quivers))
+          table.insert(quivers, EmptyCounter(view, "quivers", emptyCounts.quivers, emptyArt.quivers))
         end
       end
 
