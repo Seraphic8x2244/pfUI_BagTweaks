@@ -2,10 +2,10 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.45-dev`
-- Development code head: `48b507c14e8212dc3a8c2d6a654f1deae9981f48` (0.5.45-dev; latest addon-affecting Lua checkpoint; subsequent README/DEV_PROGRESS commits are documentation-only)
+- Version: `0.5.46-dev`
+- Development code head: `1a01d8fbc90d4107374ff40e981e7dd32f9fc25f` (0.5.46-dev; latest addon-affecting Lua checkpoint; subsequent DEV_PROGRESS status commit is documentation-only)
 - Stable baseline: `0.5.43` / `118ab4b5e2926169b47bf36d183b547780ed8858` (promoted from tested `0.5.43-dev` code checkpoint `ed21a8a3`; release tree itself not separately in-game tested)
-- Goal: **USER-AUTHORIZED FEATURE EXCEPTION (2026-10-28)**: compact counted empty slots, separate keyring/quiver grouping and hide-quiver setting are **implemented on `0.5.45-dev` but NOT yet in-game tested**. The 2026-10-11 maintenance freeze is overridden for this explicit feature only; return to maintenance after acceptance.
+- Goal: **USER-AUTHORIZED FEATURE EXCEPTION (2026-10-28)**: compact counted empty slots, separate keyring/quiver grouping and hide-quiver setting are implemented on `0.5.46-dev`, with a targeted startup crash fix after a user-reported 0.5.45-dev runtime failure. **0.5.46-dev is NOT YET runtime tested.** Maintenance freeze remains overridden for this feature only.
 - Current scope boundary: preserve `0.5.43-dev` bag-swap/toolbar/inventory behavior and validation debt; add strictly visual family-aware empty-slot controls, with no physical bag operations or core pfUI modification. `dev` owns the feature and `main` remains stable `0.5.43` untouched.
 
 ## Current Design / Development Contract
@@ -327,12 +327,14 @@
 - Avoid a broad "delay every BAG_UPDATE" policy unless runtime evidence requires it. The design target is interaction-caused churn, not unrelated inventory changes such as loot arriving while the user is idle.
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
 
-## Runtime Regression Report — 2026-10-28 (FIX IN PROGRESS)
-- **Branch / current version:** `dev` / `0.5.45-dev` before fix. Latest addon code commit `48b507c14e8212dc3a8c2d6a654f1deae9981f48`; latest status/handoff commit `6ddf1aa4143db8c3f2cd15b6308867b731aaeb27`. Stable `main` remains `0.5.43` / `118ab4b5e2926169b47bf36d183b547780ed8858`.
-- **User-observed FAIL:** screenshot of two simultaneous bag-like panels (right inventory plus unintended bottom-left panel) and red Lua error `pfUI_BagTweaks.lua:242: Invalid ...`. Exact trailing error text is not fully legible. No runtime tests of 0.5.45-dev pass as a result.
-- **Source-confirmed defect:** `ContainerFamily` line 242 performs unprotected `GetInventoryItemLink("player", invSlot)` after `ContainerIDToInventoryID(bag)`. On inaccessible/invalid bank container inventory IDs the fallback may throw; pfUI creates its bank frame before hiding it during `PLAYER_ENTERING_WORLD`, so aborting the initialization can leave the bank pane visible. Appearance of the extra pane is a strongly supported consequence, not independently runtime-proven until retest.
-- **FIX PLAN / exact next step:** drop the unsafe inventory-link fallback from `ContainerFamily`. Use only pfUI `GetBagFamily` via `pcall`; if unavailable, guard optional global `GetBagFamily` via `pcall` and leave unknown bag family unclassified. Bump dev patch version, make targeted commit, check and document exact version/commit and runtime retest. No unrelated behavioral changes or `main` release.
-- **Completed:** incident diagnosis and source/screenshot inspection only. **Untested:** proposed fix and all 0.5.45-dev new feature behaviour. **Deferred:** non-fix feature changes and stable promotion.
+## Runtime Regression and Fix — 2026-10-28 — 0.5.46-dev (AWAITING RETEST)
+- **User report (0.5.45-dev runtime FAIL):** screenshot with right inventory plus unintended second bag-like panel bottom-left, and visible red error `pfUI_BagTweaks.lua:242: Invalid ...`. Screenshot does not contain full legible exception text. The extra frame strongly resembles a bank window left open by a failed startup, but this causality must still be confirmed in-game.
+- **Identified source defect:** 0.5.45-dev `ContainerFamily` at line 242 made an unguarded `GetInventoryItemLink("player", invSlot)` call after bag→inventory-slot conversion. Bank bag slots may not be queryable during login/while bank closed. An exception while pfUI's `PLAYER_ENTERING_WORLD` creates bank frame can interrupt subsequent native `:Hide()` call, leaving unintended visible bank frame.
+- **Fix implemented on `dev`:** `0.5.46-dev` TOC bump commit `e1b252b82b491f3d7201e63e9ec0be9081dd8af7`; Lua source commit `1a01d8fbc90d4107374ff40e981e7dd32f9fc25f`. Removed the unsafe fallback inventory-link call. Only `pcall(pfUI.api.GetBagFamily, bag)` and, where exposed, `pcall(_G.GetBagFamily, bag)` are used; inaccessible/unknown bag families are conservatively marked `UNKNOWN`. No other feature/layout logic changed.
+- **Static checks actually run on the candidate code:** six scoped source assertions PASS: no unprotected equipment link in classifier, both API/global family fallback paths protected, keyring separate, unknown fallback safe, layout collection unchanged. Additional 0.5.45-dev static checks passed previously but do NOT prove this version's in-game behaviour. **Canonical Lua 5.0.3 compiler: NOT RUN / unavailable via current GitHub-only source environment.**
+- **Current branch:** `dev`; **current version** `0.5.46-dev`; **latest code** `1a01d8fbc90d4107374ff40e981e7dd32f9fc25f`; **stable** `main` 0.5.43 at `118ab4b5e2926169b47bf36d183b547780ed8858` (untouched).
+- **Completed:** diagnosed and patched the unguarded family-link lookup. **Untested:** 0.5.46-dev startup, disappearance of second frame, empty counters, keyring/quiver groups, bank, and replacement regressions. **Deferred:** additional feature work, physical bag changes, stable promotion.
+- **EXACT NEXT STEP:** run 0.5.46-dev in-game with `/reload`; verify no Lua error and no duplicate bank/bag panel during login/bag open, then toggle counters/Keys/Show Quivers. If line error persists, provide full error text/stack and version to isolate another path. Do not promote to `main` until user reports testing.
 
 ## Current Feature Checkpoint — 2026-10-28 — 0.5.45-dev (IMPLEMENTED / RUNTIME UNTESTED)
 - **Branch / version / source:** `dev`, `0.5.45-dev`; main Lua product checkpoint `48b507c14e8212dc3a8c2d6a654f1deae9981f48`; locale code `7e0e582d024574903e3a1d6d9ac5f54a7134b297`; dev TOC bump `bab0bd006a97e2d1965c1fe41e36d859327aa889`; README `e62308f19b5153d94c0804eb7a284cae5f10a856`. Stable `main`: 0.5.43 `118ab4b5e2926169b47bf36d183b547780ed8858` untouched.
@@ -758,4 +760,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-**Run focused 0.5.45-dev in-game testing before further code changes/promotion.** Verify General/Keyring/Quivers empty counts and click expansion, Show Quivers OFF/ON, the existing Keys toggle, receiving items during Auto Resort's delay, bank bag behavior, and populated bag replacement; report exact failures. Run the canonical Lua 5.0.3 checker when checkout/checker can be accessed. Keep `main` at 0.5.43 until explicit approval; after feature acceptance, resume maintenance-only work.
+**Retest 0.5.46-dev startup first:** reload, verify the line-242 error does not recur and the left-side duplicate bank panel is gone; then test General/Keyring/Quivers counters, Show Quivers OFF/ON, native Keys toggle, Auto Resort item visibility, bank and bag replacement. Obtain complete error stack if any failure recurs. Canonical Lua 5.0.3 compiler still NOT RUN, no main promotion. Keep `main` stable at 0.5.43.
