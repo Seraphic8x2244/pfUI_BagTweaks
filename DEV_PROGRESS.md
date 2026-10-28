@@ -2,10 +2,10 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.43-dev`
-- Development code head: `ed21a8a34d28d3c6f5583c48f7f19c9fae005fb3` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
+- Version: `0.5.45-dev`
+- Development code head: `48b507c14e8212dc3a8c2d6a654f1deae9981f48` (0.5.45-dev; latest addon-affecting Lua checkpoint; subsequent README/DEV_PROGRESS commits are documentation-only)
 - Stable baseline: `0.5.43` / `118ab4b5e2926169b47bf36d183b547780ed8858` (promoted from tested `0.5.43-dev` code checkpoint `ed21a8a3`; release tree itself not separately in-game tested)
-- Goal: **USER-AUTHORIZED FEATURE EXCEPTION (2026-10-28)**: implement optional collapsed empty-slot counters and independent keyring/quiver grouping/visibility, then return to maintenance mode after this focused work is runtime-tested and accepted. The 2026-10-11 maintenance freeze is overridden for this explicit request only.
+- Goal: **USER-AUTHORIZED FEATURE EXCEPTION (2026-10-28)**: compact counted empty slots, separate keyring/quiver grouping and hide-quiver setting are **implemented on `0.5.45-dev` but NOT yet in-game tested**. The 2026-10-11 maintenance freeze is overridden for this explicit feature only; return to maintenance after acceptance.
 - Current scope boundary: preserve `0.5.43-dev` bag-swap/toolbar/inventory behavior and validation debt; add strictly visual family-aware empty-slot controls, with no physical bag operations or core pfUI modification. `dev` owns the feature and `main` remains stable `0.5.43` untouched.
 
 ## Current Design / Development Contract
@@ -20,7 +20,7 @@
 - User-created Categories contain dynamically packed Subcategories.
 - Manual item categorization takes priority over automatic rules such as Quest.
 - Deleting a user Subcategory releases its saved item assignments rather than creating permanent General overrides.
-- General remains fixed at the bottom and contains all empty physical slots.
+- General remains bottom-anchored. Empty normal-bag slots aggregate to a distinct General counter only when enabled; keyring and quivers use independent sections/counters. Other specialty bags remain physically represented and never inflate ordinary free capacity. No physical slot identity changes.
 - Layout width, item size, borders, anchoring and physical sorting continue to respect pfUI bag settings.
 - Existing native functionality must not become DLL-dependent without an explicit reason.
 
@@ -326,6 +326,17 @@
 - Pick Lock remains a separate pfUI spell path. Protect the BagTweaks persistent Pick Lock workflow from relayout churn even though the tooltip summarizes the user-visible item-changing operations as selling/opening/disenchanting.
 - Avoid a broad "delay every BAG_UPDATE" policy unless runtime evidence requires it. The design target is interaction-caused churn, not unrelated inventory changes such as loot arriving while the user is idle.
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
+
+## Current Feature Checkpoint — 2026-10-28 — 0.5.45-dev (IMPLEMENTED / RUNTIME UNTESTED)
+- **Branch / version / source:** `dev`, `0.5.45-dev`; main Lua product checkpoint `48b507c14e8212dc3a8c2d6a654f1deae9981f48`; locale code `7e0e582d024574903e3a1d6d9ac5f54a7134b297`; dev TOC bump `bab0bd006a97e2d1965c1fe41e36d859327aa889`; README `e62308f19b5153d94c0804eb7a284cae5f10a856`. Stable `main`: 0.5.43 `118ab4b5e2926169b47bf36d183b547780ed8858` untouched.
+- **Implemented:** optional `collapseEmptySlots="0"` default OFF. When enabled, each of General, Keyring and Quivers has an independently counted synthetic display tile, toggling that group between compact and expanded real empty slots. Quiver items and slots are isolated from player subcategories and General; `showQuivers="1"` default ON, optional visual hide of whole Quivers section. Existing keyring visibility is controlled by pfUI's Keys toolbar. Counter tiles are not bag/slot drop targets. Physical inventory, slot identities, bag family restrictions, bag-swap planner and tracking snapshots are not changed.
+- **Family rules:** use pfUI's `GetBagFamily` where available with conservative native fallback; keyring -2 is distinct; normal BAG only contributes to General's *available* count; QUIVER contributes only to Quivers; unknown/SOULBAG/SPECIAL empty physical slots remain directly visible rather than counted as general free capacity.
+- **Runtime-mutation correction:** upstream pfUI `UpdateSlot` calls `:Show()` on each refreshed physical slot. The first implementation `0.5.44-dev` at `eb95527984b85bbb0ee3bf5a3a68a3c98ad96880` was superseded **before any user runtime test**. `0.5.45-dev` adds `RestoreHiddenSlots` immediately after native `CreateBags` and `UpdateBag`, preventing collapsed slots from flashing during Auto Resort while triggering immediate relayout for newly occupied hidden slots. Native mutations otherwise retain the inactivity scheduler; bag replacement ownership continues to block premature relayout.
+- **Static checks actually run:** 17 source-level contract assertions PASS (groups, counts, settings, non-physical counter, locales, mutation hooks, ownership); estimated module-top-level Lua local bindings 159 (below Lua 5.0 200-local limit); source scan for selected later-Lua operators PASS. These checks **do not validate parsing, WoW runtime or bag-swap correctness**.
+- **Canonical Lua 5.0.3 compile:** NOT RUN. Shell has C compiler but no accessible addon checkout/checker source or Lua 5.0 executable; GitHub connector provides file text separately from the shell. Do not describe this as a compiler pass.
+- **User/runtime tests:** NONE on 0.5.44/0.5.45. Last known runtime pass remains 0.5.43-dev populated bag replacement, from previous user testing. No verification on quiver, keyring, bank, category sorting, Search, native empty-slot expansion, tooltip, equipped bag changes, Auto Resort, hide/show toggles or swap regression.
+- **Deferred / out-of-scope:** drop items directly onto the aggregate counter; moving physical inventory; changing other specialty-family display; adding a toolbar Quivers button beyond requested settings; stable promotion/release pending explicit acceptance. Pre-existing edge-case validation debt remains accepted.
+- **EXACT NEXT STEP:** in a test WoW 1.12.1 + pfUI install, run the numbered 0.5.45-dev runtime matrix: collapse/expand normal free slots, keyring counts/toggle, quiver/ammo pouch grouping + Hide Quivers setting, obtain an item into a hidden slot during a 3s Auto Resort delay, quiver equip/unequip, bank view, then populated bag replacement regression; report failures with screenshots/Lua errors. Run canonical Lua 5.0.3 checker in a checkout with checker assets before claiming compiler PASS or promoting main. No feature release on main until validated.
 
 ## Authorized Feature Work — 2026-10-28 (PRE-IMPLEMENTATION HANDOFF)
 - **Authorization:** user expressly requested coding despite maintenance-mode policy; narrow approved exception only.
@@ -740,4 +751,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-Maintenance mode. No proactive feature development or manufactured edge-case testing. Take documented bug/regression/compatibility reports as they arrive; make minimal changes on `dev`, version and check per rulebook, record exact runtime provenance, and promote only with explicit release approval. Preserve non-blocking validation debt. `main` stable `0.5.43` at `118ab4b5e2926169b47bf36d183b547780ed8858`.
+**Run focused 0.5.45-dev in-game testing before further code changes/promotion.** Verify General/Keyring/Quivers empty counts and click expansion, Show Quivers OFF/ON, the existing Keys toggle, receiving items during Auto Resort's delay, bank bag behavior, and populated bag replacement; report exact failures. Run the canonical Lua 5.0.3 checker when checkout/checker can be accessed. Keep `main` at 0.5.43 until explicit approval; after feature acceptance, resume maintenance-only work.
