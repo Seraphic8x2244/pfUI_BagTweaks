@@ -327,6 +327,14 @@
 - Avoid a broad "delay every BAG_UPDATE" policy unless runtime evidence requires it. The design target is interaction-caused churn, not unrelated inventory changes such as loot arriving while the user is idle.
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
 
+## Release Authorization / Preflight — 2026-10-28 (USER CONFIRMED)
+- **User acceptance:** user replied **"Works, o promote to main"** after being given the 0.5.48-dev close/reopen test steps. Record this as a focused **runtime PASS** for the immediate-on-close Auto Resort user workflow (not a blanket pass for bank, quiver, other bag families, or transaction edge cases). Prior user reports: 0.5.47-dev empty-slot visual styling **PASS** ("all looks correct"); 0.5.46-dev startup **no Lua error**.
+- **Explicit stable-promotion authorization:** yes, 2026-10-28. User accepts unexercised specialized-family, bank, and populated-bag replacement regressions as release validation debt by requesting stable promotion with this history visible; do not claim those workflows tested.
+- **Preflight source:** dev `0.5.48-dev` head `a8ed5b2d5c37d92dc0ac587bd63993d9f285ab44`; product Lua commit `8d2fdf6d95c54c643892e6ab44e3b7921a9abc75`; stable main `0.5.43` at `118ab4b5e2926169b47bf36d183b547780ed8858` (tree `163bea1dd2da370534e59e78e6b3488612007070`). Verified main tree contains official `artwork/` only, no dev docs; preserve this main tree and only replace Lua, locale, stable TOC and README.
+- **Planned release:** `0.5.48` (no `-dev`), stable title `pfUI [BagTweaks]`; identical dev Lua + locale blobs; concise user README with no dev-only status notes; use one atomic tree/commit fast-forward on `main`, not merge `dev` (it contains `DEV_PROGRESS.md` and `dev_rulebook.md`).
+- **Pre-release checks to run:** version/loader and staged-asset invariants, new source code/locale identity to dev, no development-only files in main tree, selected Lua 5.0 compatibility checks; canonical Lua 5.0.3 compiler currently NOT RUN. Release tree itself will remain NOT independently in-game tested.
+- **EXACT NEXT STEP:** create the main-based release tree, atomic stable release commit and guarded branch ref update, verify main tree and TOC post-promotion, then update this DEV_PROGRESS handoff with exact stable commit and remaining validation debt.
+
 ## Auto Resort on Bag Close — 2026-10-28 — 0.5.48-dev (IMPLEMENTED / UNTESTED)
 - **User request:** while the bag is open, retain the configured inactivity-based Auto Resort delay; when the bag closes, finish pending visual layout immediately so reopening does not unexpectedly rearrange several seconds later.
 - **Current branch/source:** `dev` 0.5.47-dev, latest code commit `3bda5ef0583000c4bdc5eb6814438bc0a6c69d31`; handoff/status commit `bc3774c7c9a22a3e15487ad85f540506efc50972`. Stable `main` 0.5.43 / `118ab4b5e2926169b47bf36d183b547780ed8858` remains untouched.
