@@ -2,10 +2,10 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.47-dev`
-- Development code head: `3bda5ef0583000c4bdc5eb6814438bc0a6c69d31` (0.5.47-dev visual checkpoint; subsequent README/DEV_PROGRESS commits are docs-only)
+- Version: `0.5.48-dev`
+- Development code head: `8d2fdf6d95c54c643892e6ab44e3b7921a9abc75` (0.5.48-dev close/reopen timer checkpoint; subsequent README/status commits are docs-only)
 - Stable baseline: `0.5.43` / `118ab4b5e2926169b47bf36d183b547780ed8858` (promoted from tested `0.5.43-dev` code checkpoint `ed21a8a3`; release tree itself not separately in-game tested)
-- Goal: **USER-AUTHORIZED FEATURE EXCEPTION (2026-10-28)**: compact counted empty slots, separate keyring/quiver grouping and hide-quiver setting are implemented on `0.5.47-dev`; 0.5.46-dev was user-reported to show no Lua error, and the user subsequently reported **"all looks correct"** for the 0.5.47-dev counter appearance. This is a focused **visual runtime PASS**, not a full functional test. Maintenance freeze remains overridden for this feature only.
+- Goal: **USER-AUTHORIZED FEATURE EXCEPTION (2026-10-28)**: family-aware compact bag UI at 0.5.47-dev has a user-reported counter visual PASS; `0.5.48-dev` adds an immediate deferred Auto Resort layout settlement on close/reopen, implemented/static checked but **NOT yet in-game tested**. The 0.5.46-dev startup crash fix had user feedback of no Lua error. Maintenance freeze is overridden only for this focused feature and its regressions.
 - Current scope boundary: preserve `0.5.43-dev` bag-swap/toolbar/inventory behavior and validation debt; add strictly visual family-aware empty-slot controls, with no physical bag operations or core pfUI modification. `dev` owns the feature and `main` remains stable `0.5.43` untouched.
 
 ## Current Design / Development Contract
@@ -327,13 +327,17 @@
 - Avoid a broad "delay every BAG_UPDATE" policy unless runtime evidence requires it. The design target is interaction-caused churn, not unrelated inventory changes such as loot arriving while the user is idle.
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
 
-## Auto Resort on Bag Close — 2026-10-28 (USER REQUEST / PRE-IMPLEMENTATION)
+## Auto Resort on Bag Close — 2026-10-28 — 0.5.48-dev (IMPLEMENTED / UNTESTED)
 - **User request:** while the bag is open, retain the configured inactivity-based Auto Resort delay; when the bag closes, finish pending visual layout immediately so reopening does not unexpectedly rearrange several seconds later.
 - **Current branch/source:** `dev` 0.5.47-dev, latest code commit `3bda5ef0583000c4bdc5eb6814438bc0a6c69d31`; handoff/status commit `bc3774c7c9a22a3e15487ad85f540506efc50972`. Stable `main` 0.5.43 / `118ab4b5e2926169b47bf36d183b547780ed8858` remains untouched.
 - **Root cause/source:** `RequestRelayout(true)` starts a global inactivity timer. `HookFrameHide` forwards native `OnHide` (which itself calls pfUI `CreateBags`, rearming a relayout) but never completes/clears the deferred timer. `CreateBags` on genuine OnShow renders immediately without consuming that pending timer, so its delayed callback may relayout again after reopen.
 - **Design:** on hide, after native hook and replacement safety handling, relayout the newly hidden view immediately and clear the shared timer only when the other view is also hidden. When the visible opening view is laid out synchronously, consume old pending state only when the opposite view is hidden (preserve other visible view's delay). Do not flush during active bag replacement or cast-based Auto Resort hold. Keep native physical sorting ownership unchanged and preserve scheduler delay for any other visible bag view.
-- **Completed:** audit and source identification only. **Untested:** code change, client runtime and bank/multi-view interactions. **Deferred:** changing delay setting semantics, adding new buttons, physical item moves, stable release.
-- **EXACT NEXT STEP:** implement close/open timer-settlement with minimal code changes on dev, bump version, run available source checks, then user-test close/reopen before delay elapsed, normal open-bag Auto Resort, combined bank/backpack and active bag replacement; update status with commit IDs and test provenance.
+- **Completed / exact code provenance:** version bump `9c930deeb8eea074056ff17a6b7d55f545b063e5`, Lua implementation `8d2fdf6d95c54c643892e6ab44e3b7921a9abc75`, README `ee2a38e2f0b2bac4628dc268d3eb750d6635608d`. New `SettleAutoResortAtViewBoundary(view, alreadyLaidOut)` finalizes the closed-view layout immediately after existing pfUI `OnHide` and bag replacement safety handling, and clears the single pending driver/deadline when the other view is not shown. On genuine `OnShow`, the existing synchronous layout consumes any stale timer when the other view is hidden. The opposite view remaining open preserves its scheduler and configured delay. Skip settlement entirely during active bag replacement or cast hold. No physical bag operations, config schema or new assets changed.
+- **Static checks actually run:** 13/13 targeted source-level assertions PASS (TOC version, native OnHide ordering, both views, replacement and cast holds, pending drain, no other-view timer cancellation, intact open-view inactivity delay, Lua 5.0 local count 160/200, no new later syntax, visual-only function). **Canonical Lua 5.0.3 compiler was NOT RUN**. Static source tests do not establish runtime correctness.
+- **User-tested:** prior `0.5.47-dev` counter artwork/grey text visual PASS; prior `0.5.46-dev` no Lua error. **Not yet tested:** `0.5.48-dev` close/reopen interaction, open-bag delay, bank/backpack concurrent windows, Auto Resort during cast, bag replacement.
+- **Deferred:** adding new button/setting for close-to-resort, altering physical inventory item order, stable promotion.
+- **EXACT NEXT STEP:** update to `0.5.48-dev`, leave Auto Resort delay at ~3s, mutate inventory with backpack open, close backpack before delay expires, reopen immediately and confirm no delayed second resort; then confirm delay still works while open. Optionally test bank-open plus backpack close/reopen and populated bag replacement with no regressions. Collect full error text/screenshot if failed. Do not promote to main before acceptance.
+- **Status:** implemented, checked, pending user runtime validation. Previous exact next step is superseded by 0.5.48-dev test instructions above.
 
 ## Visual Refinement Checkpoint — 2026-10-28 — 0.5.47-dev
 - **User 0.5.46-dev report:** no Lua error, but aggregate empty-slot counter artwork/border was visibly different from a real pfUI empty slot and text was green; requested exact pfUI empty-slot background and border, and muted grey text. No separate confirmation of duplicate pane disappearance yet.
@@ -785,4 +789,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-0.5.47-dev counter appearance received user runtime PASS ("all looks correct"). Next, verify independent Keyring/Quivers counts and Show Quivers, actual counter expand/re-collapse, Auto Resort hidden-slot updates, bank and populated bag replacement; record any Lua errors or extra bank panel. Lua 5.0.3 compiler check NOT RUN; `main` stays at 0.5.43 pending explicit stable-release approval.
+**Runtime test 0.5.48-dev**: with Auto Resort delay at 3s, move/split an item while backpack is open; close before the deadline; reopen immediately; verify the item presentation is already settled and does not rearrange after 3 seconds. Then verify ordinary delayed resort while the bag stays open, and check bank/backpack simultaneous use and bag replacement safety. 0.5.47-dev visual test passed; no 0.5.48-dev runtime test or canonical Lua 5.0.3 compiler pass yet. Keep `main` at stable 0.5.43 until explicit acceptance.
