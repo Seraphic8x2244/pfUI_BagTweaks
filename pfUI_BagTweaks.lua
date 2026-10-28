@@ -5015,6 +5015,35 @@ local function Initialize()
       RelayoutView("bank")
     end
 
+    -- pfUI's native UpdateSlot() unconditionally Show()s every bag button.
+    -- Reapply our visual hiding immediately after native refreshes, without
+    -- waiting for Auto Resort. If a hidden *ordinary* slot became occupied,
+    -- request a full immediate presentation pass to make that item visible.
+    local function RestoreHiddenSlots(view)
+      local reveal = false
+      local bags = ViewBags(view) or {}
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+        local family = ContainerFamily(bag)
+        local count = tonumber(GetContainerNumSlots(bag)) or 0
+        if bag == -2 then
+          count = pfUI.bag.showKeyring == true and (GetKeyRingSize and GetKeyRingSize() or 0) or 0
+        end
+        for slot = 1, count do
+          local entry = pfUI.bags[bag] and pfUI.bags[bag].slots[slot]
+          local button = entry and entry.frame
+          if button and button.bagtweaks_visual_hidden then
+            if (family ~= "QUIVER" or db.showQuivers ~= "0") and
+               GetContainerItemInfo(bag, slot) then
+              reveal = true
+            end
+            button:Hide()
+          end
+        end
+      end
+      return reveal
+    end
+
     local relayoutDriver
     local relayoutPending = false
     local autoResortDeadline = 0
@@ -5178,6 +5207,7 @@ local function Initialize()
 
       oldCreateBags(self, object)
       BagReplacement:HookBagSlots()
+      local revealHiddenItem = RestoreHiddenSlots(view)
 
       local replacementOwnsView = BagReplacement.active
         and BagReplacement.active.phase ~= "failed"
@@ -5194,7 +5224,7 @@ local function Initialize()
         -- CreateBags calls still use the scheduler so mutation-driven rebuilds
         -- retain the coalescing/delay behaviour.
         if openingVisibleView or (viewFrame and viewFrame:IsShown()
-            and emptyUI[view].familySignature ~= ViewFamilySignature(view)) then
+            and (revealHiddenItem or emptyUI[view].familySignature ~= ViewFamilySignature(view))) then
           RelayoutView(view)
         else
           RequestRelayout()
@@ -5219,28 +5249,9 @@ local function Initialize()
 
         if bag and bag >= -2 and bag <= 11 and not ownsMutation then
           local view = (bag == -1 or bag >= 5) and "bank" or "backpack"
+          local reveal = RestoreHiddenSlots(view)
           local viewFrame = ViewFrame(view)
-          local family = ContainerFamily(bag)
-          local reveal = false
-          if viewFrame and viewFrame:IsShown() and
-             (family ~= "QUIVER" or db.showQuivers ~= "0") and
-             (bag ~= -2 or pfUI.bag.showKeyring == true) then
-            local slots = tonumber(GetContainerNumSlots(bag)) or 0
-            if bag == -2 and GetKeyRingSize then slots = GetKeyRingSize() end
-            for slot = 1, slots do
-              local entry = pfUI.bags[bag] and pfUI.bags[bag].slots[slot]
-              local button = entry and entry.frame
-              if button and button.bagtweaks_visual_hidden and
-                 GetContainerItemInfo(bag, slot) then
-                reveal = true
-                break
-              end
-            end
-          end
-          -- A newly occupied hidden empty slot must never remain invisible
-          -- during Auto Resort's inactivity delay. Other mutations still use
-          -- the existing scheduler (the bag replacement owner is respected).
-          if reveal then RelayoutView(view) end
+          if reveal and viewFrame and viewFrame:IsShown() then RelayoutView(view) end
           RequestRelayout(true)
         end
         pcall(InventoryTracker.OnBagUpdated, InventoryTracker, bag)
