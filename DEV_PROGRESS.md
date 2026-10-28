@@ -2,10 +2,10 @@
 
 ## Current
 - Branch: `dev`
-- Version: `0.5.46-dev`
-- Development code head: `1a01d8fbc90d4107374ff40e981e7dd32f9fc25f` (0.5.46-dev; latest addon-affecting Lua checkpoint; subsequent DEV_PROGRESS status commit is documentation-only)
+- Version: `0.5.47-dev`
+- Development code head: `3bda5ef0583000c4bdc5eb6814438bc0a6c69d31` (0.5.47-dev visual checkpoint; subsequent README/DEV_PROGRESS commits are docs-only)
 - Stable baseline: `0.5.43` / `118ab4b5e2926169b47bf36d183b547780ed8858` (promoted from tested `0.5.43-dev` code checkpoint `ed21a8a3`; release tree itself not separately in-game tested)
-- Goal: **USER-AUTHORIZED FEATURE EXCEPTION (2026-10-28)**: compact counted empty slots, separate keyring/quiver grouping and hide-quiver setting are implemented on `0.5.46-dev`, with a targeted startup crash fix after a user-reported 0.5.45-dev runtime failure. **0.5.46-dev is NOT YET runtime tested.** Maintenance freeze remains overridden for this feature only.
+- Goal: **USER-AUTHORIZED FEATURE EXCEPTION (2026-10-28)**: compact counted empty slots, separate keyring/quiver grouping and hide-quiver setting are implemented on `0.5.47-dev`; 0.5.46-dev was user-reported to show no Lua error, while the current 0.5.47-dev visual change **remains untested in game**. Maintenance freeze remains overridden for this feature only.
 - Current scope boundary: preserve `0.5.43-dev` bag-swap/toolbar/inventory behavior and validation debt; add strictly visual family-aware empty-slot controls, with no physical bag operations or core pfUI modification. `dev` owns the feature and `main` remains stable `0.5.43` untouched.
 
 ## Current Design / Development Contract
@@ -326,6 +326,14 @@
 - Pick Lock remains a separate pfUI spell path. Protect the BagTweaks persistent Pick Lock workflow from relayout churn even though the tooltip summarizes the user-visible item-changing operations as selling/opening/disenchanting.
 - Avoid a broad "delay every BAG_UPDATE" policy unless runtime evidence requires it. The design target is interaction-caused churn, not unrelated inventory changes such as loot arriving while the user is idle.
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
+
+## Visual Refinement Checkpoint — 2026-10-28 — 0.5.47-dev
+- **User 0.5.46-dev report:** no Lua error, but aggregate empty-slot counter artwork/border was visibly different from a real pfUI empty slot and text was green; requested exact pfUI empty-slot background and border, and muted grey text. No separate confirmation of duplicate pane disappearance yet.
+- **Implemented on `dev`:** bump `0.5.47-dev` TOC at commit `22f047d3563b262797f535d1ca34d50c0f208bcd`; code commit `3bda5ef0583000c4bdc5eb6814438bc0a6c69d31`; README-only update `e3ab8f251b8be1af4625a51a0c2a3207807117b1`. `main` remains 0.5.43 at `118ab4b5e2926169b47bf36d183b547780ed8858` (untouched).
+- **Change isolated to virtual counter presentation:** use `pfUI.api.CreateBackdrop` with bag border size and the current first real empty slot in each group as artwork sample. Copy its backdrop, border colour and available `IconTexture`/UVs onto the non-physical button. Set count to neutral grey (.5/.5/.5/1) using pfUI item unit font. Preserve click-to-expand, keyring/quiver independent counts, native real-slot drag/drop and replacement workflow.
+- **Static checks actually run:** 16/16 specific source assertions PASS, including pfUI backdrop/sample icon/colours, muted count, no tooltip-style backdrop, click/virtual identity, all three group samples, protective classifier, no physical moves and local binding count 159 (<200). **No canonical Lua 5.0.3 compiler executed and no 0.5.47-dev WoW runtime test yet.**
+- **Untested / exact next step:** test `0.5.47-dev` in WoW 1.12.1; confirm normal empty-slot artwork/border match, grey number, click-to-expand/re-collapse and no Lua errors or extra bag panel; then keyring/quiver styling, hide/show and ordinary empty-slot counts. Obtain screenshot and exact error text on failure. Do not promote main before user acceptance.
+- **Deferred:** further feature redesign, aggregate-drop behavior and non-quiver specialty categories.
 
 ## Visual Refinement — 2026-10-28 (PLAN; runtime report received)
 - **User 0.5.46-dev runtime evidence:** no Lua error reported. User did not separately confirm that the unintended bottom-left panel is gone; do not infer it.
@@ -768,4 +776,4 @@
 - External/runtime prerequisites: pfUI. Nampower remains optional for existing BagTweaks behaviour, but the planned cross-account custom-file inventory feature specifically requires Nampower custom-file capability. SuperWoW and ClassicAPI remain optional unless a future feature explicitly requires one.
 
 ## Exact Next Step
-**Retest 0.5.46-dev startup first:** reload, verify the line-242 error does not recur and the left-side duplicate bank panel is gone; then test General/Keyring/Quivers counters, Show Quivers OFF/ON, native Keys toggle, Auto Resort item visibility, bank and bag replacement. Obtain complete error stack if any failure recurs. Canonical Lua 5.0.3 compiler still NOT RUN, no main promotion. Keep `main` stable at 0.5.43.
+Test `0.5.47-dev` native pfUI counter appearance: compare its border and background to a neighboring empty physical slot in collapsed and expanded states; confirm number is grey, expansion works, no Lua error, and no extra bank panel. Then test Keyring and Quivers groups/Show Quivers, Auto Resort visibility, bank and bag replacement. Collect screenshot/error on any discrepancy. Lua 5.0.3 compiler check NOT RUN; `main` stays at 0.5.43 pending explicit stable-release approval.
