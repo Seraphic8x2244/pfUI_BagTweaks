@@ -5143,6 +5143,26 @@ local function Initialize()
       relayoutDriver:Show()
     end
 
+    -- A closed view can settle its own visual layout without waiting for the
+    -- open-bag inactivity timer. The timer is shared between bank/backpack:
+    -- never cancel it while the other view is still visible and may be
+    -- awaiting its own delayed update.
+    local function SettleAutoResortAtViewBoundary(view, alreadyLaidOut)
+      if not relayoutPending or autoResortHold or BagReplacement.active then return end
+
+      if not alreadyLaidOut then RelayoutView(view) end
+
+      local other = ViewFrame(view == "bank" and "backpack" or "bank")
+      if other and other:IsShown() then return end
+
+      -- The closed (or just opened) view has its final presentation.
+      -- Consume the previous deadline so reopening cannot trigger an old
+      -- resort a few seconds later. Future mutations still schedule normally.
+      relayoutPending = false
+      autoResortDeadline = 0
+      if relayoutDriver then relayoutDriver:Hide() end
+    end
+
     pfUI.bagtweaks.ProtectAutoResort = function(holdUntilMutation)
       if holdUntilMutation then autoResortHold = true end
     end
@@ -5269,6 +5289,9 @@ local function Initialize()
         if openingVisibleView or (viewFrame and viewFrame:IsShown()
             and (revealHiddenItem or emptyUI[view].familySignature ~= ViewFamilySignature(view))) then
           RelayoutView(view)
+          -- OnShow already rendered the final view; discard its stale
+          -- inactivity timer if no other inventory view is still open.
+          if openingVisibleView then SettleAutoResortAtViewBoundary(view, true) end
         else
           RequestRelayout()
         end
@@ -5310,8 +5333,13 @@ local function Initialize()
         HideMenus()
         HideItemHighlight()
         if draggingView == "bank" and frame == pfUI.bag.left then EndSubcategoryDrag() end
-        if frame == pfUI.bag.left then BagReplacement:OnViewHidden("bank")
-        elseif frame == pfUI.bag.right then BagReplacement:OnViewHidden("backpack") end
+        if frame == pfUI.bag.left then
+          BagReplacement:OnViewHidden("bank")
+          SettleAutoResortAtViewBoundary("bank", false)
+        elseif frame == pfUI.bag.right then
+          BagReplacement:OnViewHidden("backpack")
+          SettleAutoResortAtViewBoundary("backpack", false)
+        end
       end)
       frame.bagtweaks_menu_hide_hooked = true
     end
