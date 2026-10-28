@@ -327,6 +327,14 @@
 - Avoid a broad "delay every BAG_UPDATE" policy unless runtime evidence requires it. The design target is interaction-caused churn, not unrelated inventory changes such as loot arriving while the user is idle.
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
 
+## Visual Refinement — 2026-10-28 (PLAN; runtime report received)
+- **User 0.5.46-dev runtime evidence:** no Lua error reported. User did not separately confirm that the unintended bottom-left panel is gone; do not infer it.
+- **New requested correction:** the synthetic empty-slot counter must use the same pfUI empty physical slot background/icon artwork and border styling (instead of the existing tooltip-backdrop style). Count text must use muted grey matching normal empty slot borders.
+- **Cause:** current `EmptyCounter` creates `CreateFrame("Button")` then uses the addon `Backdrop(button)` helper (tooltip-style background/border), custom blue-grey border and green text, unlike pfUI `CreateBackdrop` on real bag buttons.
+- **Scope:** visual-only `EmptyCounter` alteration. Use pfUI `CreateBackdrop` with the bag-border metric, copy the actual empty physical slot icon texture if supplied, and match the empty-slot backdrop border; keep aggregate tile non-physical, click-to-expand, separate bag families, sort/visibility, all settings, and bag replacement unchanged. Version bump required by rulebook.
+- **Latest stable:** main 0.5.43 / `118ab4b5e2926169b47bf36d183b547780ed8858`. **Pre-edit dev:** 0.5.46-dev / Lua code `1a01d8fbc90d4107374ff40e981e7dd32f9fc25f`.
+- **Exact next step:** implement visual-only counter restyle on dev; update TOC version, statically inspect references and critical interactions, update this handoff with code commit and note no runtime test yet. Defer broader feature changes and release.
+
 ## Runtime Regression and Fix — 2026-10-28 — 0.5.46-dev (AWAITING RETEST)
 - **User report (0.5.45-dev runtime FAIL):** screenshot with right inventory plus unintended second bag-like panel bottom-left, and visible red error `pfUI_BagTweaks.lua:242: Invalid ...`. Screenshot does not contain full legible exception text. The extra frame strongly resembles a bank window left open by a failed startup, but this causality must still be confirmed in-game.
 - **Identified source defect:** 0.5.45-dev `ContainerFamily` at line 242 made an unguarded `GetInventoryItemLink("player", invSlot)` call after bag→inventory-slot conversion. Bank bag slots may not be queryable during login/while bank closed. An exception while pfUI's `PLAYER_ENTERING_WORLD` creates bank frame can interrupt subsequent native `:Hide()` call, leaving unintended visible bank frame.
