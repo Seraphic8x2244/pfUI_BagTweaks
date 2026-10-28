@@ -5,8 +5,8 @@
 - Version: `0.5.43-dev`
 - Development code head: `ed21a8a34d28d3c6f5583c48f7f19c9fae005fb3` (latest addon-affecting checkpoint; subsequent DEV_PROGRESS handoff commits are documentation-only)
 - Stable baseline: `0.5.43` / `118ab4b5e2926169b47bf36d183b547780ed8858` (promoted from tested `0.5.43-dev` code checkpoint `ed21a8a3`; release tree itself not separately in-game tested)
-- Goal: **MAINTENANCE MODE** (approved 2026-10-11). Feature development frozen. Fix demonstrated defects, regressions and compatibility issues only; no speculative test campaigns, new features or redesigns.
-- Current scope boundary: retain the runtime-accepted `0.5.43-dev` baseline; documented hard-to-reproduce replacement edge cases are accepted non-blocking validation debt, not required work. `dev` remains the fix branch and `main` the stable branch.
+- Goal: **USER-AUTHORIZED FEATURE EXCEPTION (2026-10-28)**: implement optional collapsed empty-slot counters and independent keyring/quiver grouping/visibility, then return to maintenance mode after this focused work is runtime-tested and accepted. The 2026-10-11 maintenance freeze is overridden for this explicit request only.
+- Current scope boundary: preserve `0.5.43-dev` bag-swap/toolbar/inventory behavior and validation debt; add strictly visual family-aware empty-slot controls, with no physical bag operations or core pfUI modification. `dev` owns the feature and `main` remains stable `0.5.43` untouched.
 
 ## Current Design / Development Contract
 
@@ -326,6 +326,17 @@
 - Pick Lock remains a separate pfUI spell path. Protect the BagTweaks persistent Pick Lock workflow from relayout churn even though the tooltip summarizes the user-visible item-changing operations as selling/opening/disenchanting.
 - Avoid a broad "delay every BAG_UPDATE" policy unless runtime evidence requires it. The design target is interaction-caused churn, not unrelated inventory changes such as loot arriving while the user is idle.
 - No new module/system is required; preserve the current single-main-Lua architecture and existing relayout ownership.
+
+## Authorized Feature Work — 2026-10-28 (PRE-IMPLEMENTATION HANDOFF)
+- **Authorization:** user expressly requested coding despite maintenance-mode policy; narrow approved exception only.
+- **Current branch:** `dev`, base product version `0.5.43-dev`; latest known addon code commit `ed21a8a34d28d3c6f5583c48f7f19c9fae005fb3`. Latest status commits may follow; verify before editing. `main` stable `0.5.43` at `118ab4b5e2926169b47bf36d183b547780ed8858`.
+- **Agreed UX:** optional collapse physical empty bag slots into a single counted display tile per distinct group. Normal general-purpose storage, keyring (-2), and quivers/ammo pouches must have separate counts and separate built-in sections. Quiver section has independent Show Quivers setting (default on); hidden means visual only, never a physical capacity or inventory change. Existing Keys toggle remains the keyring visibility owner. Other specialty bag families must **not** inflate ordinary free capacity.
+- **Planned defaults:** `collapseEmptySlots="0"` (off), `showQuivers="1"` (on). Do not reuse `showEmptyCategories` (which controls empty subcategory headers). Per-view counter expansion is transient; synthetic display frames are not physical drop targets.
+- **Compatibility risk:** updated bag occupancy must immediately unhide newly occupied item frames, even while existing Auto Resort presentation sorting remains delayed; do not bypass transaction owner for bag replacement. Preserve normal dragging, click/tooltips and specialty bag restrictions; use `pfUI.api.GetBagFamily(bag)` with conservative fallbacks. Test keyring toggle, quiver equip/unequip, bank, no room, sorting, search and bag replacement.
+- **Completed:** source audit only (BagTweaks layout `Collect`, `LayoutSection`, `RelayoutView`, pfUI `GetBagFamily`, `UpdateSlot`, toolbar toggle). No feature code changed at this checkpoint.
+- **Untested:** all proposed empty-slot/grouping/visibility interactions and Lua 5.0.3 compiler/runtime checks. Prior `0.5.43-dev` bag swap runtime pass is inherited baseline, not proof of feature.
+- **Deferred:** automatic counter drop target, physical container rearrangement, non-quiver specialty family redesign, release to main.
+- **EXACT NEXT STEP:** implement visual grouping and slot visibility reconciliation on `dev`, add counted frames and settings/locales, bump dev version and run available static/compiler checks; then test in WoW 1.12.1 before stable promotion.
 
 ## Recent Relevant Commits
 - `da4e8b1832897ff23a3e8b2883524d957ce08f95` — Complete `0.5.22-dev` recovery/edge-case hardening and version bump; shared carried/bank transaction now safe-stops on stale or rejected state.
