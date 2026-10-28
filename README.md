@@ -33,4 +33,4 @@ Designed to work across pfUI versions and forks while respecting your existing b
 `main` = stable release  
 `dev` = active development/testing
 
-**Development note:** Empty-slot aggregation / quiver grouping is currently on the `dev` branch only (`0.5.45-dev`); in-game validation is pending. Stable `main` remains `0.5.43`.
+**Development note:** Empty-slot aggregation / quiver grouping and the native-style empty counter are currently on the `dev` branch only (`0.5.47-dev`); the earlier `0.5.46-dev` build was reported to load without a Lua error, but `0.5.47-dev` artwork remains in-game untested. Stable `main` remains `0.5.43`.
