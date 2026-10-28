@@ -75,6 +75,10 @@ local function Initialize()
 
     local headers = { backpack={}, bank={} }
     local sections = { backpack={}, bank={} }
+    local emptyUI = {
+      backpack={ expanded={}, counters={}, familySignature=nil },
+      bank={ expanded={}, counters={}, familySignature=nil },
+    }
     local categoryFrames = { backpack={}, bank={} }
     local categoryHeaders = { backpack={}, bank={} }
     local selectedItemID = nil
@@ -155,6 +159,8 @@ local function Initialize()
     if db.charAssignments ~= nil then db.charAssignments = nil end
 
     if db.showEmptyCategories == nil then db.showEmptyCategories = true end
+    if db.collapseEmptySlots == nil then db.collapseEmptySlots = "0" end
+    if db.showQuivers == nil then db.showQuivers = "1" end
     if db.autoResortDelay == nil then db.autoResortDelay = "3" end
 
     local toolbarIconSize = tonumber(db.toolbarIconSize)
@@ -220,6 +226,40 @@ local function Initialize()
       local columns = tonumber(value) or 10
       if columns < 1 then columns = 1 end
       return columns
+    end
+
+    -- Classify physical containers, not the items within them. Unknown bag
+    -- families remain visible but never claim general-purpose free capacity.
+    local function ContainerFamily(bag)
+      if bag == -2 then return "KEYRING" end
+      if bag == 0 or bag == -1 then return "BAG" end
+      if pfUI.api and type(pfUI.api.GetBagFamily) == "function" then
+        local ok, family = pcall(pfUI.api.GetBagFamily, bag)
+        if ok and family then return family end
+      end
+      if ContainerIDToInventoryID and GetInventoryItemLink then
+        local invSlot = ContainerIDToInventoryID(bag)
+        local link = invSlot and GetInventoryItemLink("player", invSlot)
+        if link then
+          local _, _, _, _, _, _, _, _, equipLoc = GetItemInfo(link)
+          if equipLoc == "INVTYPE_QUIVER" then return "QUIVER" end
+        end
+      end
+      return "UNKNOWN"
+    end
+
+    local function ViewFamilySignature(view)
+      local bags = ViewBags(view) or {}
+      local fields = {}
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+        local count = tonumber(GetContainerNumSlots(bag)) or 0
+        if bag == -2 then
+          count = pfUI.bag.showKeyring == true and (GetKeyRingSize and GetKeyRingSize() or 0) or 0
+        end
+        table.insert(fields, tostring(bag) .. ":" .. ContainerFamily(bag) .. ":" .. tostring(count))
+      end
+      return table.concat(fields, ";")
     end
 
     local function FindSubcategory(id)
@@ -4200,6 +4240,7 @@ local function Initialize()
         h.line:SetPoint("BOTTOMRIGHT", h)
 
         h:SetScript("OnDragStart", function()
+          if h.bagtweaks_system then return end
           if h.categoryID then BeginSubcategoryDrag(h.categoryID, h.bagtweaks_view) end
         end)
 
@@ -4208,6 +4249,7 @@ local function Initialize()
         end)
 
         h:SetScript("OnMouseUp", function()
+          if h.bagtweaks_system then return end
           if arg1 ~= "LeftButton" and arg1 ~= "RightButton" then return end
           if AssignSelected(h.categoryID) then return end
           if GetTime and lastDragStop > 0 and (GetTime() - lastDragStop) < .15 then return end
@@ -4220,11 +4262,16 @@ local function Initialize()
         end)
 
         h:SetScript("OnReceiveDrag", function()
+          if h.bagtweaks_system then return end
           if not draggingSubcategoryID then AssignSelected(h.categoryID) end
         end)
 
         h:SetScript("OnEnter", function()
           if draggingSubcategoryID then return end
+          if h.bagtweaks_system then
+            Tooltip(h.text:GetText(), L.SPECIAL_SECTION_TOOLTIP)
+            return
+          end
 
           local section = sections[h.bagtweaks_view][SectionKeyForCategoryID(h.categoryID)]
           if selectedItemID and CursorStillHasItem() then
@@ -4256,6 +4303,7 @@ local function Initialize()
 
       h.bagtweaks_view = view
       h.categoryID = categoryID
+      h.bagtweaks_system = key == "keyring" or key == "quivers"
       h.text:SetText(name)
       h:Show()
       return h
@@ -4285,15 +4333,17 @@ local function Initialize()
         s.leftEdge:Hide()
 
         s:SetScript("OnReceiveDrag", function()
+          if s.bagtweaks_system then return end
           if not draggingSubcategoryID then AssignSelected(s.categoryID) end
         end)
 
         s:SetScript("OnMouseUp", function()
+          if s.bagtweaks_system then return end
           if arg1 == "LeftButton" and not draggingSubcategoryID then AssignSelected(s.categoryID) end
         end)
 
         s:SetScript("OnEnter", function()
-          if draggingSubcategoryID then return end
+          if s.bagtweaks_system or draggingSubcategoryID then return end
           if selectedItemID and CursorStillHasItem() then
             ShowItemHighlight(s)
             if s.categoryID then
@@ -4314,6 +4364,7 @@ local function Initialize()
 
       s.bagtweaks_view = view
       s.categoryID = categoryID
+      s.bagtweaks_system = key == "keyring" or key == "quivers"
       s:Show()
       return s
     end
@@ -4338,13 +4389,45 @@ local function Initialize()
       return category.name or L.SUBCATEGORY
     end
 
+    -- This is a display-only button: never pretend an aggregate is a real
+    -- (bag, slot) destination. Clicking reveals actual empty buttons instead.
+    local function EmptyCounter(view, group, count)
+      local state = emptyUI[view]
+      local button = state.counters[group]
+      if not button then
+        button = CreateFrame("Button", nil, ViewFrame(view))
+        Backdrop(button)
+        button:SetBackdropBorderColor(.45, .6, .65, .9)
+        button.text = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        button.text:SetFont(pfUI.font_default, C.global.font_size, "OUTLINE")
+        button.text:SetAllPoints(button)
+        button.text:SetJustifyH("CENTER")
+        button.text:SetTextColor(.7, 1, .9, 1)
+        button:SetScript("OnClick", function()
+          if (CursorHasItem and CursorHasItem()) or (SpellIsTargeting and SpellIsTargeting()) then return end
+          state.expanded[group] = not state.expanded[group]
+          Relayout()
+        end)
+        button:SetScript("OnEnter", function()
+          Tooltip(L.EMPTY_SLOTS, state.expanded[group] and L.COLLAPSE_EMPTY_SLOTS_HINT or L.EXPAND_EMPTY_SLOTS_HINT)
+        end)
+        button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        state.counters[group] = button
+      end
+      button.text:SetText(tostring(count))
+      button:Show()
+      return { frame=button, virtual=true }
+    end
+
     local function Collect(view)
-      local general = {}
-      local categorized = {}
+      local general, categorized, keyring, quivers = {}, {}, {}, {}
+      local emptyCounts = { general=0, keyring=0, quivers=0 }
       local questCategoryID = ActiveQuestCategoryID()
       local characterMap = CharacterSubcategories(false)
       local ordinal = 0
       local bags = ViewBags(view) or {}
+      local collapse = db.collapseEmptySlots == "1"
+      local state = emptyUI[view]
 
       for i = 1, table.getn(db.subcategories) do
         local category = db.subcategories[i]
@@ -4353,55 +4436,70 @@ local function Initialize()
 
       for i = 1, table.getn(bags) do
         local bag = bags[i]
-        local count = GetContainerNumSlots(bag)
-        if bag == -2 and pfUI.bag.showKeyring == true then count = GetKeyRingSize() end
+        local family = ContainerFamily(bag)
+        local count = tonumber(GetContainerNumSlots(bag)) or 0
+        if bag == -2 then
+          count = pfUI.bag.showKeyring == true and (GetKeyRingSize and GetKeyRingSize() or 0) or 0
+        end
 
+        local group = family == "KEYRING" and "keyring"
+          or (family == "QUIVER" and "quivers" or "general")
         for slot = 1, count do
           local data = pfUI.bags[bag] and pfUI.bags[bag].slots[slot]
           local frame = data and data.frame
 
           if frame then
             ordinal = ordinal + 1
-            local id = ItemID(bag, slot)
-            local meta
+            local texture = GetContainerItemInfo(bag, slot)
+            local link = GetContainerItemLink(bag, slot)
+            local occupied = texture ~= nil or link ~= nil
+            local id = occupied and ItemID(bag, slot) or nil
+            local aggregatable = group ~= "general" or family == "BAG"
 
-            if id then
-              meta = SortMetadata(bag, slot, id)
-            else
-              meta = EMPTY_META
+            if not occupied and aggregatable then
+              emptyCounts[group] = emptyCounts[group] + 1
             end
 
-            local entry = {
-              bag=bag,
-              slot=slot,
-              frame=frame,
-              itemID=id,
-              meta=meta,
-              ordinal=ordinal,
-            }
+            if not occupied and aggregatable and collapse and not state.expanded[group] then
+              -- Omit only the visual entry. Physical pfUI slot frames remain
+              -- owned by their real containers and are hidden after layout.
+            elseif group == "quivers" and db.showQuivers == "0" then
+              -- Hiding a quiver does not affect physical bag contents.
+            else
+              local meta = id and SortMetadata(bag, slot, id) or EMPTY_META
+              local entry = {
+                bag=bag, slot=slot, frame=frame, itemID=id,
+                meta=meta, ordinal=ordinal,
+              }
 
-            local categoryID = nil
-
-            if id then
-              local itemKey = tostring(id)
-              local manualCategoryID = characterMap and characterMap[itemKey]
-              if manualCategoryID == nil then manualCategoryID = db.accountSubcategories[itemKey] end
-
-              if manualCategoryID ~= nil then
-                if manualCategoryID ~= GENERAL_OVERRIDE and categorized[manualCategoryID] then categoryID = manualCategoryID end
-              elseif questCategoryID and categorized[questCategoryID] and
-                     (IsQuestMetadata(meta) or IsQuestObjectiveItem(id, meta)) then
-                categoryID = questCategoryID
+              if group == "keyring" then
+                table.insert(keyring, entry)
+              elseif group == "quivers" then
+                table.insert(quivers, entry)
+              else
+                local categoryID
+                if id then
+                  local itemKey = tostring(id)
+                  local manualCategoryID = characterMap and characterMap[itemKey]
+                  if manualCategoryID == nil then manualCategoryID = db.accountSubcategories[itemKey] end
+                  if manualCategoryID ~= nil then
+                    if manualCategoryID ~= GENERAL_OVERRIDE and categorized[manualCategoryID] then
+                      categoryID = manualCategoryID
+                    end
+                  elseif questCategoryID and categorized[questCategoryID] and
+                         (IsQuestMetadata(meta) or IsQuestObjectiveItem(id, meta)) then
+                    categoryID = questCategoryID
+                  end
+                end
+                if categoryID then table.insert(categorized[categoryID], entry)
+                else table.insert(general, entry) end
               end
             end
-
-            if categoryID then table.insert(categorized[categoryID], entry)
-            else table.insert(general, entry) end
           end
         end
       end
 
-      return general, categorized
+      return general, categorized, keyring, quivers, emptyCounts
     end
 
     local function HookItemSelection(view)
@@ -4573,7 +4671,7 @@ local function Initialize()
       }
     end
 
-    local function LayoutSection(view, key, name, subcategoryID, list, columns, size, border)
+    local function LayoutSection(view, key, name, subcategoryID, list, columns, size, border, painted)
       if columns < 1 then columns = 1 end
 
       local spacing = border * 3
@@ -4607,6 +4705,8 @@ local function Initialize()
       local row, col = 0, 0
       for i = 1, table.getn(list) do
         local item = list[i].frame
+        if painted then painted[item] = true end
+        item:Show()
         item:SetFrameLevel(baseLevel + 4)
         item:ClearAllPoints()
         item:SetPoint(
@@ -4744,7 +4844,8 @@ local function Initialize()
         and panel:GetHeight() + border
         or 16 + border
 
-      local general, categorized = Collect(view)
+      local general, categorized, keyring, quivers, emptyCounts = Collect(view)
+      local painted = {}
       local active = {}
       local activeParent = {}
       local totalHeight = 0
@@ -4754,9 +4855,25 @@ local function Initialize()
       local viewCategoryHeaders = categoryHeaders[view]
 
       SortEntries(general, db.generalSort, db.generalReverse)
+      SortEntries(keyring, "bag", false)
+      SortEntries(quivers, "bag", false)
+
+      -- Counters stay at the end and outside the regular sorting comparator.
+      for _, counter in pairs(emptyUI[view].counters) do counter:Hide() end
+      if db.collapseEmptySlots == "1" then
+        if emptyCounts.general > 0 then
+          table.insert(general, EmptyCounter(view, "general", emptyCounts.general))
+        end
+        if emptyCounts.keyring > 0 and pfUI.bag.showKeyring == true then
+          table.insert(keyring, EmptyCounter(view, "keyring", emptyCounts.keyring))
+        end
+        if emptyCounts.quivers > 0 and db.showQuivers ~= "0" then
+          table.insert(quivers, EmptyCounter(view, "quivers", emptyCounts.quivers))
+        end
+      end
 
       local generalSection, generalHeight = LayoutSection(
-        view, "general", L.GENERAL, nil, general, fullColumns, size, border
+        view, "general", L.GENERAL, nil, general, fullColumns, size, border, painted
       )
       if not generalSection then return end
 
@@ -4769,6 +4886,27 @@ local function Initialize()
       generalSection:SetHeight(generalHeight)
 
       local below = generalSection
+
+      local function AddSystemSection(key, label, entries)
+        if table.getn(entries) == 0 then return end
+        local systemSection, height = LayoutSection(
+          view, key, label, nil, entries, fullColumns, size, border, painted
+        )
+        if not systemSection then return end
+        active[key] = true
+        systemSection:ClearAllPoints()
+        systemSection:SetPoint("BOTTOMLEFT", below, "TOPLEFT", 0, ROW_GAP)
+        systemSection:SetPoint("BOTTOMRIGHT", below, "TOPRIGHT", 0, ROW_GAP)
+        systemSection:SetHeight(height)
+        totalHeight = totalHeight + height + ROW_GAP
+        below = systemSection
+      end
+
+      AddSystemSection("keyring", L.KEYRING_SECTION, keyring)
+      if db.showQuivers ~= "0" then
+        AddSystemSection("quivers", L.QUIVERS_SECTION, quivers)
+      end
+
       local visibleCategories = ActiveCategories(categorized)
 
       for i = table.getn(visibleCategories), 1, -1 do
@@ -4799,7 +4937,8 @@ local function Initialize()
                 entry.list,
                 entry.columns,
                 size,
-                border
+                border,
+                painted
               )
 
               if section then
@@ -4825,6 +4964,31 @@ local function Initialize()
           below = categoryFrame
         end
       end
+
+      -- pfUI may update or recreate physical buttons while BagTweaks is
+      -- waiting to auto-sort. Reconcile exact visibility after every layout:
+      -- synthetic counters never replace the original (bag, slot) buttons.
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+        local count = tonumber(GetContainerNumSlots(bag)) or 0
+        if bag == -2 then
+          count = pfUI.bag.showKeyring == true and (GetKeyRingSize and GetKeyRingSize() or 0) or 0
+        end
+        for slot = 1, count do
+          local entry = pfUI.bags[bag] and pfUI.bags[bag].slots[slot]
+          local button = entry and entry.frame
+          if button then
+            if painted[button] then
+              button.bagtweaks_visual_hidden = nil
+              button:Show()
+            else
+              button.bagtweaks_visual_hidden = true
+              button:Hide()
+            end
+          end
+        end
+      end
+      emptyUI[view].familySignature = ViewFamilySignature(view)
 
       for key, header in pairs(viewHeaders) do
         if not active[key] then header:Hide() end
@@ -4992,6 +5156,10 @@ local function Initialize()
     pfUI.bagtweaks.ShowEmptyCategories = function()
       return db.showEmptyCategories ~= false
     end
+    pfUI.bagtweaks.RefreshSlotPresentation = function()
+      if BagReplacement.active then return end
+      Relayout()
+    end
 
     if oldCreateBagSlots then
       pfUI.bag.CreateBagSlots = function(self, frame)
@@ -5025,7 +5193,8 @@ local function Initialize()
         -- an older Auto resort inactivity deadline is still active. Internal
         -- CreateBags calls still use the scheduler so mutation-driven rebuilds
         -- retain the coalescing/delay behaviour.
-        if openingVisibleView then
+        if openingVisibleView or (viewFrame and viewFrame:IsShown()
+            and emptyUI[view].familySignature ~= ViewFamilySignature(view)) then
           RelayoutView(view)
         else
           RequestRelayout()
@@ -5049,6 +5218,29 @@ local function Initialize()
           )
 
         if bag and bag >= -2 and bag <= 11 and not ownsMutation then
+          local view = (bag == -1 or bag >= 5) and "bank" or "backpack"
+          local viewFrame = ViewFrame(view)
+          local family = ContainerFamily(bag)
+          local reveal = false
+          if viewFrame and viewFrame:IsShown() and
+             (family ~= "QUIVER" or db.showQuivers ~= "0") and
+             (bag ~= -2 or pfUI.bag.showKeyring == true) then
+            local slots = tonumber(GetContainerNumSlots(bag)) or 0
+            if bag == -2 and GetKeyRingSize then slots = GetKeyRingSize() end
+            for slot = 1, slots do
+              local entry = pfUI.bags[bag] and pfUI.bags[bag].slots[slot]
+              local button = entry and entry.frame
+              if button and button.bagtweaks_visual_hidden and
+                 GetContainerItemInfo(bag, slot) then
+                reveal = true
+                break
+              end
+            end
+          end
+          -- A newly occupied hidden empty slot must never remain invisible
+          -- during Auto Resort's inactivity delay. Other mutations still use
+          -- the existing scheduler (the bag replacement owner is respected).
+          if reveal then RelayoutView(view) end
           RequestRelayout(true)
         end
         pcall(InventoryTracker.OnBagUpdated, InventoryTracker, bag)
@@ -5136,6 +5328,18 @@ local function Initialize()
           if GameTooltip then GameTooltip:Hide() end
         end)
       end
+
+      pfUI.gui.CreateConfig(function()
+          if pfUI.bagtweaks and pfUI.bagtweaks.RefreshSlotPresentation then
+            pfUI.bagtweaks.RefreshSlotPresentation()
+          end
+        end, L.COLLAPSE_EMPTY_SLOTS, _G.pfUIBagTweaksDB, "collapseEmptySlots", "checkbox")
+
+      pfUI.gui.CreateConfig(function()
+          if pfUI.bagtweaks and pfUI.bagtweaks.RefreshSlotPresentation then
+            pfUI.bagtweaks.RefreshSlotPresentation()
+          end
+        end, L.SHOW_QUIVERS, _G.pfUIBagTweaksDB, "showQuivers", "checkbox")
 
       local toolbarIconSize = pfUI.gui.CreateConfig(
         function() end,
