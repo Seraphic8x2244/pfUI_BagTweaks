@@ -95,6 +95,7 @@ local function Initialize()
     local questScanBusy = false
     local questScanIgnoreUntil = 0
     local Relayout
+    local counterPlacement
 
     local draggingSubcategoryID = nil
     local draggingView = nil
@@ -4390,7 +4391,29 @@ local function Initialize()
       return category.name or L.SUBCATEGORY
     end
 
-    -- A counter is only a display tile, not a physical (bag, slot) button.
+    -- Empty-slot counters remain virtual presentation tiles. Only an explicit
+    -- item-on-cursor click on the General counter may place into a real empty
+    -- ordinary bag slot; neither a counter nor category layout owns that slot.
+    -- The view and family checks keep bank, keyring and specialty storage apart.
+    local function FindGeneralCounterDestination(view)
+      local bags = ViewBags(view) or {}
+      for i = 1, table.getn(bags) do
+        local bag = bags[i]
+        if ContainerFamily(bag) == "BAG" then
+          local count = tonumber(GetContainerNumSlots(bag)) or 0
+          for slot = 1, count do
+            local data = pfUI.bags[bag] and pfUI.bags[bag].slots[slot]
+            if data and data.frame then
+              local texture, _, locked = GetContainerItemInfo(bag, slot)
+              if not texture and not locked and not GetContainerItemLink(bag, slot) then
+                return bag, slot
+              end
+            end
+          end
+        end
+      end
+    end
+
     -- Borrow pfUI's real empty-slot appearance instead of the tooltip-style
     -- Backdrop() used by BagTweaks menus. Native bag frames supply the actual
     -- backdrop, border colour and, if present, the empty icon artwork.
@@ -4416,12 +4439,44 @@ local function Initialize()
         button.text:SetJustifyV("MIDDLE")
         button.text:SetTextColor(.5, .5, .5, 1)
         button:SetScript("OnClick", function()
-          if (CursorHasItem and CursorHasItem()) or (SpellIsTargeting and SpellIsTargeting()) then return end
+          if SpellIsTargeting and SpellIsTargeting() then return end
+
+          if CursorHasItem and CursorHasItem() then
+            if arg1 ~= "LeftButton" or BagReplacement.active then return end
+
+            -- Specialty counters are not interchangeable drop targets. Reveal
+            -- their real slots and let Vanilla enforce item-family rules.
+            if group ~= "general" then
+              if not state.expanded[group] then
+                state.expanded[group] = true
+                Relayout()
+              end
+              return
+            end
+
+            local bag, slot = FindGeneralCounterDestination(view)
+            if bag == nil then return end
+
+            -- Vanilla owns the actual placement; never clear the cursor or
+            -- synthesize a stack. A successful BAG_UPDATE confirms the
+            -- destination and triggers immediate visual relayout.
+            counterPlacement = {
+              view=view, bag=bag, slot=slot,
+              startedAt=GetTime and GetTime() or 0,
+            }
+            PickupContainerItem(bag, slot)
+            return
+          end
+
           state.expanded[group] = not state.expanded[group]
           Relayout()
         end)
         button:SetScript("OnEnter", function()
-          Tooltip(L.EMPTY_SLOTS, state.expanded[group] and L.COLLAPSE_EMPTY_SLOTS_HINT or L.EXPAND_EMPTY_SLOTS_HINT)
+          local hint = state.expanded[group] and L.COLLAPSE_EMPTY_SLOTS_HINT or L.EXPAND_EMPTY_SLOTS_HINT
+          if group == "general" and CursorHasItem and CursorHasItem() then
+            hint = L.PLACE_IN_EMPTY_SLOT_HINT
+          end
+          Tooltip(L.EMPTY_SLOTS, hint)
         end)
         button:SetScript("OnLeave", function() GameTooltip:Hide() end)
         state.counters[group] = button
@@ -5317,8 +5372,32 @@ local function Initialize()
           local view = (bag == -1 or bag >= 5) and "bank" or "backpack"
           local reveal = RestoreHiddenSlots(view)
           local viewFrame = ViewFrame(view)
-          if reveal and viewFrame and viewFrame:IsShown() then RelayoutView(view) end
-          RequestRelayout(true)
+
+          -- A counter placement is an explicit user action, not an automatic
+          -- resort. Once its physical destination becomes occupied, present
+          -- it immediately and consume this mutation's pending layout delay.
+          local placed = false
+          if counterPlacement then
+            local now = GetTime and GetTime() or 0
+            if now - counterPlacement.startedAt > 2 then
+              counterPlacement = nil
+            elseif counterPlacement.view == view and counterPlacement.bag == bag then
+              local targetSlot = counterPlacement.slot
+              placed = GetContainerItemInfo(bag, targetSlot) ~= nil
+                or GetContainerItemLink(bag, targetSlot) ~= nil
+              if placed then counterPlacement = nil end
+            end
+          end
+
+          if viewFrame and viewFrame:IsShown() and (reveal or placed) then
+            RelayoutView(view)
+          end
+          if placed then
+            -- Keep the other view's independent pending work if it is open.
+            SettleAutoResortAtViewBoundary(view, true)
+          else
+            RequestRelayout(true)
+          end
         end
         pcall(InventoryTracker.OnBagUpdated, InventoryTracker, bag)
       end
