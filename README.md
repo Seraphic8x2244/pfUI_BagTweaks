@@ -23,7 +23,7 @@ Designed to work across pfUI versions and forks while respecting your existing b
 - Cross-account inventory tracking requires **Nampower.dll**
 - Replace equipped bags without emptying them first
 - **Auto Resort** keeps the selected inactivity delay while bags are open, and settles any pending visual layout when a bag closes so reopening does not trigger another delayed rearrangement.
-- **Compact Empty Slots** (optional): combine unused ordinary bag slots into one numbered counter to reduce inventory height. Click the counter to reveal/re-collapse real empty slots.
+- **Compact Empty Slots** (optional): combine unused ordinary bag slots into one numbered counter to reduce inventory height. Click with an empty cursor to reveal/re-collapse real empty slots, or left-click the General counter with a split/held stack to place it in an eligible physical slot and show the result immediately. Specialty counters reveal their real slots when an item is held.
 - Independent **Keyring** and **Quivers** sections, with their own empty capacity counters. Quiver and keyring capacity is never included in normal bag free space.
 - **Show Quivers** setting hides the entire quiver section visually without moving items or disabling the equipped quiver. Existing Keys toolbar control still owns keyring visibility.
 - Configure **Collapse empty slots into counters** (off by default) and **Show Quivers** (on by default) under pfUI → Thirdparty → pfUI [BagTweaks]. Other specialty bags remain visible and do not inflate the general-purpose empty-slot counter.
