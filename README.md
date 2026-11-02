@@ -33,4 +33,4 @@ Designed to work across pfUI versions and forks while respecting your existing b
 `main` = stable release  
 `dev` = active development/testing
 
-**Development note:** `dev` is currently `0.5.49-dev`, adding direct General-counter placement for cursor-held stacks with immediate placement visibility. This change is awaiting in-game runtime validation. Stable `main` remains `0.5.48`.
+**Release note:** Stable `main` is `0.5.49`. The direct General-counter placement fix was user-tested on `0.5.49-dev` and promoted with identical Lua/localisation content. Development `dev` remains at `0.5.49-dev` for maintenance.
